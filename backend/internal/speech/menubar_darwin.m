@@ -45,32 +45,25 @@ static NSImage* createMenuBarIcon(void) {
     NSImage *icon = [[NSImage alloc] initWithSize:NSMakeSize(size, size)];
     [icon lockFocus];
 
-    CGContextRef cg = [[NSGraphicsContext currentContext] CGContext];
-    [[NSColor blackColor] setFill];
+    [[NSColor blackColor] setStroke];
 
-    CGFloat cx = size / 2.0;
-    CGFloat cy = size / 2.0;
-    int blades = 6;
+    NSBezierPath *path = [NSBezierPath bezierPath];
+    [path setLineWidth:2.0];
+    [path setLineCapStyle:NSRoundLineCapStyle];
 
-    for (int i = 0; i < blades; i++) {
-        CGFloat angle = (2.0 * M_PI * i) / blades;
-        CGContextSaveGState(cg);
-        CGContextTranslateCTM(cg, cx, cy);
-        CGContextRotateCTM(cg, angle);
+    // Spine and Top arm (one continuous fluid curve mimicking the new logo)
+    [path moveToPoint:NSMakePoint(5, 3)];
+    [path curveToPoint:NSMakePoint(14, 14) 
+          controlPoint1:NSMakePoint(6, 11) 
+          controlPoint2:NSMakePoint(9, 15)];
 
-        NSBezierPath *b = [NSBezierPath bezierPath];
-        [b moveToPoint:NSMakePoint(-1.4, 1.2)];
-        [b curveToPoint:NSMakePoint(3.4, 7.8)
-              controlPoint1:NSMakePoint(-0.6, 4.5)
-              controlPoint2:NSMakePoint(1.4, 6.8)];
-        [b curveToPoint:NSMakePoint(1.4, 1.2)
-              controlPoint1:NSMakePoint(2.2, 5.6)
-              controlPoint2:NSMakePoint(1.6, 3.2)];
-        [b closePath];
-        [b fill];
+    // Middle arm (wavy stroke)
+    [path moveToPoint:NSMakePoint(6, 8)];
+    [path curveToPoint:NSMakePoint(12, 8) 
+          controlPoint1:NSMakePoint(8, 10) 
+          controlPoint2:NSMakePoint(10, 7)];
 
-        CGContextRestoreGState(cg);
-    }
+    [path stroke];
 
     [icon unlockFocus];
     [icon setTemplate:YES];

@@ -154,7 +154,7 @@
       const s = await Backend.GetSettings()
       const action = s?.autoRefineAction
       if (!action || action === 'off' || !s?.model) return
-      await Backend.RefineFlowText(id, action, '')
+      await Backend.RefineFlowText(id, action, s?.autoRefineCustomPrompt || '')
       await selectTranscript(id)
     } catch (e) {
       console.warn('auto-refine failed:', e)
@@ -271,40 +271,43 @@
 <div class="flow">
   <!-- Sidebar -->
   <aside class="sidebar">
-    <div class="sidebar-top">
-      <button class="sidebar-action" on:click={startRecording} disabled={isRecording}>
+    <div class="drag-region"></div>
+    <div class="sidebar-inner">
+      <button class="nav-new" on:click={startRecording} disabled={isRecording}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
-        New recording
+        <span>New recording</span>
       </button>
 
-      <div class="search-box">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        <input type="text" bind:value={searchQuery} placeholder="Search recordings" />
+      <div class="search-wrapper">
+        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input class="search-input" type="text" bind:value={searchQuery} placeholder="Search recordings" />
       </div>
-    </div>
 
-    <div class="sidebar-list">
-      {#each groupedTranscripts as group}
-        <div class="date-group">
-          <div class="date-label">{group.label}</div>
-          {#each group.items as t (t.id)}
-            <button
-              class="transcript-item"
-              class:selected={selectedId === t.id}
-              on:click={() => selectTranscript(t.id)}
-            >
-              <div class="transcript-title">{t.title}</div>
-              <div class="transcript-meta">
-                {t.wordCount} words · {formatDuration(t.duration)}
-              </div>
-              <button class="transcript-delete" on:click={(e) => deleteTranscript(t.id, e)}>×</button>
-            </button>
-          {/each}
-        </div>
-      {/each}
-      {#if transcripts.length === 0}
-        <div class="sidebar-empty">Your recordings will show up here</div>
-      {/if}
+      <div class="divider"></div>
+
+      <div class="sidebar-list">
+        {#each groupedTranscripts as group}
+          <div class="date-group">
+            <div class="date-label">{group.label}</div>
+            {#each group.items as t (t.id)}
+              <button
+                class="transcript-item"
+                class:selected={selectedId === t.id}
+                on:click={() => selectTranscript(t.id)}
+              >
+                <div class="transcript-title">{t.title}</div>
+                <div class="transcript-meta">
+                  {t.wordCount} words · {formatDuration(t.duration)}
+                </div>
+                <button class="transcript-delete" on:click={(e) => deleteTranscript(t.id, e)} title="Delete recording">×</button>
+              </button>
+            {/each}
+          </div>
+        {/each}
+        {#if filteredTranscripts.length === 0}
+          <div class="sidebar-empty">{searchQuery ? 'No matching recordings' : 'Your recordings will show up here'}</div>
+        {/if}
+      </div>
     </div>
 
     <div class="sidebar-bottom">
@@ -373,7 +376,7 @@
     {#if errorMsg}
       <div class="error-banner">
         <span>{errorMsg}</span>
-        <button on:click={() => (errorMsg = '')}>×</button>
+        <button on:click={() => (errorMsg = '')} title="Dismiss error">×</button>
       </div>
     {/if}
 
@@ -463,6 +466,7 @@
         class="mic-btn"
         class:recording={isRecording}
         on:click={() => isRecording ? stopRecording() : startRecording()}
+        title={isRecording ? "Stop recording" : "Start recording"}
       >
         {#if isRecording}
           <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
@@ -560,27 +564,41 @@
 
   .flow {
     display: grid;
-    grid-template-columns: 250px 1fr;
+    grid-template-columns: 220px 1fr;
     height: 100%;
     gap: 0;
   }
 
   /* ─── Sidebar ─── */
   .sidebar {
+    width: 220px;
+    height: 100%;
     display: flex;
     flex-direction: column;
-    border-right: 1px solid var(--border-subtle);
+    border-right: 1px solid var(--border);
     background: var(--bg-sidebar);
     overflow: hidden;
+    user-select: none;
   }
-  .sidebar-top {
-    padding: 14px 14px 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  .drag-region {
+    --wails-draggable: drag;
+    height: 12px;
     flex-shrink: 0;
   }
-  .sidebar-action {
+  .sidebar-inner {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    padding: 0 10px 12px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+  }
+  .sidebar-inner::-webkit-scrollbar { width: 4px; }
+  .sidebar-inner::-webkit-scrollbar-track { background: transparent; }
+  .sidebar-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .nav-new {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -588,75 +606,96 @@
     background: transparent;
     border: none;
     color: var(--text-primary);
-    padding: 8px 10px;
-    border-radius: var(--radius-sm);
-    font-size: 13px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13.5px;
     font-weight: 500;
-    transition: background 0.15s;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: left;
+    margin-bottom: 2px;
   }
-  .sidebar-action:hover { background: var(--bg-hover); }
-  .sidebar-action:disabled { opacity: 0.5; cursor: not-allowed; }
-  .sidebar-action svg { color: var(--accent); }
-  .search-box {
+  .nav-new:hover { background: var(--bg-hover); }
+  .nav-new:disabled { opacity: 0.5; cursor: not-allowed; }
+  .nav-new svg { color: var(--accent); flex-shrink: 0; }
+
+  .search-wrapper {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 7px 10px;
-    background: var(--bg-surface);
-    border-radius: var(--radius-sm);
-    border: 1px solid transparent;
-    transition: border-color 0.15s;
+    padding: 4px 12px;
+    border-radius: 8px;
+    transition: all 0.15s ease;
   }
-  .search-box:focus-within { border-color: var(--border); }
-  .search-box svg { color: var(--text-muted); flex-shrink: 0; }
-  .search-box input {
+  .search-wrapper:focus-within { background: var(--bg-hover); }
+  .search-icon { color: var(--text-muted); flex-shrink: 0; }
+  .search-input {
     flex: 1;
     background: transparent;
     border: none;
     outline: none;
-    color: var(--text-primary);
-    font-size: 12px;
-    font-family: inherit;
-    padding: 0;
+    color: var(--text-secondary);
+    font-size: 13.5px;
+    font-family: var(--font-sans);
+    padding: 4px 0;
   }
-  .search-box input::placeholder { color: var(--text-muted); }
+  .search-input::placeholder { color: var(--text-muted); }
+
+  .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 12px;
+    flex-shrink: 0;
+  }
 
   .sidebar-list {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-height: 0;
     overflow-y: auto;
-    padding: 4px 8px;
+    overflow-x: hidden;
+    padding: 0;
   }
-  .date-group { margin-bottom: 4px; }
+  .date-group { margin-bottom: 2px; }
   .date-label {
-    padding: 10px 8px 4px;
+    padding: 6px 12px 2px;
     font-size: 11px;
     font-weight: 600;
     color: var(--text-muted);
-    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
   .transcript-item {
     position: relative;
-    display: block;
+    display: flex;
+    flex-direction: column;
     width: 100%;
     text-align: left;
     background: transparent;
     border: none;
-    color: var(--text-primary);
-    padding: 8px 10px;
-    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    padding: 6px 12px;
+    border-radius: 6px;
     cursor: pointer;
-    transition: background 0.12s;
+    transition: all 0.15s ease;
+    font-family: var(--font-sans);
   }
-  .transcript-item:hover { background: var(--bg-hover); }
-  .transcript-item.selected { background: var(--bg-selected); }
+  .transcript-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .transcript-item.selected { background: rgba(255,255,255,0.08); color: var(--text-primary); }
   .transcript-title {
     font-size: 13px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    padding-right: 16px;
-    font-weight: 500;
+    padding-right: 22px;
+    font-weight: 400;
+    min-width: 0;
   }
+  .transcript-item.selected .transcript-title,
+  .transcript-item:hover .transcript-title { font-weight: 500; }
   .transcript-meta {
     font-size: 11px;
     color: var(--text-muted);
@@ -664,7 +703,7 @@
   }
   .transcript-delete {
     position: absolute;
-    top: 6px; right: 6px;
+    top: 5px; right: 6px;
     background: transparent;
     color: var(--text-muted);
     border: none;
@@ -673,37 +712,39 @@
     padding: 2px 5px;
     border-radius: 4px;
     opacity: 0;
-    transition: opacity 0.12s;
+    transition: all 0.15s ease;
   }
   .transcript-item:hover .transcript-delete { opacity: 1; }
   .transcript-delete:hover { color: var(--danger); background: var(--danger-bg); }
 
   .sidebar-empty {
-    padding: 20px 14px;
+    padding: 12px;
     color: var(--text-muted);
     font-size: 13px;
-    font-style: italic;
+    line-height: 1.4;
   }
 
   .sidebar-bottom {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 4px;
-    padding: 8px 12px;
-    border-top: 1px solid var(--border-subtle);
+    padding: 8px 14px;
+    border-top: 1px solid var(--border);
     flex-shrink: 0;
   }
   .sidebar-icon-btn {
     background: transparent;
     border: none;
     color: var(--text-muted);
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.12s;
+    cursor: pointer;
+    transition: all 0.15s ease;
   }
   .sidebar-icon-btn:hover { color: var(--text-secondary); background: var(--bg-hover); }
 

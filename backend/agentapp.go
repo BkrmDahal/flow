@@ -14,6 +14,7 @@ import (
 
 	"github.com/user/flow/backend/internal/agent"
 	"github.com/user/flow/backend/internal/session"
+	"github.com/user/flow/backend/internal/tools"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -176,10 +177,13 @@ func (a *App) runAgentStream(sessionID string, userContent json.RawMessage, work
 		a.emitAgentEvent(sessionID, payload)
 	}
 
+	toolReg := tools.NewRegistry()
+	tools.RegisterStandardTools(toolReg, a.baseDir)
+
 	deps := agent.Deps{
 		SessionMgr:   a.sessionMgr,
 		LLMClient:    a.llm,
-		ToolRegistry: a.tools,
+		ToolRegistry: toolReg,
 		WorkDir:      workDir,
 		BaseDir:      a.baseDir,
 	}

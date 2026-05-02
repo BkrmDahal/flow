@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -13,21 +14,32 @@ import (
 
 	"github.com/user/flow/backend/internal/agent"
 	"github.com/user/flow/backend/internal/config"
+	"github.com/user/flow/backend/internal/parser"
 	"github.com/user/flow/backend/internal/session"
 	"github.com/user/flow/backend/internal/tools"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-
 // coworkSessionPrefix is baked into session IDs so we can filter them.
 const coworkSessionPrefix = "cowork"
 
 // coworkDefaultSystemPrompt is bootstrapped to ~/.flow/cowork_prompt.md on first run.
 const coworkDefaultSystemPrompt = `You are Cowork, a helpful coding assistant.
-You have three tools: read_file, write_file, and run_bash.
-Use them to accomplish the user's task step by step.
+You have tools for planning work, reading and writing files, running shell commands, managing memory, and loading skills.
+Use todo_write to create a visible plan before multi-step work, then update that plan as you complete each step.
 Keep responses concise. When creating files, use relative paths.`
+
+// coworkSystemPromptSuffix is appended after the user-editable prompt. Older
+// installs may still have a prompt that says Cowork only has three tools, so
+// keep the current tool/planning contract close to the final system prompt.
+const coworkSystemPromptSuffix = `
+
+## Cowork Tooling
+
+You have access to the full standard tool set, including todo_write. For any
+task with more than one step, call todo_write before other tools so the side
+panel can show the plan, then update it as the work progresses.`
 
 // HistoryMessage is a simplified message format for loading past sessions
 // into the frontend.
@@ -39,14 +51,11 @@ type HistoryMessage struct {
 
 // ChatStep represents a single intermediate step in an agent turn.
 type ChatStep struct {
-	Type      string `json:"type"`                // "tool_call" | "tool_result"
-	Content   string `json:"content"`             // tool result content
+	Type      string `json:"type"`                 // "tool_call" | "tool_result"
+	Content   string `json:"content"`              // tool result content
 	ToolName  string `json:"tool_name,omitempty"`  // for tool_call / tool_result
 	ToolInput string `json:"tool_input,omitempty"` // for tool_call (JSON string)
 }
-
-
-
 
 // --- Stream management ---
 
@@ -89,6 +98,95 @@ func (a *App) SendCoworkTaskStream(input string, sessionID string) error {
 	return nil
 }
 
+// CoworkFileAttachment is a file sent from the frontend for multimodal cowork tasks.
+type CoworkFileAttachment struct {
+	Name     string `json:"name"`
+	MimeType string `json:"mime_type"`
+	Data     string `json:"data"` // base64-encoded content
+}
+
+// SendCoworkTaskStreamWithFiles starts a streaming agent turn with file attachments.
+func (a *App) SendCoworkTaskStreamWithFiles(input string, files []CoworkFileAttachment, extractText bool, sessionID string) error {
+	if a.llm == nil {
+		return fmt.Errorf("no model configured — open Settings first")
+	}
+	if sessionID == "" {
+		return fmt.Errorf("session ID is required")
+	}
+
+	baseDir, err := config.FlowDir()
+	if err != nil {
+		return fmt.Errorf("resolve flow dir: %w", err)
+	}
+	workDir := filepath.Join(baseDir, "cowork", sessionID)
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		return fmt.Errorf("create workdir: %w", err)
+	}
+
+	// Build multimodal content blocks.
+	type contentBlock struct {
+		Type   string      `json:"type"`
+		Text   string      `json:"text,omitempty"`
+		Source interface{} `json:"source,omitempty"`
+	}
+	var blocks []contentBlock
+	if input != "" {
+		blocks = append(blocks, contentBlock{Type: "text", Text: input})
+	}
+
+	for _, f := range files {
+		if strings.HasPrefix(f.MimeType, "image/") {
+			blocks = append(blocks, contentBlock{
+				Type: "image",
+				Source: map[string]interface{}{
+					"type":       "base64",
+					"media_type": f.MimeType,
+					"data":       f.Data,
+				},
+			})
+		} else {
+			// Decode base64 to save and parse
+			rawBytes, err := base64.StdEncoding.DecodeString(f.Data)
+			if err != nil {
+				log.Printf("failed to decode base64 for file %s: %v", f.Name, err)
+				continue
+			}
+
+			// Save file to workspace
+			destPath := filepath.Join(workDir, f.Name)
+			if err := os.WriteFile(destPath, rawBytes, 0o644); err != nil {
+				log.Printf("failed to save file %s to workspace: %v", f.Name, err)
+			}
+
+			var textContent string
+			if extractText {
+				extracted, err := parser.ExtractText(f.Name, rawBytes)
+				if err != nil {
+					log.Printf("failed to extract text from %s: %v", f.Name, err)
+					textContent = fmt.Sprintf("[Attached file %s saved to workspace at %s. Text extraction failed or unsupported.]", f.Name, destPath)
+				} else {
+					textContent = fmt.Sprintf("[Attached file %s content:]\n%s", f.Name, extracted)
+				}
+			} else {
+				textContent = fmt.Sprintf("[Attached file %s saved to workspace at %s. Context not extracted.]", f.Name, destPath)
+			}
+
+			blocks = append(blocks, contentBlock{
+				Type: "text",
+				Text: textContent,
+			})
+		}
+	}
+
+	raw, err := json.Marshal(blocks)
+	if err != nil {
+		return fmt.Errorf("marshal content: %w", err)
+	}
+
+	go a.runCoworkStream(sessionID, raw, workDir)
+	return nil
+}
+
 // runCoworkStream executes a streaming agent turn and emits events to
 // the frontend on the "cowork:stream:event" channel.
 func (a *App) runCoworkStream(sessionID string, content json.RawMessage, workDir string) {
@@ -116,6 +214,12 @@ func (a *App) runCoworkStream(sessionID string, content json.RawMessage, workDir
 			"tool_name":  evt.ToolName,
 			"tool_input": evt.ToolInput,
 		}
+		if evt.TodoItems != nil {
+			data["todo_items"] = evt.TodoItems
+		}
+		if evt.Type == "error" {
+			data["error"] = evt.Content
+		}
 		if evt.Type == "file_created" {
 			data["path"] = evt.Content
 			data["name"] = evt.ToolName
@@ -133,22 +237,19 @@ func (a *App) runCoworkStream(sessionID string, content json.RawMessage, workDir
 
 	sessMgr := session.NewManager(coworkDir)
 	toolReg := tools.NewRegistry()
-	tools.RegisterStandard(toolReg)
+	tools.RegisterStandardTools(toolReg, sessionDir)
 
-	systemPrompt := a.loadCoworkSystemPrompt()
+	systemPrompt := a.loadCoworkSystemPrompt() + coworkSystemPromptSuffix
 
 	deps := agent.Deps{
 		SessionMgr:   sessMgr,
 		LLMClient:    a.llm,
 		ToolRegistry: toolReg,
 		WorkDir:      workDir,
+		BaseDir:      sessionDir,
 	}
 
-	// Extract user text from the JSON content for use as a plain string.
-	var userText string
-	json.Unmarshal(content, &userText)
-
-	result, err := agent.RunTurnStream(streamCtx, sessionID, systemPrompt, userText, deps, emit)
+	result, err := agent.RunTurnStreamWithContent(streamCtx, sessionID, systemPrompt, content, deps, emit)
 	if err != nil {
 		seq++
 		wailsRuntime.EventsEmit(a.ctx, "cowork:stream:event", map[string]interface{}{
@@ -299,8 +400,6 @@ func (a *App) ListCoworkFiles(sessionID string) ([]TaskFileInfo, error) {
 	}
 	return files, nil
 }
-
-
 
 // --- Helpers ---
 

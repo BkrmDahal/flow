@@ -35,7 +35,8 @@ type SettingsPayload struct {
 	SpeechPrompt   string `json:"speechPrompt"`
 
 	// Auto-refine
-	AutoRefineAction string `json:"autoRefineAction"`
+	AutoRefineAction       string `json:"autoRefineAction"`
+	AutoRefineCustomPrompt string `json:"autoRefineCustomPrompt"`
 }
 
 // GetSettings returns the current persisted configuration.
@@ -180,8 +181,9 @@ func toPayload(c *config.Config) *SettingsPayload {
 		SpeechAPIKey:     c.SpeechAPIKey,
 		SpeechModel:      c.SpeechModel,
 		SpeechLanguage:   c.SpeechLanguage,
-		SpeechPrompt:     c.SpeechPrompt,
-		AutoRefineAction: c.AutoRefineAction,
+		SpeechPrompt:           c.SpeechPrompt,
+		AutoRefineAction:       c.AutoRefineAction,
+		AutoRefineCustomPrompt: c.AutoRefineCustomPrompt,
 	}
 }
 
@@ -202,7 +204,8 @@ func fromPayload(p SettingsPayload) *config.Config {
 		SpeechAPIKey:     p.SpeechAPIKey,
 		SpeechModel:      p.SpeechModel,
 		SpeechLanguage:   p.SpeechLanguage,
-		SpeechPrompt:     p.SpeechPrompt,
-		AutoRefineAction: p.AutoRefineAction,
+		SpeechPrompt:           p.SpeechPrompt,
+		AutoRefineAction:       p.AutoRefineAction,
+		AutoRefineCustomPrompt: p.AutoRefineCustomPrompt,
 	}
 }

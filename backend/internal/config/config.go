@@ -46,7 +46,8 @@ type Config struct {
 	SpeechPrompt   string `json:"speech_prompt"`   // optional transcription guidance
 
 	// ── Auto-refine transcript ────────────────────────────────────────────────
-	AutoRefineAction string `json:"auto_refine_action"` // "off" | "clean" | "summarize" | "bullets"
+	AutoRefineAction       string `json:"auto_refine_action"`        // "off" | "clean" | "summarize" | "bullets" | "custom"
+	AutoRefineCustomPrompt string `json:"auto_refine_custom_prompt"` // custom prompt if action is "custom"
 }
 
 // FlowDir returns the resolved path to ~/.flow/.

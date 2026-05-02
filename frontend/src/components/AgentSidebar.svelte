@@ -49,7 +49,7 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
         <path d="M12 5v14M5 12h14" />
       </svg>
-      <span>New task</span>
+      <span>New chat</span>
     </button>
 
     <div class="search-wrapper">
@@ -57,14 +57,14 @@
         <circle cx="11" cy="11" r="8" />
         <path d="M21 21l-4.35-4.35" />
       </svg>
-      <input class="search-input" type="text" placeholder="Search tasks" bind:value={searchQuery} />
+      <input class="search-input" type="text" placeholder="Search chats" bind:value={searchQuery} />
     </div>
 
     <div class="divider"></div>
 
     <div class="task-list">
       {#if filtered.length === 0}
-        <p class="empty">{searchQuery ? 'No matching tasks' : 'Your tasks will show up here'}</p>
+        <p class="empty">{searchQuery ? 'No matching chats' : 'Your chats will show up here'}</p>
       {:else}
         {#each grouped as group}
           <div class="group">
@@ -113,7 +113,7 @@
 
   <div class="sidebar-footer">
     <button class="footer-btn" on:click={() => dispatch('openSettings')} title="Settings">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3" />
         <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
       </svg>
@@ -132,19 +132,19 @@
     user-select: none;
   }
 
-  .drag-region { --wails-draggable: drag; height: 38px; flex-shrink: 0; }
+  .drag-region { --wails-draggable: drag; height: 12px; flex-shrink: 0; }
 
   .sidebar-inner {
     display: flex; flex-direction: column; flex: 1;
-    padding: 4px 10px 12px;
-    overflow-y: auto; min-height: 0;
+    padding: 0 10px 12px;
+    overflow-y: auto; overflow-x: hidden; min-height: 0;
   }
   .sidebar-inner::-webkit-scrollbar { width: 4px; }
   .sidebar-inner::-webkit-scrollbar-track { background: transparent; }
   .sidebar-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
   .nav-new {
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 8px;
     width: 100%; padding: 8px 12px;
     background: none; border: none; border-radius: 8px;
     color: var(--text-primary);
@@ -175,7 +175,7 @@
 
   .task-list {
     flex: 1; display: flex; flex-direction: column;
-    gap: 1px; min-height: 0; overflow-y: auto;
+    gap: 1px; min-height: 0; overflow-y: auto; overflow-x: hidden;
   }
 
   .empty { padding: 12px; font-size: 13px; color: var(--text-muted); line-height: 1.4; }

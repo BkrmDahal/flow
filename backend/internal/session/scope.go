@@ -3,6 +3,8 @@ package session
 import (
 	"log"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -104,12 +106,20 @@ func (m *Manager) ListSessionsByPrefix(prefix string) ([]SessionInfo, error) {
 			ts = info.ModTime().UnixMilli()
 		}
 
+		// Extract title from first user message.
+		title := extractTitle(filepath.Join(dir, e.Name()))
+
 		sessions = append(sessions, SessionInfo{
 			ID:        sessionID,
-			Title:     sessionID,
+			Title:     title,
 			Timestamp: ts,
 		})
 	}
+
+	// Sort by timestamp descending (newest first).
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].Timestamp > sessions[j].Timestamp
+	})
 
 	return sessions, nil
 }

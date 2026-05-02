@@ -6,7 +6,7 @@
  *   - Event channel: cowork:stream:event
  */
 import { writable, get } from 'svelte/store';
-import { formatToolName } from '../utils/formatters.js';
+import { formatToolLabel, formatToolName } from '../utils/formatters.js';
 import { Backend, Events } from '../wails.js';
 
 // ─── Cowork state stores ───
@@ -18,14 +18,19 @@ export const coworkMessages = writable([]);             // Array of { role, cont
 export const coworkStreamingIdx = writable(-1);
 export const coworkCreatedFiles = writable([]);         // Files created during the task
 export const coworkContextTools = writable([]);         // Distinct tool names used
+export const coworkProgressSteps = writable([]);        // Derived progress steps
+export const coworkSkillsUsed = writable([]);           // Skill names loaded via use_skill
 export const coworkLoading = writable(false);
 export const coworkIsStreaming = writable(false);
+export const coworkParseDocuments = writable(true);     // Whether to parse PDF/XLSX text
+
 
 // Internal state
 let _streamCleanup = null;
 let _pendingContentReset = false;
 let _lastSeenSeq = 0;
 let _listenerRegistered = false;
+let _usingTodoPlan = false;
 
 // ─── Event listener management ───
 
@@ -44,6 +49,91 @@ function cleanupListener() {
     if (_streamCleanup) { _streamCleanup(); _streamCleanup = null; }
     _listenerRegistered = false;
   }
+}
+
+function resetPlanState() {
+  _usingTodoPlan = false;
+  coworkProgressSteps.set([]);
+}
+
+function appendFallbackProgressStep(toolName, toolInput) {
+  if (_usingTodoPlan || toolName === 'todo_write' || toolName === 'use_skill') return;
+
+  const label = formatToolLabel(toolName, toolInput);
+  coworkProgressSteps.update(steps => {
+    const completed = steps.map(step =>
+      step.status === 'in_progress' ? { ...step, status: 'completed' } : step
+    );
+    return [
+      ...completed,
+      {
+        id: `fallback-${completed.length + 1}-${toolName || 'tool'}`,
+        label,
+        status: 'in_progress',
+      },
+    ];
+  });
+}
+
+function completeFallbackProgressStep() {
+  if (_usingTodoPlan) return;
+  coworkProgressSteps.update(steps =>
+    steps.map(step =>
+      step.status === 'in_progress' ? { ...step, status: 'completed' } : step
+    )
+  );
+}
+
+function advanceTodoPlanFromToolResult(toolName) {
+  if (!_usingTodoPlan || toolName === 'todo_write' || toolName === 'use_skill') return;
+
+  coworkProgressSteps.update(steps => {
+    const updated = [...steps];
+    const activeIdx = updated.findIndex(step => step.status === 'in_progress');
+    if (activeIdx >= 0) {
+      updated[activeIdx] = { ...updated[activeIdx], status: 'completed' };
+    }
+
+    const nextIdx = updated.findIndex(step => step.status === 'pending');
+    if (nextIdx >= 0) {
+      updated[nextIdx] = { ...updated[nextIdx], status: 'in_progress' };
+    }
+
+    return updated;
+  });
+}
+
+function completePlanOnDone() {
+  coworkProgressSteps.update(steps =>
+    steps.map(step =>
+      step.status === 'completed' ? step : { ...step, status: 'completed' }
+    )
+  );
+}
+
+function progressStepsFromHistory(steps) {
+  const todoCalls = steps.filter(s => s.type === 'tool_call' && s.tool_name === 'todo_write');
+  const lastTodoCall = todoCalls[todoCalls.length - 1];
+  if (lastTodoCall?.tool_input) {
+    try {
+      const input = JSON.parse(lastTodoCall.tool_input);
+      if (Array.isArray(input.todos)) {
+        return input.todos.map(item => ({
+          id: item.id,
+          label: item.content,
+          status: 'completed',
+        }));
+      }
+    } catch { /* fall back to tool-call progress */ }
+  }
+
+  return steps
+    .filter(s => s.type === 'tool_call' && s.tool_name !== 'todo_write' && s.tool_name !== 'use_skill')
+    .map((s, index) => ({
+      id: `history-${index + 1}-${s.tool_name || 'tool'}`,
+      label: formatToolLabel(s.tool_name, s.tool_input),
+      status: 'completed',
+    }));
 }
 
 // ─── Stream event handler ───
@@ -88,12 +178,15 @@ function handleStreamEvent(data) {
           tool_name: data.tool_name,
           tool_input: data.tool_input,
         }];
+        appendFallbackProgressStep(data.tool_name, data.tool_input);
 
-        const toolLabel = formatToolName(data.tool_name);
-        coworkContextTools.update(tools => {
-          if (tools.includes(toolLabel)) return tools;
-          return [...tools, toolLabel];
-        });
+        if (data.tool_name !== 'todo_write' && data.tool_name !== 'use_skill') {
+          const toolLabel = formatToolName(data.tool_name);
+          coworkContextTools.update(tools => {
+            if (tools.includes(toolLabel)) return tools;
+            return [...tools, toolLabel];
+          });
+        }
         break;
       }
 
@@ -103,8 +196,32 @@ function handleStreamEvent(data) {
           tool_name: data.tool_name,
           content: data.content,
         }];
+        advanceTodoPlanFromToolResult(data.tool_name);
+        completeFallbackProgressStep();
         _pendingContentReset = true;
         break;
+
+      case 'todo_update':
+        if (data.todo_items && Array.isArray(data.todo_items)) {
+          _usingTodoPlan = true;
+          coworkProgressSteps.set(
+            data.todo_items.map(item => ({
+              id: item.id,
+              label: item.content,
+              status: item.status,
+            }))
+          );
+        }
+        return msgs;
+
+      case 'skill_used':
+        if (data.content) {
+          coworkSkillsUsed.update(skills => {
+            if (skills.includes(data.content)) return skills;
+            return [...skills, data.content];
+          });
+        }
+        return msgs;
 
       case 'file_created':
         if (data.path) {
@@ -126,7 +243,8 @@ function handleStreamEvent(data) {
 
       case 'error':
         msg.role = 'assistant';
-        msg.content = msg.content || `Something went wrong: ${data.error}`;
+        const errorText = data.error || data.content || 'Unknown error';
+        msg.content = msg.content || `Something went wrong: ${errorText}`;
         msg.steps = msg.steps || [];
         msg.isError = true;
         msg.isStreaming = false;
@@ -139,6 +257,9 @@ function handleStreamEvent(data) {
   });
 
   if (shouldFinish) {
+    if (data.type === 'done') {
+      completePlanOnDone();
+    }
     finishStream();
   }
 }
@@ -156,7 +277,7 @@ function finishStream() {
 
 export async function refreshCoworkHistory() {
   try {
-    const sessions = await Backend.ListCoworkSessions?.();
+    const sessions = await Backend.ListCoworkSessions();
     coworkTaskHistory.set(
       (sessions || []).map(s => ({
         id: s.id,
@@ -169,14 +290,79 @@ export async function refreshCoworkHistory() {
   }
 }
 
-export async function startCoworkTask(text) {
-  if (!text?.trim() || get(coworkLoading)) return;
+function requireBackendMethod(name) {
+  const fn = Backend[name];
+  if (typeof fn !== 'function') {
+    throw new Error(`${name} is not available. Restart the app so the latest backend bindings are loaded.`);
+  }
+  return fn;
+}
 
-  const newId = await Backend.NewCoworkSession?.();
+function inferMimeType(file) {
+  if (file.type) return file.type;
+
+  const ext = (file.name || '').split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'pdf':
+      return 'application/pdf';
+    case 'csv':
+      return 'text/csv';
+    case 'md':
+    case 'markdown':
+      return 'text/markdown';
+    case 'html':
+    case 'htm':
+      return 'text/html';
+    case 'json':
+      return 'application/json';
+    case 'png':
+      return 'image/png';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'gif':
+      return 'image/gif';
+    case 'webp':
+      return 'image/webp';
+    default:
+      return 'text/plain';
+  }
+}
+
+function buildWailsFiles(files) {
+  return files.map(file => ({
+    name: file.name,
+    mime_type: inferMimeType(file),
+    data: file.data,
+  }));
+}
+
+function showStreamStartError(err) {
+  coworkMessages.update(msgs => {
+    const updated = [...msgs];
+    const idx = get(coworkStreamingIdx);
+    if (updated[idx]) {
+      updated[idx] = {
+        ...updated[idx],
+        content: `Something went wrong: ${err?.message || err}`,
+        isStreaming: false,
+        isError: true,
+      };
+    }
+    return updated;
+  });
+  finishStream();
+}
+
+export async function startCoworkTask(text, files = []) {
+  if ((!text?.trim() && files.length === 0) || get(coworkLoading)) return;
+
+  const newId = await requireBackendMethod('NewCoworkSession')();
   activeCoworkTaskId.set(newId);
 
   let title = text.trim();
   if (title.length > 50) title = title.substring(0, 50) + '...';
+  if (!title && files.length > 0) title = `${files.length} file${files.length > 1 ? 's' : ''} attached`;
   coworkTaskTitle.set(title);
 
   // Add to sidebar immediately.
@@ -186,12 +372,14 @@ export async function startCoworkTask(text) {
   ]);
 
   coworkMessages.set([
-    { role: 'user', content: text },
+    { role: 'user', content: text, files: files },
     { role: 'assistant', content: '', steps: [], isStreaming: true },
   ]);
   coworkStreamingIdx.set(1);
   coworkCreatedFiles.set([]);
   coworkContextTools.set([]);
+  resetPlanState();
+  coworkSkillsUsed.set([]);
   coworkLoading.set(true);
   coworkIsStreaming.set(true);
   _pendingContentReset = false;
@@ -201,26 +389,24 @@ export async function startCoworkTask(text) {
   ensureListener();
 
   try {
-    await Backend.SendCoworkTaskStream?.(text, newId);
+    if (files.length > 0) {
+      const wailsFiles = buildWailsFiles(files);
+      const extractText = get(coworkParseDocuments);
+      await requireBackendMethod('SendCoworkTaskStreamWithFiles')(text, wailsFiles, extractText, newId);
+    } else {
+      await requireBackendMethod('SendCoworkTaskStream')(text, newId);
+    }
   } catch (err) {
-    coworkMessages.update(msgs => {
-      const updated = [...msgs];
-      const idx = get(coworkStreamingIdx);
-      if (updated[idx]) {
-        updated[idx] = { ...updated[idx], content: `Something went wrong: ${err}`, isStreaming: false };
-      }
-      return updated;
-    });
-    finishStream();
+    showStreamStartError(err);
   }
 }
 
-export async function sendCoworkFollowUp(text) {
-  if (!text?.trim() || get(coworkLoading)) return;
+export async function sendCoworkFollowUp(text, files = []) {
+  if ((!text?.trim() && files.length === 0) || get(coworkLoading)) return;
 
   coworkMessages.update(msgs => [
     ...msgs,
-    { role: 'user', content: text },
+    { role: 'user', content: text, files: files },
     { role: 'assistant', content: '', steps: [], isStreaming: true },
   ]);
 
@@ -230,22 +416,21 @@ export async function sendCoworkFollowUp(text) {
   coworkIsStreaming.set(true);
   _pendingContentReset = false;
   _lastSeenSeq = 0;
+  resetPlanState();
 
   ensureListener();
 
   try {
     const sid = get(activeCoworkTaskId);
-    await Backend.SendCoworkTaskStream?.(text, sid);
+    if (files.length > 0) {
+      const wailsFiles = buildWailsFiles(files);
+      const extractText = get(coworkParseDocuments);
+      await requireBackendMethod('SendCoworkTaskStreamWithFiles')(text, wailsFiles, extractText, sid);
+    } else {
+      await requireBackendMethod('SendCoworkTaskStream')(text, sid);
+    }
   } catch (err) {
-    coworkMessages.update(msgs => {
-      const updated = [...msgs];
-      const idx = get(coworkStreamingIdx);
-      if (updated[idx]) {
-        updated[idx] = { ...updated[idx], content: `Something went wrong: ${err}`, isStreaming: false };
-      }
-      return updated;
-    });
-    finishStream();
+    showStreamStartError(err);
   }
 }
 
@@ -275,6 +460,8 @@ export function newCoworkTask() {
   coworkStreamingIdx.set(-1);
   coworkCreatedFiles.set([]);
   coworkContextTools.set([]);
+  resetPlanState();
+  coworkSkillsUsed.set([]);
   coworkLoading.set(false);
   coworkIsStreaming.set(false);
   activeCoworkTaskId.set(null);
@@ -313,11 +500,14 @@ export async function selectCoworkTask(sessionId) {
     coworkContextTools.set([
       ...new Set(
         allSteps
-          .filter(s => s.type === 'tool_call')
+          .filter(s => s.type === 'tool_call' && s.tool_name !== 'todo_write' && s.tool_name !== 'use_skill')
           .map(s => formatToolName(s.tool_name))
       ),
     ]);
 
+    _usingTodoPlan = allSteps.some(s => s.type === 'tool_call' && s.tool_name === 'todo_write');
+    coworkProgressSteps.set(progressStepsFromHistory(allSteps));
+    coworkSkillsUsed.set([]);
     coworkCreatedFiles.set([]);
 
     // Try loading files from the backend.

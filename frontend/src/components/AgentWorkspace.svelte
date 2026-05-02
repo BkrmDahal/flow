@@ -12,6 +12,7 @@
   export let isStreaming = false;
   export let loading = false;
   export let disabled = false;
+  export let parseDocuments = true;
 
   // Data for the info panel
   export let progressSteps = [];     // Array of { label, status }
@@ -155,22 +156,27 @@
         alert(`File "${file.name}" exceeds the 20 MB limit.`);
         continue;
       }
-      const result = await readFileAsBase64(file);
-      files = [...files, {
-        name: file.name,
-        type: file.type || 'text/plain',
-        size: file.size,
-        dataUrl: result.dataUrl,
-        data: result.base64,
-      }];
+      try {
+        const result = await readFileAsBase64(file);
+        files = [...files, {
+          name: file.name,
+          type: file.type || inferMimeType(file.name),
+          size: file.size,
+          dataUrl: result.dataUrl,
+          data: result.base64,
+        }];
+      } catch (err) {
+        alert(`Could not attach "${file.name}": ${err?.message || err}`);
+      }
     }
     e.target.value = '';
     textareaEl?.focus();
   }
 
   function readFileAsBase64(file) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
+      reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
       reader.onload = () => {
         const dataUrl = reader.result;
         const base64 = dataUrl.split(',')[1] || '';
@@ -178,6 +184,17 @@
       };
       reader.readAsDataURL(file);
     });
+  }
+
+  function inferMimeType(name) {
+    const ext = (name || '').split('.').pop()?.toLowerCase();
+    if (ext === 'pdf') return 'application/pdf';
+    if (ext === 'csv') return 'text/csv';
+    if (ext === 'md' || ext === 'markdown') return 'text/markdown';
+    if (ext === 'html' || ext === 'htm') return 'text/html';
+    if (ext === 'json') return 'application/json';
+    if (ext === 'xml') return 'application/xml';
+    return 'text/plain';
   }
 
   function removeFile(index) {
@@ -213,14 +230,18 @@
         alert(`File "${file.name}" exceeds the 20 MB limit.`);
         continue;
       }
-      const result = await readFileAsBase64(file);
-      files = [...files, {
-        name: file.name,
-        type: file.type || 'text/plain',
-        size: file.size,
-        dataUrl: result.dataUrl,
-        data: result.base64,
-      }];
+      try {
+        const result = await readFileAsBase64(file);
+        files = [...files, {
+          name: file.name,
+          type: file.type || inferMimeType(file.name),
+          size: file.size,
+          dataUrl: result.dataUrl,
+          data: result.base64,
+        }];
+      } catch (err) {
+        alert(`Could not attach "${file.name}": ${err?.message || err}`);
+      }
     }
   }
 
@@ -451,6 +472,20 @@
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                 <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+            <button
+              class="btn-toggle-parse"
+              class:active={parseDocuments}
+              on:click={() => parseDocuments = !parseDocuments}
+              title={parseDocuments ? "Document parsing enabled" : "Document parsing disabled"}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/>
+                <path d="M14 2v6h6"/>
+                {#if !parseDocuments}
+                  <line x1="4" y1="4" x2="20" y2="20" stroke="currentColor" stroke-width="2" />
+                {/if}
               </svg>
             </button>
           </div>
@@ -1106,5 +1141,26 @@
 
   .btn-cancel:hover {
     background: #dc2626;
+  }
+
+  .btn-toggle-parse {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn-toggle-parse:hover {
+    color: var(--text-secondary);
+    background: var(--bg-hover);
+  }
+  .btn-toggle-parse.active {
+    color: var(--accent);
   }
 </style>

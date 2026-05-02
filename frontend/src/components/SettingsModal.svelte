@@ -16,6 +16,7 @@
     { value: 'clean',     label: 'Clean' },
     { value: 'summarize', label: 'Summarize' },
     { value: 'bullets',   label: 'Bullets' },
+    { value: 'custom',    label: 'Custom' },
   ]
 
   const MODIFIER_OPTIONS = [
@@ -67,6 +68,7 @@
   let testStatus = ''
   let testMessage = ''
   let autoRefineAction = 'off'
+  let autoRefineCustomPrompt = ''
   let saving = false
   let saveError = ''
 
@@ -143,6 +145,7 @@
       apiKey            = s.apiKey            || ''
       model             = s.model             || ''
       autoRefineAction  = s.autoRefineAction  || 'off'
+      autoRefineCustomPrompt = s.autoRefineCustomPrompt || ''
       hotkeyEnabled     = s.hotkeyEnabled     || false
       hotkeyModifier    = s.hotkeyModifier    || 'right_option'
       speechProvider    = s.speechProvider    || 'local'
@@ -189,6 +192,7 @@
         speechLanguage,
         speechPrompt,
         autoRefineAction,
+        autoRefineCustomPrompt,
       })
       // Notify other components (e.g. FlowPanel banner) that settings changed.
       window.dispatchEvent(new CustomEvent('flow:settings-saved'))
@@ -213,11 +217,11 @@
 </script>
 
 {#if open}
-  <div class="overlay" on:click={handleClose}>
-    <div class="modal" on:click|stopPropagation>
+  <div class="overlay" on:click={handleClose} on:keydown={(e) => e.key === 'Escape' && handleClose()} role="presentation">
+    <div class="modal" on:click|stopPropagation on:keydown|stopPropagation role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header>
-        <h2>Settings</h2>
-        <button class="close" on:click={handleClose}>
+        <h2 id="settings-title">Settings</h2>
+        <button class="close" on:click={handleClose} title="Close settings">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
@@ -236,7 +240,7 @@
         <!-- ── General Tab ── -->
         {#if activeTab === 'general'}
           <section>
-            <label class="row-label">Provider</label>
+            <span class="row-label">Provider</span>
             <div class="presets">
               {#each PRESETS as p}
                 <button class="preset" class:active={presetId === p.id} on:click={() => applyPreset(p.id)}>{p.label}</button>
@@ -255,16 +259,16 @@
           </section>
 
           <section>
-            <label class="row-label">Model</label>
+            <label class="row-label" for="modelSelect">Model</label>
             <div class="row">
               {#if availableModels.length > 0}
-                <select bind:value={model}>
+                <select id="modelSelect" bind:value={model}>
                   {#each availableModels as m}
                     <option value={m.id}>{m.id}</option>
                   {/each}
                 </select>
               {:else}
-                <input type="text" bind:value={model} placeholder="qwen2.5-coder-7b-instruct" />
+                <input id="modelSelect" type="text" bind:value={model} placeholder="qwen2.5-coder-7b-instruct" />
               {/if}
               <button class="secondary" on:click={testConnection} disabled={testStatus === 'testing'}>
                 {testStatus === 'testing' ? 'Testing…' : 'Test connection'}
@@ -278,20 +282,27 @@
           </section>
 
           <section>
-            <label class="row-label">Auto-refine on stop</label>
-            <select bind:value={autoRefineAction}>
+            <label class="row-label" for="autoRefine">Auto-refine on stop</label>
+            <select id="autoRefine" bind:value={autoRefineAction}>
               {#each REFINE_OPTIONS as o}
                 <option value={o.value}>{o.label}</option>
               {/each}
             </select>
+            {#if autoRefineAction === 'custom'}
+              <textarea
+                class="custom-prompt-input"
+                bind:value={autoRefineCustomPrompt}
+                placeholder="e.g. Translate to Spanish and format as a formal letter."
+              ></textarea>
+            {/if}
             <p class="hint">When set, every recording is automatically piped through the LLM for cleanup.</p>
           </section>
 
         <!-- ── Voice / STT Tab ── -->
         {:else if activeTab === 'voice'}
           <section>
-            <label class="row-label">Transcription Provider</label>
-            <select bind:value={speechProvider}>
+            <label class="row-label" for="speechProvider">Transcription Provider</label>
+            <select id="speechProvider" bind:value={speechProvider}>
               {#each SPEECH_PROVIDERS as p}
                 <option value={p.value}>{p.label}</option>
               {/each}
@@ -302,15 +313,15 @@
           </section>
 
           <section>
-            <label class="row-label">Transcription Model</label>
+            <label class="row-label" for="speechModel">Transcription Model</label>
             {#if speechProvider === 'local'}
-              <select bind:value={speechModel}>
+              <select id="speechModel" bind:value={speechModel}>
                 {#each SPEECH_MODELS_LOCAL as m}
                   <option value={m.value}>{m.label}</option>
                 {/each}
               </select>
             {:else}
-              <select bind:value={speechModel}>
+              <select id="speechModel" bind:value={speechModel}>
                 {#each SPEECH_MODELS_OPENAI as m}
                   <option value={m.value}>{m.label}</option>
                 {/each}
@@ -507,13 +518,17 @@
   .preset:hover { background: var(--bg-hover); }
   .preset.active { background: var(--bg-elevated); border-color: var(--accent); color: var(--text-primary); }
 
-  input, select {
+  input, select, textarea {
     width: 100%; background: var(--bg-app); color: var(--text-primary);
     border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
     padding: 8px 10px; font-size: 13px; font-family: inherit;
     box-sizing: border-box;
   }
-  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+
+  .custom-prompt-input {
+    resize: vertical; min-height: 60px; margin-top: 8px;
+  }
 
   .row { display: flex; gap: 8px; }
   .row > select, .row > input { flex: 1; }
