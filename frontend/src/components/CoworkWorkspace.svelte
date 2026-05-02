@@ -4,6 +4,7 @@
   import AgentWelcome from './AgentWelcome.svelte';
   import AgentWorkspace from './AgentWorkspace.svelte';
   import { Backend } from '../lib/wails.js';
+  import { skills, refreshSkills } from '../lib/stores/pluginsStore.js';
 
   import {
     coworkPhase, coworkTaskHistory, activeCoworkTaskId,
@@ -16,29 +17,50 @@
   } from '../lib/stores/coworkStore.js';
 
   export let onOpenSettings = () => {};
+  export let onOpenToolkit = () => {};
 
   let agentInput = '';
   let agentTextareaEl;
   let agentFileInputEl;
   let agentFiles = [];
+  let showSkillMenu = false;
+  let skillQuery = '';
+  let skillHighlightIdx = 0;
+  let skillMenuEl;
+  let selectedSkill = null;
+
+  $: filteredSkills = skillQuery
+    ? $skills.filter(skill =>
+        skill.name.toLowerCase().includes(skillQuery.toLowerCase()) ||
+        (skill.description || '').toLowerCase().includes(skillQuery.toLowerCase()))
+    : $skills;
+
+  $: if (filteredSkills.length > 0 && skillHighlightIdx >= filteredSkills.length) {
+    skillHighlightIdx = filteredSkills.length - 1;
+  }
 
   const ACCEPTED_TYPES = ['image/png','image/jpeg','image/gif','image/webp','application/pdf','text/plain','text/csv','text/markdown','text/html','application/json'].join(',');
   const IMAGE_TYPES = new Set(['image/png','image/jpeg','image/gif','image/webp']);
   const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
-  onMount(() => { refreshCoworkHistory(); });
+  onMount(() => {
+    refreshCoworkHistory();
+    refreshSkills();
+  });
 
   // ─── Welcome input ───
   function handleWelcomeSend() {
     const text = agentInput.trim();
-    if ((!text && agentFiles.length === 0) || $coworkLoading) return;
-    startCoworkTask(text, [...agentFiles]);
+    if ((!text && agentFiles.length === 0 && !selectedSkill) || $coworkLoading) return;
+    startCoworkTask(text, [...agentFiles], selectedSkill?.name || '');
     agentInput = '';
     agentFiles = [];
+    selectedSkill = null;
     if (agentTextareaEl) agentTextareaEl.style.height = 'auto';
   }
 
   function handleWelcomeKeydown(e) {
+    if (handleSkillKeydown(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleWelcomeSend(); }
   }
 
@@ -46,6 +68,95 @@
     const el = e.target;
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    checkSkillSlash();
+  }
+
+  function openSkillSlash() {
+    if (!agentInput.trim()) agentInput = '/';
+    skillQuery = '';
+    skillHighlightIdx = 0;
+    showSkillMenu = true;
+    refreshSkills();
+    tick().then(() => {
+      agentTextareaEl?.focus();
+      if (agentTextareaEl) {
+        agentTextareaEl.selectionStart = agentTextareaEl.selectionEnd = agentInput.length;
+      }
+    });
+  }
+
+  function checkSkillSlash() {
+    if (agentInput.startsWith('/')) {
+      const afterSlash = agentInput.slice(1).split(/\s/)[0];
+      const hasSpace = /\s/.test(agentInput.slice(1));
+      if (!hasSpace) {
+        skillQuery = afterSlash;
+        if (!showSkillMenu) {
+          skillHighlightIdx = 0;
+          refreshSkills();
+        }
+        showSkillMenu = true;
+        return;
+      }
+    }
+    showSkillMenu = false;
+    skillQuery = '';
+  }
+
+  function selectSkillForPrompt(skill) {
+    const rest = agentInput.startsWith('/') ? agentInput.slice(1).replace(/^\S*/, '') : agentInput;
+    selectedSkill = skill;
+    agentInput = rest.trimStart();
+    showSkillMenu = false;
+    skillQuery = '';
+    tick().then(() => {
+      if (agentTextareaEl) {
+        agentTextareaEl.focus();
+        agentTextareaEl.selectionStart = agentTextareaEl.selectionEnd = agentInput.length;
+        agentTextareaEl.style.height = 'auto';
+        agentTextareaEl.style.height = Math.min(agentTextareaEl.scrollHeight, 200) + 'px';
+      }
+    });
+  }
+
+  function handleSkillKeydown(e) {
+    if (!showSkillMenu || filteredSkills.length === 0) return false;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      skillHighlightIdx = (skillHighlightIdx + 1) % filteredSkills.length;
+      scrollSkillIntoView();
+      return true;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      skillHighlightIdx = (skillHighlightIdx - 1 + filteredSkills.length) % filteredSkills.length;
+      scrollSkillIntoView();
+      return true;
+    }
+    if (e.key === 'Tab' || e.key === 'Enter') {
+      e.preventDefault();
+      selectSkillForPrompt(filteredSkills[skillHighlightIdx]);
+      return true;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      showSkillMenu = false;
+      return true;
+    }
+    return false;
+  }
+
+  function scrollSkillIntoView() {
+    tick().then(() => {
+      const active = skillMenuEl?.querySelector('.skill-option.highlighted');
+      active?.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  function clearSelectedSkill() {
+    selectedSkill = null;
+    agentTextareaEl?.focus();
   }
 
   function openWelcomeFilePicker() {
@@ -115,7 +226,7 @@
   }
 
   // ─── Workspace events ───
-  function handleFollowUp(e) { sendCoworkFollowUp(e.detail.text, e.detail.files); }
+  function handleFollowUp(e) { sendCoworkFollowUp(e.detail.text, e.detail.files, e.detail.selectedSkillName || ''); }
   function handleCancel() { cancelCowork(); }
 
   function handleNewTask() {
@@ -143,6 +254,7 @@
     on:deleteTask={(e) => deleteCoworkTask(e.detail.id)}
     on:openFolder={handleOpenTaskFolder}
     on:openSettings={() => onOpenSettings()}
+    on:openToolkit={() => onOpenToolkit()}
   />
 
   <div class="cowork-main">
@@ -155,8 +267,43 @@
 
       <footer class="agent-input-area">
         <div class="agent-input-container">
-          {#if agentFiles.length > 0}
+          {#if showSkillMenu}
+            <div class="skill-menu" bind:this={skillMenuEl}>
+              <div class="skill-menu-header">Skills</div>
+              {#if filteredSkills.length === 0}
+                <div class="skill-menu-empty">No matching skills</div>
+              {:else}
+                {#each filteredSkills as skill, i (skill.id)}
+                  <button
+                    type="button"
+                    class="skill-option"
+                    class:highlighted={i === skillHighlightIdx}
+                    on:mousedown|preventDefault={() => selectSkillForPrompt(skill)}
+                  >
+                    <span class="skill-option-name">{skill.name}</span>
+                    {#if skill.description}<span class="skill-option-desc">{skill.description}</span>{/if}
+                  </button>
+                {/each}
+              {/if}
+            </div>
+          {/if}
+
+          {#if selectedSkill || agentFiles.length > 0}
             <div class="file-preview-row">
+              {#if selectedSkill}
+                <div class="skill-chip" title={selectedSkill.description || selectedSkill.name}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                  </svg>
+                  <span>{selectedSkill.name}</span>
+                  <button class="skill-chip-remove" on:click={clearSelectedSkill} title="Remove skill">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                      <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                </div>
+              {/if}
               {#each agentFiles as file, i}
                 <div class="file-chip" title={file.name}>
                   {#if isImage(file.type)}
@@ -198,6 +345,14 @@
                 </svg>
               </button>
               <button
+                class="btn-slash"
+                on:click|stopPropagation={openSkillSlash}
+                disabled={$coworkLoading}
+                title="Show skills"
+              >
+                /
+              </button>
+              <button
                 class="btn-toggle-parse"
                 class:active={$coworkParseDocuments}
                 on:click={() => $coworkParseDocuments = !$coworkParseDocuments}
@@ -213,7 +368,7 @@
               </button>
             </div>
             <button class="btn-send" on:click={handleWelcomeSend}
-              disabled={(!agentInput.trim() && agentFiles.length === 0) || $coworkLoading}
+              disabled={(!agentInput.trim() && agentFiles.length === 0 && !selectedSkill) || $coworkLoading}
               title="Send message">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <path d="M7 11l5-5m0 0l5 5m-5-5v12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -294,6 +449,7 @@
     border: 1px solid var(--border);
     border-radius: 16px;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    position: relative;
   }
 
   .agent-input-container:focus-within {
@@ -391,6 +547,97 @@
     cursor: not-allowed;
   }
 
+  .btn-slash {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 18px;
+    line-height: 1;
+    font-weight: 600;
+  }
+
+  .btn-slash:hover:not(:disabled) {
+    color: var(--text-secondary);
+    background: var(--bg-hover);
+  }
+
+  .btn-slash:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  .skill-menu {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: calc(100% + 8px);
+    max-height: 260px;
+    overflow-y: auto;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 16px 36px rgba(0,0,0,0.32);
+    padding: 6px;
+    z-index: 10;
+  }
+
+  .skill-menu-header {
+    padding: 5px 8px 7px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .skill-menu-empty {
+    padding: 12px 8px;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .skill-option {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    gap: 2px;
+    padding: 8px 10px;
+    background: none;
+    border: none;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    text-align: left;
+  }
+
+  .skill-option:hover,
+  .skill-option.highlighted {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .skill-option-name {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .skill-option-desc {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
   .file-preview-row {
     display: flex;
     flex-wrap: wrap;
@@ -408,6 +655,47 @@
     padding: 4px 8px;
     max-width: 220px;
     animation: chipFadeIn 0.15s ease;
+  }
+
+  .skill-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--accent-bg);
+    border: 1px solid rgba(45, 212, 191, 0.35);
+    border-radius: 8px;
+    padding: 5px 8px;
+    max-width: 260px;
+    color: var(--accent);
+    animation: chipFadeIn 0.15s ease;
+  }
+
+  .skill-chip span {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .skill-chip-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: var(--text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .skill-chip-remove:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.08);
   }
 
   @keyframes chipFadeIn {

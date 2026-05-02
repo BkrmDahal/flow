@@ -112,6 +112,14 @@
   </div>
 
   <div class="sidebar-footer">
+    <button class="footer-nav-btn" on:click={() => dispatch('openToolkit')} title="Toolkit">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+        <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+      </svg>
+      <span>Toolkit</span>
+    </button>
+    <div class="footer-divider"></div>
     <button class="footer-btn" on:click={() => dispatch('openSettings')} title="Settings">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3" />
@@ -229,9 +237,26 @@
   .delete-btn:hover { color: #f87171; background: rgba(248,113,113,0.1); }
 
   .sidebar-footer {
-    padding: 8px 14px;
+    padding: 8px 10px;
     border-top: 1px solid var(--border);
-    display: flex; justify-content: flex-end;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+
+  .footer-nav-btn {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; height: 32px; padding: 0 10px;
+    background: none; border: none; border-radius: 8px;
+    color: var(--text-secondary); cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 13px; font-weight: 500; font-family: var(--font-sans);
+  }
+  .footer-nav-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .footer-nav-btn svg { flex-shrink: 0; }
+
+  .footer-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 0 4px;
   }
 
   .footer-btn {

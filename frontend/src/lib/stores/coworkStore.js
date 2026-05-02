@@ -533,14 +533,30 @@ function showStreamStartError(err) {
   finishStream();
 }
 
-export async function startCoworkTask(text, files = []) {
-  if ((!text?.trim() && files.length === 0) || get(coworkLoading)) return;
+function buildSkillAugmentedText(text, skillName) {
+  const trimmed = text?.trim() || '';
+  if (!skillName) return trimmed;
+  return `<cowork_selected_skill name="${skillName}">Load and use this skill with the use_skill tool before responding.</cowork_selected_skill>\n\n${trimmed}`;
+}
+
+function stripSkillAugmentedText(text) {
+  return (text || '').replace(/^<cowork_selected_skill name="([^"]+)">[\s\S]*?<\/cowork_selected_skill>\s*/i, '').trim();
+}
+
+function extractSelectedSkillName(text) {
+  const match = (text || '').match(/^<cowork_selected_skill name="([^"]+)">/i);
+  return match?.[1] || '';
+}
+
+export async function startCoworkTask(text, files = [], selectedSkillName = '') {
+  if ((!text?.trim() && files.length === 0 && !selectedSkillName) || get(coworkLoading)) return;
 
   const newId = await requireBackendMethod('NewCoworkSession')();
   activeCoworkTaskId.set(newId);
 
   let title = text.trim();
   if (title.length > 50) title = title.substring(0, 50) + '...';
+  if (!title && selectedSkillName) title = `Use ${selectedSkillName}`;
   if (!title && files.length > 0) title = `${files.length} file${files.length > 1 ? 's' : ''} attached`;
   coworkTaskTitle.set(title);
 
@@ -551,7 +567,7 @@ export async function startCoworkTask(text, files = []) {
   ]);
 
   coworkMessages.set([
-    { role: 'user', content: text, files: files },
+    { role: 'user', content: text, files: files, selectedSkill: selectedSkillName || undefined },
     { role: 'assistant', content: '', steps: [], isStreaming: true },
   ]);
   coworkStreamingIdx.set(1);
@@ -568,24 +584,25 @@ export async function startCoworkTask(text, files = []) {
   ensureListener();
 
   try {
+    const backendText = buildSkillAugmentedText(text, selectedSkillName);
     if (files.length > 0) {
       const wailsFiles = buildWailsFiles(files);
       const extractText = get(coworkParseDocuments);
-      await requireBackendMethod('SendCoworkTaskStreamWithFiles')(text, wailsFiles, extractText, newId);
+      await requireBackendMethod('SendCoworkTaskStreamWithFiles')(backendText, wailsFiles, extractText, newId);
     } else {
-      await requireBackendMethod('SendCoworkTaskStream')(text, newId);
+      await requireBackendMethod('SendCoworkTaskStream')(backendText, newId);
     }
   } catch (err) {
     showStreamStartError(err);
   }
 }
 
-export async function sendCoworkFollowUp(text, files = []) {
-  if ((!text?.trim() && files.length === 0) || get(coworkLoading)) return;
+export async function sendCoworkFollowUp(text, files = [], selectedSkillName = '') {
+  if ((!text?.trim() && files.length === 0 && !selectedSkillName) || get(coworkLoading)) return;
 
   coworkMessages.update(msgs => [
     ...msgs,
-    { role: 'user', content: text, files: files },
+    { role: 'user', content: text, files: files, selectedSkill: selectedSkillName || undefined },
     { role: 'assistant', content: '', steps: [], isStreaming: true },
   ]);
 
@@ -601,12 +618,13 @@ export async function sendCoworkFollowUp(text, files = []) {
 
   try {
     const sid = get(activeCoworkTaskId);
+    const backendText = buildSkillAugmentedText(text, selectedSkillName);
     if (files.length > 0) {
       const wailsFiles = buildWailsFiles(files);
       const extractText = get(coworkParseDocuments);
-      await requireBackendMethod('SendCoworkTaskStreamWithFiles')(text, wailsFiles, extractText, sid);
+      await requireBackendMethod('SendCoworkTaskStreamWithFiles')(backendText, wailsFiles, extractText, sid);
     } else {
-      await requireBackendMethod('SendCoworkTaskStream')(text, sid);
+      await requireBackendMethod('SendCoworkTaskStream')(backendText, sid);
     }
   } catch (err) {
     showStreamStartError(err);
@@ -686,7 +704,8 @@ export async function selectCoworkTask(sessionId) {
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .map(m => ({
         role: m.role,
-        content: m.content || '',
+        content: m.role === 'user' ? stripSkillAugmentedText(m.content) : (m.content || ''),
+        selectedSkill: m.role === 'user' ? extractSelectedSkillName(m.content) || undefined : undefined,
         files: m.files || undefined,
         steps: (m.steps || []).map(s => ({
           type: s.type,
