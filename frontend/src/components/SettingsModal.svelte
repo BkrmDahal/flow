@@ -1,0 +1,643 @@
+<script>
+  import { onMount, onDestroy } from 'svelte'
+  import { Backend } from '../lib/wails.js'
+
+  export let open = false
+  export let onClose = () => {}
+
+  const PRESETS = [
+    { id: 'lmstudio', label: 'LM Studio', baseUrl: 'http://localhost:1234/v1', apiKey: 'lm-studio' },
+    { id: 'llamacpp', label: 'llama.cpp', baseUrl: 'http://localhost:8080/v1', apiKey: '' },
+    { id: 'custom',   label: 'Custom',    baseUrl: '',                          apiKey: '' },
+  ]
+
+  const REFINE_OPTIONS = [
+    { value: 'off',       label: 'Off' },
+    { value: 'clean',     label: 'Clean' },
+    { value: 'summarize', label: 'Summarize' },
+    { value: 'bullets',   label: 'Bullets' },
+  ]
+
+  const MODIFIER_OPTIONS = [
+    { value: 'left_option',  label: '⌥ Left Option' },
+    { value: 'right_option', label: '⌥ Right Option' },
+    { value: 'left_cmd',     label: '⌘ Left Command' },
+    { value: 'right_cmd',    label: '⌘ Right Command' },
+    { value: 'left_ctrl',    label: '⌃ Left Control' },
+    { value: 'right_ctrl',   label: '⌃ Right Control' },
+  ]
+
+  const SPEECH_PROVIDERS = [
+    { value: 'local',    label: 'Local (Whisper, on-device)' },
+    { value: 'whisper',  label: 'OpenAI Whisper' },
+    { value: 'deepgram', label: 'Deepgram' },
+  ]
+
+  const SPEECH_MODELS_OPENAI = [
+    { value: 'gpt-4o-mini-transcribe', label: 'GPT-4o Mini Transcribe' },
+    { value: 'gpt-4o-transcribe',      label: 'GPT-4o Transcribe' },
+    { value: 'whisper-1',              label: 'Whisper-1 (legacy)' },
+  ]
+
+  const SPEECH_MODELS_LOCAL = [
+    { value: 'tiny.en',   label: 'tiny.en (~75 MB, fastest)' },
+    { value: 'base.en',   label: 'base.en (~142 MB, recommended)' },
+    { value: 'small.en',  label: 'small.en (~466 MB)' },
+    { value: 'medium.en', label: 'medium.en (~1.5 GB, most accurate)' },
+  ]
+
+  const modifierLabels = {
+    left_option:  '⌥ Left Option',
+    right_option: '⌥ Right Option',
+    left_cmd:     '⌘ Left Command',
+    right_cmd:    '⌘ Right Command',
+    left_ctrl:    '⌃ Left Control',
+    right_ctrl:   '⌃ Right Control',
+  }
+
+  // ── Tab state ──
+  let activeTab = 'general' // 'general' | 'voice' | 'hotkeys'
+
+  // ── General / model settings ──
+  let providerLabel = 'LM Studio'
+  let baseUrl = 'http://localhost:1234/v1'
+  let apiKey = 'lm-studio'
+  let model = ''
+  let availableModels = []
+  let testStatus = ''
+  let testMessage = ''
+  let autoRefineAction = 'off'
+  let saving = false
+  let saveError = ''
+
+  // ── Voice settings ──
+  let speechProvider = 'local'
+  let speechApiKey = ''
+  let speechModel = 'base.en'
+  let speechLanguage = 'en'
+  let speechPrompt = ''
+
+  // ── Hotkey settings ──
+  let hotkeyEnabled = false
+  let hotkeyModifier = 'right_option'
+  let hotkeyListening = false
+
+  $: presetId = derivePreset(providerLabel)
+
+  function derivePreset(label) {
+    const match = PRESETS.find((p) => p.label === label)
+    return match ? match.id : 'custom'
+  }
+
+  function applyPreset(id) {
+    const p = PRESETS.find((x) => x.id === id)
+    if (!p) return
+    providerLabel = p.label
+    if (p.id !== 'custom') {
+      baseUrl = p.baseUrl
+      apiKey = p.apiKey
+    }
+  }
+
+  function getModifierLabel(value) {
+    return modifierLabels[value] || value
+  }
+
+  // ── Hotkey capture ──
+  function windowHotkeyHandler(e) {
+    e.preventDefault()
+    e.stopPropagation()
+    e.stopImmediatePropagation()
+
+    const isLeft  = e.location === 1
+    const isRight = e.location === 2
+    let detected = ''
+
+    if (e.key === 'Alt')     { detected = isRight ? 'right_option' : 'left_option' }
+    else if (e.key === 'Meta')    { detected = isRight ? 'right_cmd'    : 'left_cmd'    }
+    else if (e.key === 'Control') { detected = isRight ? 'right_ctrl'   : 'left_ctrl'   }
+    else if (e.key === 'Escape')  { stopHotkeyCapture(); return }
+
+    if (detected) {
+      hotkeyModifier = detected
+      stopHotkeyCapture()
+    }
+  }
+
+  function startHotkeyCapture() {
+    hotkeyListening = true
+    window.addEventListener('keydown', windowHotkeyHandler, true)
+  }
+
+  function stopHotkeyCapture() {
+    hotkeyListening = false
+    window.removeEventListener('keydown', windowHotkeyHandler, true)
+  }
+
+  // ── Backend ──
+  async function loadSettings() {
+    try {
+      const s = await Backend.GetSettings()
+      providerLabel     = s.providerLabel     || 'LM Studio'
+      baseUrl           = s.baseUrl           || 'http://localhost:1234/v1'
+      apiKey            = s.apiKey            || ''
+      model             = s.model             || ''
+      autoRefineAction  = s.autoRefineAction  || 'off'
+      hotkeyEnabled     = s.hotkeyEnabled     || false
+      hotkeyModifier    = s.hotkeyModifier    || 'right_option'
+      speechProvider    = s.speechProvider    || 'local'
+      speechApiKey      = s.speechApiKey      || ''
+      speechModel       = s.speechModel       || (speechProvider === 'local' ? 'base.en' : 'gpt-4o-mini-transcribe')
+      speechLanguage    = s.speechLanguage    || 'en'
+      speechPrompt      = s.speechPrompt      || ''
+    } catch (e) {
+      console.warn('GetSettings failed:', e)
+    }
+  }
+
+  async function testConnection() {
+    testStatus = 'testing'
+    testMessage = ''
+    try {
+      const list = await Backend.ListLocalModels(baseUrl, apiKey)
+      availableModels = list ?? []
+      testStatus = 'ok'
+      testMessage = `${availableModels.length} model${availableModels.length === 1 ? '' : 's'} available`
+      if (!model && availableModels.length > 0) model = availableModels[0].id
+    } catch (e) {
+      testStatus = 'err'
+      testMessage = String(e?.message ?? e)
+      availableModels = []
+    }
+  }
+
+  async function save() {
+    saving = true
+    saveError = ''
+    try {
+      await Backend.SaveSettings({
+        providerType: 'local-openai',
+        providerLabel,
+        baseUrl,
+        apiKey,
+        model,
+        hotkeyEnabled,
+        hotkeyModifier,
+        speechProvider,
+        speechApiKey,
+        speechModel,
+        speechLanguage,
+        speechPrompt,
+        autoRefineAction,
+      })
+      // Notify other components (e.g. FlowPanel banner) that settings changed.
+      window.dispatchEvent(new CustomEvent('flow:settings-saved'))
+      onClose()
+    } catch (e) {
+      saveError = String(e?.message ?? e)
+    } finally {
+      saving = false
+    }
+  }
+
+  function handleClose() {
+    stopHotkeyCapture()
+    onClose()
+  }
+
+  $: if (open) { loadSettings(); activeTab = 'general' }
+
+  onDestroy(() => {
+    window.removeEventListener('keydown', windowHotkeyHandler, true)
+  })
+</script>
+
+{#if open}
+  <div class="overlay" on:click={handleClose}>
+    <div class="modal" on:click|stopPropagation>
+      <header>
+        <h2>Settings</h2>
+        <button class="close" on:click={handleClose}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </header>
+
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <button class="tab-btn" class:tab-active={activeTab === 'general'} on:click={() => activeTab = 'general'} type="button">General</button>
+        <button class="tab-btn" class:tab-active={activeTab === 'voice'}   on:click={() => activeTab = 'voice'}   type="button">Voice / STT</button>
+        <button class="tab-btn" class:tab-active={activeTab === 'hotkeys'} on:click={() => activeTab = 'hotkeys'} type="button">Hotkeys</button>
+      </div>
+
+      <div class="modal-body">
+
+        <!-- ── General Tab ── -->
+        {#if activeTab === 'general'}
+          <section>
+            <label class="row-label">Provider</label>
+            <div class="presets">
+              {#each PRESETS as p}
+                <button class="preset" class:active={presetId === p.id} on:click={() => applyPreset(p.id)}>{p.label}</button>
+              {/each}
+            </div>
+          </section>
+
+          <section>
+            <label class="row-label" for="baseUrl">Base URL</label>
+            <input id="baseUrl" type="text" bind:value={baseUrl} placeholder="http://localhost:1234/v1" />
+          </section>
+
+          <section>
+            <label class="row-label" for="apiKey">API key (optional)</label>
+            <input id="apiKey" type="password" bind:value={apiKey} placeholder="lm-studio" />
+          </section>
+
+          <section>
+            <label class="row-label">Model</label>
+            <div class="row">
+              {#if availableModels.length > 0}
+                <select bind:value={model}>
+                  {#each availableModels as m}
+                    <option value={m.id}>{m.id}</option>
+                  {/each}
+                </select>
+              {:else}
+                <input type="text" bind:value={model} placeholder="qwen2.5-coder-7b-instruct" />
+              {/if}
+              <button class="secondary" on:click={testConnection} disabled={testStatus === 'testing'}>
+                {testStatus === 'testing' ? 'Testing…' : 'Test connection'}
+              </button>
+            </div>
+            {#if testStatus === 'ok'}
+              <div class="feedback ok">✓ {testMessage}</div>
+            {:else if testStatus === 'err'}
+              <div class="feedback err">✗ {testMessage}</div>
+            {/if}
+          </section>
+
+          <section>
+            <label class="row-label">Auto-refine on stop</label>
+            <select bind:value={autoRefineAction}>
+              {#each REFINE_OPTIONS as o}
+                <option value={o.value}>{o.label}</option>
+              {/each}
+            </select>
+            <p class="hint">When set, every recording is automatically piped through the LLM for cleanup.</p>
+          </section>
+
+        <!-- ── Voice / STT Tab ── -->
+        {:else if activeTab === 'voice'}
+          <section>
+            <label class="row-label">Transcription Provider</label>
+            <select bind:value={speechProvider}>
+              {#each SPEECH_PROVIDERS as p}
+                <option value={p.value}>{p.label}</option>
+              {/each}
+            </select>
+            {#if speechProvider === 'local'}
+              <p class="hint">Runs whisper.cpp on-device. The model file (~140 MB for base.en) downloads automatically the first time you record.</p>
+            {/if}
+          </section>
+
+          <section>
+            <label class="row-label">Transcription Model</label>
+            {#if speechProvider === 'local'}
+              <select bind:value={speechModel}>
+                {#each SPEECH_MODELS_LOCAL as m}
+                  <option value={m.value}>{m.label}</option>
+                {/each}
+              </select>
+            {:else}
+              <select bind:value={speechModel}>
+                {#each SPEECH_MODELS_OPENAI as m}
+                  <option value={m.value}>{m.label}</option>
+                {/each}
+              </select>
+            {/if}
+          </section>
+
+          {#if speechProvider !== 'local'}
+            <section>
+              <label class="row-label" for="speechApiKey">
+                {speechProvider === 'deepgram' ? 'Deepgram API Key' : 'OpenAI API Key'}
+              </label>
+              <input id="speechApiKey" type="password" bind:value={speechApiKey}
+                placeholder={speechProvider === 'deepgram' ? 'dg-...' : 'sk-...'} />
+            </section>
+          {/if}
+
+        <!-- ── Hotkeys Tab ── -->
+        {:else if activeTab === 'hotkeys'}
+          <div class="hotkeys-section">
+            <h3 class="section-title">Push-to-Talk Dictation</h3>
+            <p class="section-desc">
+              Hold a modifier key anywhere on your Mac to record. Release to transcribe and paste text into the focused app.
+            </p>
+
+            <div class="dictation-toggle-row">
+              <span class="dictation-toggle-label">Enable global hotkey</span>
+              <button
+                class="toggle-switch"
+                class:toggle-active={hotkeyEnabled}
+                on:click={() => hotkeyEnabled = !hotkeyEnabled}
+                type="button"
+                role="switch"
+                aria-checked={hotkeyEnabled}
+              >
+                <span class="toggle-knob"></span>
+              </button>
+            </div>
+
+            {#if hotkeyEnabled}
+              <label class="row-label" for="hotkey-capture" style="margin-top: 18px;">Hotkey (hold to record)</label>
+              <div
+                id="hotkey-capture"
+                class="hotkey-capture-input"
+                class:hotkey-listening={hotkeyListening}
+                role="button"
+                tabindex="0"
+                on:click={hotkeyListening ? stopHotkeyCapture : startHotkeyCapture}
+                on:keydown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    hotkeyListening ? stopHotkeyCapture() : startHotkeyCapture()
+                  }
+                }}
+              >
+                {#if hotkeyListening}
+                  <span class="hotkey-listening-text">Press a modifier key…</span>
+                {:else}
+                  <span class="hotkey-current-key">{getModifierLabel(hotkeyModifier)}</span>
+                  <span class="hotkey-change-hint">Click to change</span>
+                {/if}
+              </div>
+              <p class="hint" style="margin-top: 6px;">
+                {#if hotkeyListening}
+                  Press <strong>Option</strong>, <strong>Command</strong>, or <strong>Control</strong> (left or right). Press <strong>Escape</strong> to cancel.
+                {:else}
+                  Hold this key to record, release to transcribe. Short taps (&lt;300ms) are ignored.
+                {/if}
+              </p>
+
+              <div class="hotkey-shortcuts-card">
+                <div class="hotkey-shortcut-row">
+                  <kbd class="kbd">{getModifierLabel(hotkeyModifier)}</kbd>
+                  <span class="shortcut-desc">Hold to record, release to transcribe &amp; paste</span>
+                </div>
+                <div class="hotkey-shortcut-row">
+                  <kbd class="kbd">⌘ Shift R</kbd>
+                  <span class="shortcut-desc">Toggle recording in Flow window</span>
+                </div>
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+      </div>
+
+      <footer>
+        {#if saveError}
+          <span class="save-error">{saveError}</span>
+        {/if}
+        <button class="btn-cancel" on:click={handleClose}>Cancel</button>
+        <button class="primary" on:click={save} disabled={saving}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </footer>
+    </div>
+  </div>
+{/if}
+
+<style>
+  /* ── Overlay / Modal ── */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    animation: fadeIn 0.15s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal {
+    width: 500px;
+    height: 580px;
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 64px);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    animation: modalSlideUp 0.2s ease;
+    overflow: hidden;
+    color: var(--text-primary);
+  }
+  @keyframes modalSlideUp {
+    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 20px 0;
+    flex-shrink: 0;
+  }
+  h2 { margin: 0; font-size: 16px; font-weight: 600; }
+
+  .close {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px;
+    background: transparent; border: none; border-radius: 6px;
+    color: var(--text-muted); cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .close:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  /* ── Tab Bar ── */
+  .tab-bar {
+    display: flex;
+    padding: 0 20px;
+    margin-top: 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    position: relative;
+    padding: 10px 16px;
+    background: transparent; border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    font-size: 13px; font-weight: 500; font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--text-secondary); }
+  .tab-btn.tab-active { color: var(--text-primary); border-bottom-color: var(--accent); }
+
+  /* ── Body ── */
+  .modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+  }
+
+  section { margin-bottom: 18px; }
+  .row-label {
+    display: block; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 8px;
+  }
+
+  .presets { display: flex; gap: 8px; }
+  .preset {
+    flex: 1; background: var(--bg-card); color: var(--text-secondary);
+    border: 1px solid var(--border-subtle); padding: 8px 10px;
+    border-radius: var(--radius-sm); font-size: 13px; transition: all 0.12s;
+  }
+  .preset:hover { background: var(--bg-hover); }
+  .preset.active { background: var(--bg-elevated); border-color: var(--accent); color: var(--text-primary); }
+
+  input, select {
+    width: 100%; background: var(--bg-app); color: var(--text-primary);
+    border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+    padding: 8px 10px; font-size: 13px; font-family: inherit;
+    box-sizing: border-box;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+  .row { display: flex; gap: 8px; }
+  .row > select, .row > input { flex: 1; }
+
+  .secondary {
+    background: var(--bg-card); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 8px 14px; font-size: 12px; white-space: nowrap;
+    transition: background 0.12s; cursor: pointer;
+  }
+  .secondary:hover { background: var(--bg-elevated); }
+  .secondary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .feedback { margin-top: 8px; font-size: 12px; }
+  .feedback.ok { color: var(--accent); }
+  .feedback.err { color: #f87171; }
+  .hint { color: var(--text-muted); font-size: 11px; margin-top: 6px; line-height: 1.4; }
+
+  /* ── Hotkeys Tab ── */
+  .hotkeys-section { padding-bottom: 4px; }
+
+  .section-title {
+    font-size: 14px; font-weight: 600;
+    color: var(--text-primary); margin: 0 0 8px;
+  }
+  .section-desc {
+    font-size: 12px; color: var(--text-muted);
+    margin: 0 0 20px; line-height: 1.5;
+  }
+
+  .dictation-toggle-row {
+    display: flex; align-items: center;
+    justify-content: space-between; margin-bottom: 6px;
+  }
+  .dictation-toggle-label { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+
+  .toggle-switch {
+    position: relative; width: 44px; height: 24px;
+    background: var(--bg-app); border: 1px solid var(--border);
+    border-radius: 12px; cursor: pointer;
+    transition: all 0.2s ease; padding: 0; flex-shrink: 0;
+  }
+  .toggle-switch.toggle-active { background: var(--accent); border-color: var(--accent); }
+  .toggle-knob {
+    position: absolute; top: 2px; left: 2px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--text-muted); transition: all 0.2s ease;
+  }
+  .toggle-switch.toggle-active .toggle-knob { left: 22px; background: white; }
+
+  /* Hotkey capture widget */
+  .hotkey-capture-input {
+    width: 100%; padding: 10px 12px;
+    background: var(--bg-app); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm); font-size: 13px;
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none; min-height: 40px;
+    box-sizing: border-box; transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .hotkey-capture-input:hover { border-color: var(--border); }
+  .hotkey-capture-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45,212,191,0.15); }
+  .hotkey-capture-input.hotkey-listening {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(45,212,191,0.15);
+    animation: hotkey-pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes hotkey-pulse {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(45,212,191,0.15); }
+    50%       { box-shadow: 0 0 0 5px rgba(45,212,191,0.2), 0 0 12px rgba(45,212,191,0.1); }
+  }
+  .hotkey-listening-text {
+    color: var(--accent); font-weight: 500;
+    animation: hotkey-blink 1s ease-in-out infinite;
+  }
+  @keyframes hotkey-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .hotkey-current-key { font-weight: 500; color: var(--text-primary); }
+  .hotkey-change-hint { font-size: 11px; color: var(--text-muted); }
+
+  /* Shortcuts reference card */
+  .hotkey-shortcuts-card {
+    margin-top: 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md, 8px);
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .hotkey-shortcut-row {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .kbd {
+    display: inline-block; padding: 3px 8px;
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font-family: inherit; font-size: 11px; font-weight: 600;
+    color: var(--text-primary); white-space: nowrap; flex-shrink: 0;
+    letter-spacing: 0.2px;
+  }
+  .shortcut-desc { font-size: 12px; color: var(--text-muted); }
+
+  /* ── Footer ── */
+  footer {
+    display: flex; justify-content: flex-end; align-items: center;
+    gap: 8px; padding: 0 20px 20px;
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 14px; flex-shrink: 0;
+  }
+  .save-error { color: #f87171; font-size: 12px; flex: 1; }
+
+  .btn-cancel {
+    padding: 8px 16px; background: transparent;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    color: var(--text-secondary); font-size: 13px; font-family: inherit;
+    cursor: pointer; transition: all 0.15s ease;
+  }
+  .btn-cancel:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  .primary {
+    background: var(--accent); color: var(--bg-app);
+    border: none; border-radius: var(--radius-sm);
+    padding: 9px 22px; font-size: 13px; font-weight: 500;
+    transition: background 0.12s; cursor: pointer;
+  }
+  .primary:hover { background: var(--accent-dim); }
+  .primary:disabled { opacity: 0.6; cursor: not-allowed; }
+</style>
