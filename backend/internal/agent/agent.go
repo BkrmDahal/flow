@@ -57,7 +57,7 @@ Keep items short and descriptive. This gives the user real-time visibility into 
 
 // Step is one intermediate step recorded during an agent turn.
 type Step struct {
-	Type      string `json:"type"`                // "thinking", "tool_call", "tool_result"
+	Type      string `json:"type"` // "thinking", "tool_call", "tool_result"
 	Content   string `json:"content,omitempty"`
 	ToolName  string `json:"tool_name,omitempty"`
 	ToolInput string `json:"tool_input,omitempty"`
@@ -74,20 +74,20 @@ type Deps struct {
 	SessionMgr   *session.Manager
 	LLMClient    llm.LLMClient
 	ToolRegistry *tools.Registry
-	WorkDir      string  // per-session working directory
-	BaseDir      string  // ~/.flow/
-	ChatMode     bool    // true for chat sessions (concise), false for agent tasks (detailed)
-	CommandBody  string  // optional plugin command context
+	WorkDir      string // per-session working directory
+	BaseDir      string // ~/.flow/
+	ChatMode     bool   // true for chat sessions (concise), false for agent tasks (detailed)
+	CommandBody  string // optional plugin command context
 }
 
 // StreamEvent is emitted during a streaming turn.
 type StreamEvent struct {
-	Type      string `json:"type"`                // "thinking_start"|"thinking"|"text"|"tool_call"|"tool_result"|"todo_update"|"skill_used"|"file_created"|"done"|"error"
+	Type      string `json:"type"` // "thinking_start"|"thinking"|"text"|"tool_call"|"tool_result"|"todo_update"|"skill_used"|"file_created"|"done"|"error"
 	Content   string `json:"content,omitempty"`
 	ToolName  string `json:"tool_name,omitempty"`
 	ToolInput string `json:"tool_input,omitempty"`
-	Path      string `json:"path,omitempty"`   // for file_created
-	Name      string `json:"name,omitempty"`   // for file_created (basename)
+	Path      string `json:"path,omitempty"` // for file_created
+	Name      string `json:"name,omitempty"` // for file_created (basename)
 	// TodoItems carries the full todo list snapshot for "todo_update" events.
 	TodoItems []tools.TodoItem `json:"todo_items,omitempty"`
 }
@@ -204,6 +204,19 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 		if err != nil {
 			emit(StreamEvent{Type: "error", Content: err.Error()})
 			return nil, fmt.Errorf("llm: %w", err)
+		}
+		if len(resp.Content) == 0 {
+			log.Printf("[agent] streaming response was empty for %s; retrying without stream", sessionID)
+			resp, err = deps.LLMClient.SendMessages(ctx, systemPrompt, history, toolDefs, agentCfg.EnableThinking)
+			if err != nil {
+				emit(StreamEvent{Type: "error", Content: err.Error()})
+				return nil, fmt.Errorf("llm fallback: %w", err)
+			}
+			if len(resp.Content) == 0 {
+				err := fmt.Errorf("model returned an empty response")
+				emit(StreamEvent{Type: "error", Content: err.Error()})
+				return nil, err
+			}
 		}
 
 		// Collect thinking steps.

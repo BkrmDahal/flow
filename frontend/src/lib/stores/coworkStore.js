@@ -23,6 +23,7 @@ export const coworkSkillsUsed = writable([]);           // Skill names loaded vi
 export const coworkLoading = writable(false);
 export const coworkIsStreaming = writable(false);
 export const coworkParseDocuments = writable(true);     // Whether to parse PDF/XLSX text
+export const backgroundCoworkStreamingSessions = writable(new Set());
 
 
 // Internal state
@@ -31,6 +32,7 @@ let _pendingContentReset = false;
 let _lastSeenSeq = 0;
 let _listenerRegistered = false;
 let _usingTodoPlan = false;
+const _bgCoworkStreams = new Map();
 
 // ─── Event listener management ───
 
@@ -44,11 +46,37 @@ function ensureListener() {
 }
 
 function cleanupListener() {
-  if (get(coworkStreamingIdx) < 0) {
+  if (get(coworkStreamingIdx) < 0 && _bgCoworkStreams.size === 0) {
     Events.off('cowork:stream:event');
     if (_streamCleanup) { _streamCleanup(); _streamCleanup = null; }
     _listenerRegistered = false;
   }
+}
+
+function saveCurrentCoworkToBackground() {
+  const currentId = get(activeCoworkTaskId);
+  if (!currentId || !get(coworkLoading)) return;
+
+  _bgCoworkStreams.set(currentId, {
+    messages: get(coworkMessages),
+    streamingIdx: get(coworkStreamingIdx),
+    lastSeenSeq: _lastSeenSeq,
+    pendingContentReset: _pendingContentReset,
+    usingTodoPlan: _usingTodoPlan,
+    createdFiles: get(coworkCreatedFiles),
+    progressSteps: get(coworkProgressSteps),
+    contextTools: get(coworkContextTools),
+    skillsUsed: get(coworkSkillsUsed),
+    taskTitle: get(coworkTaskTitle),
+  });
+  backgroundCoworkStreamingSessions.update(s => {
+    s.add(currentId);
+    return new Set(s);
+  });
+
+  coworkStreamingIdx.set(-1);
+  coworkLoading.set(false);
+  coworkIsStreaming.set(false);
 }
 
 function resetPlanState() {
@@ -140,7 +168,12 @@ function progressStepsFromHistory(steps) {
 
 function handleStreamEvent(data) {
   const activeId = get(activeCoworkTaskId);
-  if (data.session_id && data.session_id !== activeId) return;
+  if (data.session_id && data.session_id !== activeId) {
+    if (_bgCoworkStreams.has(data.session_id)) {
+      handleBgCoworkStreamEvent(data.session_id, data);
+    }
+    return;
+  }
   if (!get(coworkIsStreaming)) return;
   const idx = get(coworkStreamingIdx);
   if (idx < 0) return;
@@ -262,6 +295,152 @@ function handleStreamEvent(data) {
     }
     finishStream();
   }
+}
+
+function handleBgCoworkStreamEvent(sessionId, data) {
+  const state = _bgCoworkStreams.get(sessionId);
+  if (!state || state.streamingIdx < 0) return;
+
+  if (data.seq) {
+    if (data.seq <= state.lastSeenSeq) return;
+    state.lastSeenSeq = data.seq;
+  }
+
+  const idx = state.streamingIdx;
+  const msg = { ...state.messages[idx] };
+  if (!msg) return;
+
+  switch (data.type) {
+    case 'text':
+      if (state.pendingContentReset) {
+        msg.content = data.content;
+        state.pendingContentReset = false;
+      } else {
+        msg.content = (msg.content || '') + data.content;
+      }
+      break;
+
+    case 'tool_call': {
+      if (state.pendingContentReset) {
+        msg.content = '';
+        state.pendingContentReset = false;
+      }
+      msg.steps = [...(msg.steps || []), {
+        type: 'tool_call',
+        tool_name: data.tool_name,
+        tool_input: data.tool_input,
+      }];
+
+      if (!state.usingTodoPlan && data.tool_name !== 'todo_write' && data.tool_name !== 'use_skill') {
+        const label = formatToolLabel(data.tool_name, data.tool_input);
+        state.progressSteps = [
+          ...state.progressSteps.map(step =>
+            step.status === 'in_progress' ? { ...step, status: 'completed' } : step
+          ),
+          {
+            id: `fallback-${state.progressSteps.length + 1}-${data.tool_name || 'tool'}`,
+            label,
+            status: 'in_progress',
+          },
+        ];
+      }
+
+      if (data.tool_name !== 'todo_write' && data.tool_name !== 'use_skill') {
+        const toolLabel = formatToolName(data.tool_name);
+        if (!state.contextTools.includes(toolLabel)) {
+          state.contextTools = [...state.contextTools, toolLabel];
+        }
+      }
+      break;
+    }
+
+    case 'tool_result':
+      msg.steps = [...(msg.steps || []), {
+        type: 'tool_result',
+        tool_name: data.tool_name,
+        content: data.content,
+      }];
+      if (state.usingTodoPlan && data.tool_name !== 'todo_write' && data.tool_name !== 'use_skill') {
+        const activeIdx = state.progressSteps.findIndex(step => step.status === 'in_progress');
+        if (activeIdx >= 0) {
+          state.progressSteps[activeIdx] = { ...state.progressSteps[activeIdx], status: 'completed' };
+        }
+        const nextIdx = state.progressSteps.findIndex(step => step.status === 'pending');
+        if (nextIdx >= 0) {
+          state.progressSteps[nextIdx] = { ...state.progressSteps[nextIdx], status: 'in_progress' };
+        }
+      } else {
+        state.progressSteps = state.progressSteps.map(step =>
+          step.status === 'in_progress' ? { ...step, status: 'completed' } : step
+        );
+      }
+      state.pendingContentReset = true;
+      break;
+
+    case 'todo_update':
+      if (data.todo_items && Array.isArray(data.todo_items)) {
+        state.usingTodoPlan = true;
+        state.progressSteps = data.todo_items.map(item => ({
+          id: item.id,
+          label: item.content,
+          status: item.status,
+        }));
+      }
+      return;
+
+    case 'skill_used':
+      if (data.content && !state.skillsUsed.includes(data.content)) {
+        state.skillsUsed = [...state.skillsUsed, data.content];
+      }
+      return;
+
+    case 'file_created':
+      if (data.path) {
+        const fName = data.name || data.path.split('/').pop();
+        if (!state.createdFiles.find(f => f.path === data.path)) {
+          state.createdFiles = [...state.createdFiles, { name: fName, path: data.path }];
+        }
+      }
+      return;
+
+    case 'done':
+      msg.role = 'assistant';
+      msg.content = data.final_text || msg.content;
+      msg.steps = data.steps || msg.steps;
+      msg.isStreaming = false;
+      state.messages[idx] = msg;
+      state.progressSteps = state.progressSteps.map(step =>
+        step.status === 'completed' ? step : { ...step, status: 'completed' }
+      );
+      _bgCoworkStreams.delete(sessionId);
+      backgroundCoworkStreamingSessions.update(s => {
+        s.delete(sessionId);
+        return new Set(s);
+      });
+      cleanupListener();
+      refreshCoworkHistory();
+      return;
+
+    case 'error': {
+      msg.role = 'assistant';
+      const errorText = data.error || data.content || 'Unknown error';
+      msg.content = msg.content || `Something went wrong: ${errorText}`;
+      msg.steps = msg.steps || [];
+      msg.isError = true;
+      msg.isStreaming = false;
+      state.messages[idx] = msg;
+      _bgCoworkStreams.delete(sessionId);
+      backgroundCoworkStreamingSessions.update(s => {
+        s.delete(sessionId);
+        return new Set(s);
+      });
+      cleanupListener();
+      refreshCoworkHistory();
+      return;
+    }
+  }
+
+  state.messages[idx] = msg;
 }
 
 function finishStream() {
@@ -454,6 +633,8 @@ export async function cancelCowork() {
 }
 
 export function newCoworkTask() {
+  saveCurrentCoworkToBackground();
+
   coworkPhase.set('welcome');
   coworkTaskTitle.set('');
   coworkMessages.set([]);
@@ -470,6 +651,33 @@ export function newCoworkTask() {
 export async function selectCoworkTask(sessionId) {
   if (sessionId === get(activeCoworkTaskId) && get(coworkPhase) === 'workspace') return;
 
+  saveCurrentCoworkToBackground();
+
+  if (_bgCoworkStreams.has(sessionId)) {
+    const state = _bgCoworkStreams.get(sessionId);
+    _bgCoworkStreams.delete(sessionId);
+    backgroundCoworkStreamingSessions.update(s => {
+      s.delete(sessionId);
+      return new Set(s);
+    });
+
+    activeCoworkTaskId.set(sessionId);
+    coworkMessages.set(state.messages);
+    coworkStreamingIdx.set(state.streamingIdx);
+    _lastSeenSeq = state.lastSeenSeq;
+    _pendingContentReset = state.pendingContentReset;
+    _usingTodoPlan = state.usingTodoPlan;
+    coworkCreatedFiles.set(state.createdFiles);
+    coworkProgressSteps.set(state.progressSteps);
+    coworkContextTools.set(state.contextTools);
+    coworkSkillsUsed.set(state.skillsUsed);
+    coworkTaskTitle.set(state.taskTitle);
+    coworkLoading.set(state.streamingIdx >= 0);
+    coworkIsStreaming.set(state.streamingIdx >= 0);
+    coworkPhase.set('workspace');
+    return;
+  }
+
   try {
     const loaded = await Backend.LoadCoworkSession?.(sessionId);
     activeCoworkTaskId.set(sessionId);
@@ -479,6 +687,7 @@ export async function selectCoworkTask(sessionId) {
       .map(m => ({
         role: m.role,
         content: m.content || '',
+        files: m.files || undefined,
         steps: (m.steps || []).map(s => ({
           type: s.type,
           content: s.content,
@@ -529,6 +738,16 @@ export async function selectCoworkTask(sessionId) {
 
 export async function deleteCoworkTask(sessionId) {
   try {
+    if (_bgCoworkStreams.has(sessionId)) {
+      try { await Backend.CancelCoworkStream?.(sessionId); } catch (_) {}
+      _bgCoworkStreams.delete(sessionId);
+      backgroundCoworkStreamingSessions.update(s => {
+        s.delete(sessionId);
+        return new Set(s);
+      });
+      cleanupListener();
+    }
+
     await Backend.DeleteCoworkSession?.(sessionId);
     if (sessionId === get(activeCoworkTaskId)) {
       newCoworkTask();

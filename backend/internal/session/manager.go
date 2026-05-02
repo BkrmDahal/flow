@@ -399,6 +399,9 @@ func ExtractTextFromContent(content json.RawMessage) string {
 			typ, _ := block["type"].(string)
 			if typ == "text" {
 				if text, ok := block["text"].(string); ok {
+					if strings.HasPrefix(text, "[Attached file ") {
+						continue
+					}
 					parts = append(parts, text)
 				}
 			}

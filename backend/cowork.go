@@ -47,6 +47,7 @@ type HistoryMessage struct {
 	Role    string     `json:"role"`
 	Content string     `json:"content"`
 	Steps   []ChatStep `json:"steps"`
+	Files   []ChatFile `json:"files,omitempty"`
 }
 
 // ChatStep represents a single intermediate step in an agent turn.
@@ -55,6 +56,12 @@ type ChatStep struct {
 	Content   string `json:"content"`              // tool result content
 	ToolName  string `json:"tool_name,omitempty"`  // for tool_call / tool_result
 	ToolInput string `json:"tool_input,omitempty"` // for tool_call (JSON string)
+}
+
+// ChatFile represents an attachment for frontend history display.
+type ChatFile struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
 // --- Stream management ---
@@ -434,11 +441,12 @@ func parseCoworkMessageForFrontend(msg session.Message) *HistoryMessage {
 				return nil
 			}
 		}
-		text := session.ExtractTextFromContent(msg.Content)
+		text, files := parseUserContentForFrontend(msg.Content)
 		return &HistoryMessage{
 			Role:    "user",
 			Content: text,
 			Steps:   []ChatStep{},
+			Files:   files,
 		}
 	}
 
@@ -474,4 +482,75 @@ func parseCoworkMessageForFrontend(msg session.Message) *HistoryMessage {
 	}
 
 	return nil
+}
+
+func parseUserContentForFrontend(content json.RawMessage) (string, []ChatFile) {
+	var s string
+	if json.Unmarshal(content, &s) == nil {
+		return s, nil
+	}
+
+	var blocks []map[string]interface{}
+	if json.Unmarshal(content, &blocks) != nil {
+		return string(content), nil
+	}
+
+	var textParts []string
+	var files []ChatFile
+	for _, block := range blocks {
+		typ, _ := block["type"].(string)
+		if typ != "text" {
+			continue
+		}
+		text, _ := block["text"].(string)
+		if name, ok := parseAttachedFileName(text); ok {
+			files = append(files, ChatFile{Name: name, Type: mimeTypeFromFilename(name)})
+			continue
+		}
+		if strings.TrimSpace(text) != "" {
+			textParts = append(textParts, text)
+		}
+	}
+
+	return strings.TrimSpace(strings.Join(textParts, "\n")), files
+}
+
+func parseAttachedFileName(text string) (string, bool) {
+	const prefix = "[Attached file "
+	if !strings.HasPrefix(text, prefix) {
+		return "", false
+	}
+	rest := strings.TrimPrefix(text, prefix)
+	for _, marker := range []string{" content:]", " saved to workspace"} {
+		if idx := strings.Index(rest, marker); idx >= 0 {
+			name := strings.TrimSpace(rest[:idx])
+			return name, name != ""
+		}
+	}
+	return "", false
+}
+
+func mimeTypeFromFilename(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".pdf":
+		return "application/pdf"
+	case ".csv":
+		return "text/csv"
+	case ".md", ".markdown":
+		return "text/markdown"
+	case ".html", ".htm":
+		return "text/html"
+	case ".json":
+		return "application/json"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	default:
+		return "text/plain"
+	}
 }

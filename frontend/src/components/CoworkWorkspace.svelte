@@ -10,6 +10,7 @@
     coworkTaskTitle, coworkMessages, coworkCreatedFiles,
     coworkContextTools, coworkProgressSteps, coworkSkillsUsed,
     coworkLoading, coworkIsStreaming, coworkParseDocuments,
+    backgroundCoworkStreamingSessions,
     refreshCoworkHistory, startCoworkTask, sendCoworkFollowUp,
     cancelCowork, newCoworkTask, selectCoworkTask, deleteCoworkTask,
   } from '../lib/stores/coworkStore.js';
@@ -136,7 +137,7 @@
   <AgentSidebar
     agentTaskHistory={$coworkTaskHistory}
     activeAgentTaskId={$activeCoworkTaskId}
-    bgStreamingAgents={new Set()}
+    bgStreamingAgents={$backgroundCoworkStreamingSessions}
     on:newTask={handleNewTask}
     on:selectTask={(e) => selectCoworkTask(e.detail.id)}
     on:deleteTask={(e) => deleteCoworkTask(e.detail.id)}
