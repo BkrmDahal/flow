@@ -5,11 +5,8 @@
   export let open = false
   export let onClose = () => {}
 
-  const PRESETS = [
-    { id: 'lmstudio', label: 'LM Studio', baseUrl: 'http://localhost:1234/v1', apiKey: 'lm-studio' },
-    { id: 'custom',   label: 'Custom',    baseUrl: '',                          apiKey: '' },
-  ]
   const LLAMA_MANAGED_LABEL = 'llama.cpp (managed)'
+  const DEFAULT_LOCAL_BASE_URL = 'http://localhost:1234/v1'
 
   const REFINE_OPTIONS = [
     { value: 'off',       label: 'Off' },
@@ -74,9 +71,11 @@
   ]
 
   // ── General / model settings ──
-  let providerLabel = 'LM Studio'
-  let baseUrl = 'http://localhost:1234/v1'
-  let apiKey = 'lm-studio'
+  let providerLabel = 'Local'
+  let baseUrl = DEFAULT_LOCAL_BASE_URL
+  let apiKey = ''
+  let preManagedBaseUrl = ''
+  let preManagedApiKey = ''
   let model = ''
   let availableModels = []
   let testStatus = ''
@@ -124,35 +123,21 @@
   let hotkeyModifier = 'right_option'
   let hotkeyListening = false
 
-  let basePresetId = 'lmstudio'
-
-  function derivePreset(label) {
-    const match = PRESETS.find((p) => p.label === label)
-    return match ? match.id : 'custom'
-  }
-
-  function applyPreset(id) {
-    const p = PRESETS.find((x) => x.id === id)
-    if (!p) return
-    basePresetId = p.id
-    if (!llamaManagedEnabled) providerLabel = p.label
-    if (p.id !== 'custom') {
-      baseUrl = p.baseUrl
-      apiKey = p.apiKey
-    }
-  }
-
   function setManagedLlama(enabled) {
+    if (enabled && !llamaManagedEnabled) {
+      // Capture user's URL/key so we can restore them when toggling off.
+      preManagedBaseUrl = baseUrl
+      preManagedApiKey = apiKey
+    }
     llamaManagedEnabled = enabled
     if (enabled) {
       providerLabel = LLAMA_MANAGED_LABEL
       baseUrl = `http://127.0.0.1:${Number(llamaPort) || 8080}/v1`
       apiKey = ''
     } else {
-      const fallback = PRESETS.find((x) => x.id === basePresetId) || PRESETS[0]
-      providerLabel = fallback.label
-      baseUrl = fallback.baseUrl
-      apiKey = fallback.apiKey
+      providerLabel = 'Local'
+      baseUrl = preManagedBaseUrl || DEFAULT_LOCAL_BASE_URL
+      apiKey = preManagedApiKey || ''
     }
   }
 
@@ -195,12 +180,16 @@
   async function loadSettings() {
     try {
       const s = await Backend.GetSettings()
-      providerLabel     = s.providerLabel     || 'LM Studio'
-      baseUrl           = s.baseUrl           || 'http://localhost:1234/v1'
+      providerLabel     = s.providerLabel     || 'Local'
+      baseUrl           = s.baseUrl           || DEFAULT_LOCAL_BASE_URL
       apiKey            = s.apiKey            || ''
       model             = s.model             || ''
       llamaManagedEnabled = s.llamaManagedEnabled || providerLabel === 'llama.cpp' || providerLabel === LLAMA_MANAGED_LABEL
-      basePresetId = llamaManagedEnabled ? 'lmstudio' : derivePreset(providerLabel)
+      // Remember pre-managed values so toggling managed off restores user's URL/key.
+      if (!llamaManagedEnabled) {
+        preManagedBaseUrl = baseUrl
+        preManagedApiKey = apiKey
+      }
       llamaModelPath    = s.llamaModelPath    || ''
       llamaDownloadURL  = s.llamaDownloadURL  || ''
       llamaPort         = s.llamaPort         || 8080
@@ -519,21 +508,6 @@
 
           {#if providerMode === 'local'}
           <section>
-            <span class="row-label">Provider</span>
-            <div class="segmented" class:segmented-disabled={llamaManagedEnabled} role="tablist" aria-label="Provider preset">
-              {#each PRESETS as p}
-                <button
-                  class="segment"
-                  class:segment-active={basePresetId === p.id}
-                  on:click={() => applyPreset(p.id)}
-                  disabled={llamaManagedEnabled}
-                  type="button"
-                  role="tab"
-                  aria-selected={basePresetId === p.id}
-                >{p.label}</button>
-              {/each}
-            </div>
-
             <div class="managed-toggle-row">
               <div class="managed-toggle-text">
                 <span class="managed-toggle-title">Run llama.cpp locally (managed)</span>
@@ -970,7 +944,6 @@
     border-radius: 999px;
     transition: opacity 0.15s ease;
   }
-  .segmented.segmented-disabled { opacity: 0.5; pointer-events: none; }
   .segment {
     flex: 1;
     background: transparent;
