@@ -19,6 +19,13 @@
     { value: 'custom',    label: 'Custom' },
   ]
 
+  const REFINE_PROMPTS = {
+    clean: "You are a transcription cleanup assistant. Fix grammar, punctuation, and disfluencies in the user's voice transcript. Preserve their voice and meaning. Output only the cleaned text.",
+    summarize: 'Summarize the voice note in 2 to 3 sentences. Output only the summary.',
+    bullets: 'Convert the voice note into a clean bullet list of the key points. Output only the bullet list using - markers.',
+    custom: '',
+  }
+
   const MODIFIER_OPTIONS = [
     { value: 'left_option',  label: '⌥ Left Option' },
     { value: 'right_option', label: '⌥ Right Option' },
@@ -69,6 +76,7 @@
   let testMessage = ''
   let autoRefineAction = 'off'
   let autoRefineCustomPrompt = ''
+  let lastAutoRefineAction = 'off'
   let saving = false
   let saveError = ''
 
@@ -145,7 +153,8 @@
       apiKey            = s.apiKey            || ''
       model             = s.model             || ''
       autoRefineAction  = s.autoRefineAction  || 'off'
-      autoRefineCustomPrompt = s.autoRefineCustomPrompt || ''
+      autoRefineCustomPrompt = s.autoRefineCustomPrompt || REFINE_PROMPTS[autoRefineAction] || ''
+      lastAutoRefineAction = autoRefineAction
       hotkeyEnabled     = s.hotkeyEnabled     || false
       hotkeyModifier    = s.hotkeyModifier    || 'right_option'
       speechProvider    = s.speechProvider    || 'local'
@@ -207,6 +216,15 @@
   function handleClose() {
     stopHotkeyCapture()
     onClose()
+  }
+
+  $: if (autoRefineAction !== lastAutoRefineAction) {
+    const previousDefault = REFINE_PROMPTS[lastAutoRefineAction] || ''
+    const shouldUseDefault = !autoRefineCustomPrompt.trim() || autoRefineCustomPrompt === previousDefault
+    if (shouldUseDefault) {
+      autoRefineCustomPrompt = REFINE_PROMPTS[autoRefineAction] || ''
+    }
+    lastAutoRefineAction = autoRefineAction
   }
 
   $: if (open) { loadSettings(); activeTab = 'general' }
@@ -288,11 +306,13 @@
                 <option value={o.value}>{o.label}</option>
               {/each}
             </select>
-            {#if autoRefineAction === 'custom'}
+            {#if autoRefineAction !== 'off'}
+              <label class="row-label prompt-label" for="autoRefinePrompt">Prompt</label>
               <textarea
+                id="autoRefinePrompt"
                 class="custom-prompt-input"
                 bind:value={autoRefineCustomPrompt}
-                placeholder="e.g. Translate to Spanish and format as a formal letter."
+                placeholder="Tell the LLM how to transform each recording after stop."
               ></textarea>
             {/if}
             <p class="hint">When set, every recording is automatically piped through the LLM for cleanup.</p>
@@ -528,6 +548,10 @@
 
   .custom-prompt-input {
     resize: vertical; min-height: 60px; margin-top: 8px;
+  }
+
+  .prompt-label {
+    margin-top: 10px;
   }
 
   .row { display: flex; gap: 8px; }

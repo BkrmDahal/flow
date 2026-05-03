@@ -95,7 +95,7 @@ func (a *App) RefineFlowText(transcriptID, action, customPrompt string) (string,
 		Text:      finalText,
 		Timestamp: time.Now().UnixMilli(),
 	}
-	if action == RefineActionCustom {
+	if strings.TrimSpace(customPrompt) != "" {
 		ref.CustomPrompt = customPrompt
 	}
 	if err := a.appendRefinement(transcriptID, ref); err != nil {
@@ -107,12 +107,12 @@ func (a *App) RefineFlowText(transcriptID, action, customPrompt string) (string,
 }
 
 func promptFor(action, customPrompt string) string {
-	if action == RefineActionCustom {
-		s := strings.TrimSpace(customPrompt)
-		if s == "" {
-			return ""
-		}
+	s := strings.TrimSpace(customPrompt)
+	if s != "" {
 		return s + "\nOutput only the result, no preamble."
+	}
+	if action == RefineActionCustom {
+		return ""
 	}
 	return refineSystemPrompts[action]
 }

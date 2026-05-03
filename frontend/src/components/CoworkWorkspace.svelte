@@ -288,22 +288,8 @@
             </div>
           {/if}
 
-          {#if selectedSkill || agentFiles.length > 0}
+          {#if agentFiles.length > 0}
             <div class="file-preview-row">
-              {#if selectedSkill}
-                <div class="skill-chip" title={selectedSkill.description || selectedSkill.name}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-                  </svg>
-                  <span>{selectedSkill.name}</span>
-                  <button class="skill-chip-remove" on:click={clearSelectedSkill} title="Remove skill">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
-                      <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-                    </svg>
-                  </button>
-                </div>
-              {/if}
               {#each agentFiles as file, i}
                 <div class="file-chip" title={file.name}>
                   {#if isImage(file.type)}
@@ -328,15 +314,31 @@
             </div>
           {/if}
 
-          <textarea
-            bind:this={agentTextareaEl}
-            bind:value={agentInput}
-            on:keydown={handleWelcomeKeydown}
-            on:input={handleWelcomeInput}
-            placeholder="Describe a task for the agent…"
-            rows="1"
-            disabled={$coworkLoading}
-          ></textarea>
+          <div class="composer-text-row">
+            {#if selectedSkill}
+              <div class="skill-chip" title={selectedSkill.description || selectedSkill.name}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                </svg>
+                <span>{selectedSkill.name}</span>
+                <button class="skill-chip-remove" on:click={clearSelectedSkill} title="Remove skill">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                    <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                  </svg>
+                </button>
+              </div>
+            {/if}
+            <textarea
+              bind:this={agentTextareaEl}
+              bind:value={agentInput}
+              on:keydown={handleWelcomeKeydown}
+              on:input={handleWelcomeInput}
+              placeholder="Describe a task for the agent…"
+              rows="1"
+              disabled={$coworkLoading}
+            ></textarea>
+          </div>
           <div class="input-bottom">
             <div class="input-bottom-left">
               <button class="btn-attach" on:click|stopPropagation={openWelcomeFilePicker} disabled={$coworkLoading} title="Attach file">
@@ -352,6 +354,7 @@
               >
                 /
               </button>
+              <span class="input-divider"></span>
               <button
                 class="btn-toggle-parse"
                 class:active={$coworkParseDocuments}
@@ -457,10 +460,19 @@
     box-shadow: 0 0 0 3px rgba(255,255,255,0.03);
   }
 
+  .composer-text-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 14px 16px 6px;
+  }
+
   .agent-input-container textarea {
     --wails-draggable: no-drag;
     display: block;
     width: 100%;
+    flex: 1;
+    min-width: 0;
     background: transparent;
     border: none;
     outline: none;
@@ -471,7 +483,7 @@
     resize: none;
     min-height: 24px;
     max-height: 200px;
-    padding: 14px 16px 6px;
+    padding: 0;
   }
 
   .agent-input-container textarea::placeholder { color: var(--text-muted); }
@@ -499,7 +511,15 @@
   .input-bottom-left {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
+  }
+
+  .input-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 2px;
+    flex-shrink: 0;
   }
 
   .btn-toggle-parse {
@@ -668,6 +688,7 @@
     max-width: 260px;
     color: var(--accent);
     animation: chipFadeIn 0.15s ease;
+    flex-shrink: 0;
   }
 
   .skill-chip span {

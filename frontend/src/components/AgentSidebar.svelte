@@ -265,6 +265,7 @@
     background: none; border: none; border-radius: 8px;
     color: var(--text-muted); cursor: pointer;
     transition: all 0.15s ease;
+    align-self: flex-end;
   }
   .footer-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
 </style>
