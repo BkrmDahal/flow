@@ -19,18 +19,16 @@ import (
 // maxToolIterations prevents infinite loops in the agent turn.
 const maxToolIterations = 50
 
-// agentCodeFileSuffix is appended to the system prompt for agent tasks to
-// ensure generated code is always saved as files in the workspace directory.
+// agentCodeFileSuffix is appended to the system prompt for agent tasks. It
+// points the agent at write_file when the user actually wants code saved, but
+// leaves room for inline code in conversational answers.
 const agentCodeFileSuffix = `
 
-## Code Output Rules (IMPORTANT)
+## Code Output
 
-You MUST always save any code you produce as files using the write_file tool. NEVER just display code in your response without also writing it to a file.
+Use the write_file tool when the user is asking you to **build, save, or modify** something they'll run or keep — scripts, projects, config they want on disk. Pick clear filenames (e.g. "app.py", "index.html").
 
-- **Every code snippet** (scripts, configs, HTML, CSS, JSON, YAML, etc.) MUST be saved as a file with an appropriate name and extension.
-- If the user asks you to write a program, build something, or generate any code, create the file(s) first using write_file, then explain what you created.
-- Use clear, descriptive filenames (e.g. "app.py", "index.html", "schema.sql").
-- After writing files, you may still show key parts of the code in your response for explanation, but the file MUST exist.
+For conversational answers, demonstration snippets, examples in an explanation, or short edits the user just wants to read — just include the code inline in your response. Don't materialize a file every time you mention code.
 `
 
 // chatBrevitySuffix keeps replies short for chat mode.
@@ -41,18 +39,17 @@ const chatBrevitySuffix = `
 Keep your responses **short and to the point**. Be concise — no lengthy explanations, preambles, or unnecessary detail. Answer directly. Use bullet points only when listing multiple items.
 `
 
-// todoPromptSuffix instructs the agent to use todo_write for task planning.
+// todoPromptSuffix points the agent at todo_write for genuinely complex,
+// long-horizon work — without forcing it on every multi-step request.
 const todoPromptSuffix = `
 
-## Task Planning (IMPORTANT)
+## Task Planning
 
-For any multi-step task, you MUST use the todo_write tool to create a visible plan:
+The todo_write tool is available when it actually helps — use it for **complex, long-horizon work**: 5+ distinct steps, work spanning multiple files, or anything where the user benefits from seeing a live plan they can follow.
 
-1. **Before doing anything else**, call todo_write with a list of concrete, specific steps (status "pending", first one "in_progress").
-2. **As you complete each step**, call todo_write with merge=true to mark it "completed" and the next one "in_progress".
-3. **When finished**, ensure all items are "completed".
+Skip todo_write for simple requests: answering questions, single-file edits, quick fixes, lookups, or anything obvious from your output. Don't create a checklist just because the task has more than one step.
 
-Keep items short and descriptive. This gives the user real-time visibility into your progress.
+When you do use it: call todo_write up front with concrete steps, then update with merge=true as each step completes.
 `
 
 // Step is one intermediate step recorded during an agent turn.

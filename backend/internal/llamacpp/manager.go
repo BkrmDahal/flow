@@ -247,7 +247,14 @@ func (m *Manager) ensureBinary() (string, error) {
 	if path, err := exec.LookPath("llama-server"); err == nil {
 		return path, nil
 	}
-	return "", fmt.Errorf("llama-server unavailable: run scripts/fetch-llama-server.sh for packaged builds, or install llama.cpp so llama-server is on PATH")
+	// PATH lookup misses Homebrew when the app is launched from Finder, so
+	// fall back to well-known install locations.
+	for _, candidate := range []string{"/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("llama-server unavailable: run scripts/fetch-llama-server.sh for packaged builds, or install llama.cpp (e.g. `brew install llama.cpp`) so llama-server is on PATH")
 }
 
 func (m *Manager) extractBundledLibs() error {

@@ -51,7 +51,9 @@ echo "copying $SRC_BIN -> $DEST_BIN"
 cp "$SRC_BIN" "$DEST_BIN"
 chmod 0755 "$DEST_BIN"
 
-declare -A copied
+# Track copied source paths in a plain list so this script works on the
+# stock macOS bash 3.2 (no associative arrays).
+copied_keys=()
 queue=()
 
 homebrew_deps() {
@@ -62,10 +64,21 @@ homebrew_deps() {
   done
 }
 
+is_copied() {
+  local needle="$1" k
+  if ((${#copied_keys[@]} == 0)); then
+    return 1
+  fi
+  for k in "${copied_keys[@]}"; do
+    [[ "$k" == "$needle" ]] && return 0
+  done
+  return 1
+}
+
 enqueue_deps() {
   local file="$1"
   while IFS= read -r dep; do
-    if [[ -z "${copied[$dep]:-}" ]]; then
+    if ! is_copied "$dep"; then
       queue+=("$dep")
     fi
   done < <(homebrew_deps "$file")
@@ -75,26 +88,28 @@ enqueue_deps "$SRC_BIN"
 while ((${#queue[@]})); do
   dep="${queue[0]}"
   queue=("${queue[@]:1}")
-  if [[ -n "${copied[$dep]:-}" ]]; then
+  if is_copied "$dep"; then
     continue
   fi
   dest="$DEST_LIB_DIR/$(basename "$dep")"
   echo "copying $dep -> $dest"
   cp "$dep" "$dest"
   chmod 0755 "$dest"
-  copied[$dep]="$dest"
+  copied_keys+=("$dep")
   enqueue_deps "$dep"
 done
 
 rewrite_file() {
   local file="$1"
-  local args=()
+  local args=() dep
   if [[ "$file" == "$DEST_LIB_DIR"/*.dylib ]]; then
     args+=("-id" "@rpath/$(basename "$file")")
   fi
-  for dep in "${!copied[@]}"; do
-    args+=("-change" "$dep" "@rpath/$(basename "$dep")")
-  done
+  if ((${#copied_keys[@]} > 0)); then
+    for dep in "${copied_keys[@]}"; do
+      args+=("-change" "$dep" "@rpath/$(basename "$dep")")
+    done
+  fi
   if ((${#args[@]})); then
     install_name_tool "${args[@]}" "$file"
   fi

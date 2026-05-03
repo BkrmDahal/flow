@@ -28,14 +28,23 @@ type Config struct {
 	// ── Managed llama.cpp server ─────────────────────────────────────────────
 	LlamaManagedEnabled bool   `json:"llama_managed_enabled"`
 	LlamaModelPath      string `json:"llama_model_path"`
+	LlamaDownloadURL    string `json:"llama_download_url"`
 	LlamaPort           int    `json:"llama_port"`
 	LlamaContextSize    int    `json:"llama_context_size"`
 
 	// ── Cloud provider keys (agent/chat modes) ───────────────────────────────
-	AnthropicKey string `json:"anthropic_key"` // Anthropic Claude API key
-	OpenAIKey    string `json:"openai_key"`    // OpenAI API key
-	GeminiKey    string `json:"gemini_key"`    // Google Gemini API key
-	DeepgramKey  string `json:"deepgram_key"`  // Deepgram STT API key
+	AnthropicKey  string `json:"anthropic_key"`  // Anthropic Claude API key
+	OpenAIKey     string `json:"openai_key"`     // OpenAI API key
+	GeminiKey     string `json:"gemini_key"`     // Google Gemini API key
+	OpenRouterKey string `json:"openrouter_key"` // OpenRouter API key
+	DeepgramKey   string `json:"deepgram_key"`   // Deepgram STT API key
+
+	// ── Cloud provider (Settings → General → Cloud) ──────────────────────────
+	ProviderMode   string `json:"provider_mode"`    // "local" (default) | "cloud"
+	CloudProvider  string `json:"cloud_provider"`   // "" | "openai" | "anthropic" | "openrouter" | "custom"
+	CloudModel     string `json:"cloud_model"`      // model id to call
+	CustomCloudURL string `json:"custom_cloud_url"` // for cloud_provider="custom"
+	CustomCloudKey string `json:"custom_cloud_key"` // for cloud_provider="custom"
 
 	// ── Named agent configs (keyed by name, e.g. "main") ────────────────────
 	Agents map[string]AgentConfig `json:"agents,omitempty"`

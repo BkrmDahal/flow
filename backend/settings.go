@@ -19,14 +19,23 @@ type SettingsPayload struct {
 
 	LlamaManagedEnabled bool   `json:"llamaManagedEnabled"`
 	LlamaModelPath      string `json:"llamaModelPath"`
+	LlamaDownloadURL    string `json:"llamaDownloadURL"`
 	LlamaPort           int    `json:"llamaPort"`
 	LlamaContextSize    int    `json:"llamaContextSize"`
 
 	// Cloud provider keys (agent/chat)
-	AnthropicKey string `json:"anthropicKey"`
-	OpenAIKey    string `json:"openaiKey"`
-	GeminiKey    string `json:"geminiKey"`
-	DeepgramKey  string `json:"deepgramKey"`
+	AnthropicKey  string `json:"anthropicKey"`
+	OpenAIKey     string `json:"openaiKey"`
+	GeminiKey     string `json:"geminiKey"`
+	OpenRouterKey string `json:"openRouterKey"`
+	DeepgramKey   string `json:"deepgramKey"`
+
+	// Provider mode and cloud-tab selection
+	ProviderMode   string `json:"providerMode"` // "local" | "cloud"
+	CloudProvider  string `json:"cloudProvider"`
+	CloudModel     string `json:"cloudModel"`
+	CustomCloudURL string `json:"customCloudURL"`
+	CustomCloudKey string `json:"customCloudKey"`
 
 	// Hotkey
 	HotkeyEnabled  bool   `json:"hotkeyEnabled"`
@@ -134,45 +143,70 @@ func (a *App) SaveExecApprovals(allowed []string, blocked []string) error {
 	})
 }
 
-// rebuildLLMClient swaps a.llm based on the current config.
-// For Cowork / local use-case, uses NewClient (OpenAI-compat).
-// For agent tab, uses NewClientForModel (multi-provider).
+// rebuildLLMClient swaps a.llm based on the current config. The user-chosen
+// ProviderMode ("local" or "cloud") picks the primary path; the other side
+// is the fallback. Legacy agent-map config is the last resort.
 func (a *App) rebuildLLMClient() error {
 	if a.cfg == nil {
 		a.llm = nil
 		return nil
 	}
 
-	// Try building a client for the agent model first.
+	tryLocal := func() (llm.LLMClient, error) {
+		if a.cfg.Model == "" || a.cfg.BaseURL == "" {
+			return nil, fmt.Errorf("local provider not configured")
+		}
+		return llm.NewClient(a.cfg)
+	}
+	tryCloud := func() (llm.LLMClient, error) {
+		if a.cfg.CloudProvider == "" || a.cfg.CloudModel == "" {
+			return nil, fmt.Errorf("cloud provider not configured")
+		}
+		return llm.NewCloudClient(
+			a.cfg.CloudProvider, a.cfg.CloudModel,
+			a.cfg.AnthropicKey, a.cfg.OpenAIKey, a.cfg.OpenRouterKey,
+			a.cfg.CustomCloudURL, a.cfg.CustomCloudKey,
+		)
+	}
+
+	primary, fallback := tryLocal, tryCloud
+	primaryName, fallbackName := "local", "cloud"
+	if a.cfg.ProviderMode == "cloud" {
+		primary, fallback = tryCloud, tryLocal
+		primaryName, fallbackName = "cloud", "local"
+	}
+
+	if client, err := primary(); err == nil {
+		a.llm = client
+		log.Printf("flow: LLM client ready (%s provider)", primaryName)
+		return nil
+	} else {
+		log.Printf("flow: %s LLM not ready: %v", primaryName, err)
+	}
+	if client, err := fallback(); err == nil {
+		a.llm = client
+		log.Printf("flow: LLM client ready (%s provider, fallback)", fallbackName)
+		return nil
+	} else {
+		log.Printf("flow: %s LLM not ready: %v", fallbackName, err)
+	}
+
+	// Last resort: legacy agent-map model.
 	agentModel := ""
 	if a.cfg.Agents != nil {
 		if ac, ok := a.cfg.Agents["main"]; ok {
 			agentModel = ac.Model
 		}
 	}
-
 	if agentModel != "" {
-		client, err := llm.NewClientForModel(agentModel, a.cfg.AnthropicKey, a.cfg.OpenAIKey, a.cfg.GeminiKey)
-		if err == nil {
+		if client, err := llm.NewClientForModel(agentModel, a.cfg.AnthropicKey, a.cfg.OpenAIKey, a.cfg.GeminiKey); err == nil {
 			a.llm = client
-			log.Printf("flow: LLM client ready for agent (model=%q)", agentModel)
+			log.Printf("flow: LLM client ready (agent model=%q)", agentModel)
 			return nil
 		}
-		log.Printf("flow: agent LLM not ready: %v", err)
 	}
 
-	// Fall back to the Cowork local/OpenAI-compat client.
-	if a.cfg.Model == "" || a.cfg.BaseURL == "" {
-		a.llm = nil
-		return nil
-	}
-	client, err := llm.NewClient(a.cfg)
-	if err != nil {
-		a.llm = nil
-		return err
-	}
-	a.llm = client
-	log.Printf("flow: LLM client ready (provider=%q model=%q)", a.cfg.ProviderLabel, a.cfg.Model)
+	a.llm = nil
 	return nil
 }
 
@@ -185,12 +219,19 @@ func toPayload(c *config.Config) *SettingsPayload {
 		Model:                  c.Model,
 		LlamaManagedEnabled:    c.LlamaManagedEnabled,
 		LlamaModelPath:         c.LlamaModelPath,
+		LlamaDownloadURL:       c.LlamaDownloadURL,
 		LlamaPort:              c.LlamaPort,
 		LlamaContextSize:       c.LlamaContextSize,
 		AnthropicKey:           c.AnthropicKey,
 		OpenAIKey:              c.OpenAIKey,
 		GeminiKey:              c.GeminiKey,
+		OpenRouterKey:          c.OpenRouterKey,
 		DeepgramKey:            c.DeepgramKey,
+		ProviderMode:           c.ProviderMode,
+		CloudProvider:          c.CloudProvider,
+		CloudModel:             c.CloudModel,
+		CustomCloudURL:         c.CustomCloudURL,
+		CustomCloudKey:         c.CustomCloudKey,
 		HotkeyEnabled:          c.HotkeyEnabled,
 		HotkeyModifier:         c.HotkeyModifier,
 		SpeechProvider:         c.SpeechProvider,
@@ -212,12 +253,19 @@ func fromPayload(p SettingsPayload) *config.Config {
 		Model:                  p.Model,
 		LlamaManagedEnabled:    p.LlamaManagedEnabled,
 		LlamaModelPath:         p.LlamaModelPath,
+		LlamaDownloadURL:       p.LlamaDownloadURL,
 		LlamaPort:              p.LlamaPort,
 		LlamaContextSize:       p.LlamaContextSize,
 		AnthropicKey:           p.AnthropicKey,
 		OpenAIKey:              p.OpenAIKey,
 		GeminiKey:              p.GeminiKey,
+		OpenRouterKey:          p.OpenRouterKey,
 		DeepgramKey:            p.DeepgramKey,
+		ProviderMode:           p.ProviderMode,
+		CloudProvider:          p.CloudProvider,
+		CloudModel:             p.CloudModel,
+		CustomCloudURL:         p.CustomCloudURL,
+		CustomCloudKey:         p.CustomCloudKey,
 		HotkeyEnabled:          p.HotkeyEnabled,
 		HotkeyModifier:         p.HotkeyModifier,
 		SpeechProvider:         p.SpeechProvider,

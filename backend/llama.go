@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/user/flow/backend/internal/config"
 	"github.com/user/flow/backend/internal/llamacpp"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -220,6 +221,14 @@ func (a *App) DownloadLlamaModel(rawURL string) (string, error) {
 		_ = os.Remove(tmpPath)
 		a.emitDownloadProgress("error", downloaded, total, filename, err.Error())
 		return "", fmt.Errorf("rename: %w", err)
+	}
+
+	// Persist so reopening the settings modal shows the last-used URL and path
+	// without the user having to click Save.
+	if a.cfg != nil {
+		a.cfg.LlamaModelPath = destPath
+		a.cfg.LlamaDownloadURL = downloadURL
+		_ = config.Save(a.baseDir, a.cfg)
 	}
 
 	a.emitDownloadProgress("done", downloaded, total, filename, "")

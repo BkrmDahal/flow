@@ -7,9 +7,9 @@
 
   const PRESETS = [
     { id: 'lmstudio', label: 'LM Studio', baseUrl: 'http://localhost:1234/v1', apiKey: 'lm-studio' },
-    { id: 'llamacpp', label: 'llama.cpp', baseUrl: 'http://127.0.0.1:8080/v1', apiKey: '' },
     { id: 'custom',   label: 'Custom',    baseUrl: '',                          apiKey: '' },
   ]
+  const LLAMA_MANAGED_LABEL = 'llama.cpp (managed)'
 
   const REFINE_OPTIONS = [
     { value: 'off',       label: 'Off' },
@@ -66,6 +66,13 @@
   // ── Tab state ──
   let activeTab = 'general' // 'general' | 'voice' | 'hotkeys'
 
+  const CLOUD_PROVIDERS = [
+    { id: 'openai',     label: 'OpenAI',     keyPlaceholder: 'sk-...',     modelPlaceholder: 'gpt-4o-mini' },
+    { id: 'anthropic',  label: 'Claude',     keyPlaceholder: 'sk-ant-...', modelPlaceholder: 'claude-sonnet-4-5-20250929' },
+    { id: 'openrouter', label: 'OpenRouter', keyPlaceholder: 'sk-or-...',  modelPlaceholder: 'anthropic/claude-sonnet-4.5' },
+    { id: 'custom',     label: 'Custom',     keyPlaceholder: '',           modelPlaceholder: '' },
+  ]
+
   // ── General / model settings ──
   let providerLabel = 'LM Studio'
   let baseUrl = 'http://localhost:1234/v1'
@@ -93,6 +100,18 @@
   let llamaDownloadDownloaded = 0
   let llamaDownloadTotal = 0
 
+  // ── Cloud settings ──
+  let providerMode = 'local'  // 'local' | 'cloud'
+  let cloudProvider = 'openai'  // 'openai' | 'anthropic' | 'openrouter' | 'custom'
+  let cloudModel = ''
+  let openaiKey = ''
+  let anthropicKey = ''
+  let openRouterKey = ''
+  let customCloudURL = ''
+  let customCloudKey = ''
+  let cloudTestStatus = ''
+  let cloudTestMessage = ''
+
   // ── Voice settings ──
   let speechProvider = 'local'
   let speechApiKey = ''
@@ -105,7 +124,7 @@
   let hotkeyModifier = 'right_option'
   let hotkeyListening = false
 
-  $: presetId = derivePreset(providerLabel)
+  let basePresetId = 'lmstudio'
 
   function derivePreset(label) {
     const match = PRESETS.find((p) => p.label === label)
@@ -115,15 +134,25 @@
   function applyPreset(id) {
     const p = PRESETS.find((x) => x.id === id)
     if (!p) return
-    providerLabel = p.label
-    llamaManagedEnabled = p.id === 'llamacpp'
+    basePresetId = p.id
+    if (!llamaManagedEnabled) providerLabel = p.label
     if (p.id !== 'custom') {
       baseUrl = p.baseUrl
       apiKey = p.apiKey
     }
-    if (p.id === 'llamacpp') {
-      baseUrl = `http://127.0.0.1:${llamaPort || 8080}/v1`
+  }
+
+  function setManagedLlama(enabled) {
+    llamaManagedEnabled = enabled
+    if (enabled) {
+      providerLabel = LLAMA_MANAGED_LABEL
+      baseUrl = `http://127.0.0.1:${Number(llamaPort) || 8080}/v1`
       apiKey = ''
+    } else {
+      const fallback = PRESETS.find((x) => x.id === basePresetId) || PRESETS[0]
+      providerLabel = fallback.label
+      baseUrl = fallback.baseUrl
+      apiKey = fallback.apiKey
     }
   }
 
@@ -170,8 +199,10 @@
       baseUrl           = s.baseUrl           || 'http://localhost:1234/v1'
       apiKey            = s.apiKey            || ''
       model             = s.model             || ''
-      llamaManagedEnabled = s.llamaManagedEnabled || providerLabel === 'llama.cpp'
+      llamaManagedEnabled = s.llamaManagedEnabled || providerLabel === 'llama.cpp' || providerLabel === LLAMA_MANAGED_LABEL
+      basePresetId = llamaManagedEnabled ? 'lmstudio' : derivePreset(providerLabel)
       llamaModelPath    = s.llamaModelPath    || ''
+      llamaDownloadURL  = s.llamaDownloadURL  || ''
       llamaPort         = s.llamaPort         || 8080
       llamaContextSize  = s.llamaContextSize  || 4096
       autoRefineAction  = s.autoRefineAction  || 'off'
@@ -184,6 +215,14 @@
       speechModel       = s.speechModel       || (speechProvider === 'local' ? 'base.en' : 'gpt-4o-mini-transcribe')
       speechLanguage    = s.speechLanguage    || 'en'
       speechPrompt      = s.speechPrompt      || ''
+      providerMode      = s.providerMode      || 'local'
+      cloudProvider     = s.cloudProvider     || 'openai'
+      cloudModel        = s.cloudModel        || ''
+      openaiKey         = s.openaiKey         || ''
+      anthropicKey      = s.anthropicKey      || ''
+      openRouterKey     = s.openRouterKey     || ''
+      customCloudURL    = s.customCloudURL    || ''
+      customCloudKey    = s.customCloudKey    || ''
       if (llamaManagedEnabled) baseUrl = `http://127.0.0.1:${llamaPort}/v1`
       await refreshLlamaStatus()
     } catch (e) {
@@ -231,7 +270,6 @@
       if (path) {
         llamaModelPath = path
         llamaMessage = `Downloaded ${llamaDownloadFilename || 'model'}`
-        llamaDownloadURL = ''
       }
     } catch (e) {
       llamaError = String(e?.message ?? e)
@@ -314,6 +352,53 @@
     }
   }
 
+  // ── Cloud-tab helpers ──
+  function cloudKeyFor(p) {
+    if (p === 'openai')     return openaiKey
+    if (p === 'anthropic')  return anthropicKey
+    if (p === 'openrouter') return openRouterKey
+    if (p === 'custom')     return customCloudKey
+    return ''
+  }
+
+  async function testCloudConnection() {
+    cloudTestStatus = 'testing'
+    cloudTestMessage = ''
+    if (!cloudProvider) {
+      cloudTestStatus = 'err'
+      cloudTestMessage = 'Pick a provider first'
+      return
+    }
+    if (!cloudKeyFor(cloudProvider)) {
+      cloudTestStatus = 'err'
+      cloudTestMessage = 'API key required'
+      return
+    }
+    // Anthropic doesn't expose /v1/models in OpenAI shape — skip live check.
+    if (cloudProvider === 'anthropic') {
+      cloudTestStatus = 'ok'
+      cloudTestMessage = 'Key set (live check not supported for Anthropic)'
+      return
+    }
+    let url = ''
+    if (cloudProvider === 'openai')     url = 'https://api.openai.com/v1'
+    if (cloudProvider === 'openrouter') url = 'https://openrouter.ai/api/v1'
+    if (cloudProvider === 'custom')     url = customCloudURL.replace(/\/chat\/completions$/, '')
+    if (!url) {
+      cloudTestStatus = 'err'
+      cloudTestMessage = 'Custom URL required'
+      return
+    }
+    try {
+      const list = await Backend.ListLocalModels(url, cloudKeyFor(cloudProvider))
+      cloudTestStatus = 'ok'
+      cloudTestMessage = `${(list ?? []).length} model${(list ?? []).length === 1 ? '' : 's'} available`
+    } catch (e) {
+      cloudTestStatus = 'err'
+      cloudTestMessage = String(e?.message ?? e)
+    }
+  }
+
   async function save() {
     saving = true
     saveError = ''
@@ -326,6 +411,7 @@
         model,
         llamaManagedEnabled,
         llamaModelPath,
+        llamaDownloadURL,
         llamaPort: Number(llamaPort) || 8080,
         llamaContextSize: Number(llamaContextSize) || 4096,
         hotkeyEnabled,
@@ -337,6 +423,14 @@
         speechPrompt,
         autoRefineAction,
         autoRefineCustomPrompt,
+        providerMode,
+        cloudProvider,
+        cloudModel,
+        openaiKey,
+        anthropicKey,
+        openRouterKey,
+        customCloudURL,
+        customCloudKey,
       })
       // Notify other components (e.g. FlowPanel banner) that settings changed.
       window.dispatchEvent(new CustomEvent('flow:settings-saved'))
@@ -406,11 +500,56 @@
         <!-- ── General Tab ── -->
         {#if activeTab === 'general'}
           <section>
+            <span class="row-label">Provider Mode</span>
+            <div class="segmented" role="tablist" aria-label="Provider mode">
+              <button
+                class="segment"
+                class:segment-active={providerMode === 'local'}
+                on:click={() => providerMode = 'local'}
+                type="button" role="tab" aria-selected={providerMode === 'local'}
+              >Local</button>
+              <button
+                class="segment"
+                class:segment-active={providerMode === 'cloud'}
+                on:click={() => providerMode = 'cloud'}
+                type="button" role="tab" aria-selected={providerMode === 'cloud'}
+              >Cloud</button>
+            </div>
+          </section>
+
+          {#if providerMode === 'local'}
+          <section>
             <span class="row-label">Provider</span>
-            <div class="presets">
+            <div class="segmented" class:segmented-disabled={llamaManagedEnabled} role="tablist" aria-label="Provider preset">
               {#each PRESETS as p}
-                <button class="preset" class:active={presetId === p.id} on:click={() => applyPreset(p.id)}>{p.label}</button>
+                <button
+                  class="segment"
+                  class:segment-active={basePresetId === p.id}
+                  on:click={() => applyPreset(p.id)}
+                  disabled={llamaManagedEnabled}
+                  type="button"
+                  role="tab"
+                  aria-selected={basePresetId === p.id}
+                >{p.label}</button>
               {/each}
+            </div>
+
+            <div class="managed-toggle-row">
+              <div class="managed-toggle-text">
+                <span class="managed-toggle-title">Run llama.cpp locally (managed)</span>
+                <p class="hint">Flow downloads and starts llama-server for you.</p>
+              </div>
+              <button
+                class="toggle-switch"
+                class:toggle-active={llamaManagedEnabled}
+                on:click={() => setManagedLlama(!llamaManagedEnabled)}
+                type="button"
+                role="switch"
+                aria-checked={llamaManagedEnabled}
+                aria-label="Run llama.cpp locally (managed)"
+              >
+                <span class="toggle-knob"></span>
+              </button>
             </div>
           </section>
 
@@ -499,12 +638,15 @@
                 <pre class="llama-log">{llamaStatus.logExcerpt}</pre>
               {/if}
             </section>
-          {:else}
-            <section>
-              <label class="row-label" for="apiKey">API key (optional)</label>
-              <input id="apiKey" type="password" bind:value={apiKey} placeholder="lm-studio" />
-            </section>
           {/if}
+
+          <section>
+            <label class="row-label" for="apiKey">API key (optional)</label>
+            <input id="apiKey" type="password" bind:value={apiKey} placeholder="lm-studio" disabled={llamaManagedEnabled} />
+            {#if llamaManagedEnabled}
+              <p class="hint">Not used in managed mode.</p>
+            {/if}
+          </section>
 
           <section>
             <label class="row-label" for="modelSelect">Model</label>
@@ -530,6 +672,64 @@
               <div class="feedback err">✗ {testMessage}</div>
             {/if}
           </section>
+          {/if}
+
+          {#if providerMode === 'cloud'}
+          <section>
+            <label class="row-label" for="cloudProvider">Cloud Provider</label>
+            <select id="cloudProvider" bind:value={cloudProvider}>
+              {#each CLOUD_PROVIDERS as p}
+                <option value={p.id}>{p.label}</option>
+              {/each}
+            </select>
+          </section>
+
+          {#if cloudProvider === 'openai'}
+            <section>
+              <label class="row-label" for="cloudOpenAIKey">OpenAI API Key</label>
+              <input id="cloudOpenAIKey" type="password" bind:value={openaiKey} placeholder="sk-..." />
+            </section>
+          {:else if cloudProvider === 'anthropic'}
+            <section>
+              <label class="row-label" for="cloudAnthropicKey">Anthropic API Key</label>
+              <input id="cloudAnthropicKey" type="password" bind:value={anthropicKey} placeholder="sk-ant-..." />
+            </section>
+          {:else if cloudProvider === 'openrouter'}
+            <section>
+              <label class="row-label" for="cloudOpenRouterKey">OpenRouter API Key</label>
+              <input id="cloudOpenRouterKey" type="password" bind:value={openRouterKey} placeholder="sk-or-..." />
+            </section>
+          {:else if cloudProvider === 'custom'}
+            <section>
+              <label class="row-label" for="cloudCustomURL">Base URL</label>
+              <input id="cloudCustomURL" type="text" bind:value={customCloudURL} placeholder="https://example.com/v1" />
+            </section>
+            <section>
+              <label class="row-label" for="cloudCustomKey">API Key</label>
+              <input id="cloudCustomKey" type="password" bind:value={customCloudKey} placeholder="optional" />
+            </section>
+          {/if}
+
+          <section>
+            <label class="row-label" for="cloudModel">Model</label>
+            <div class="row">
+              <input
+                id="cloudModel"
+                type="text"
+                bind:value={cloudModel}
+                placeholder={(CLOUD_PROVIDERS.find(p => p.id === cloudProvider) || {}).modelPlaceholder || ''}
+              />
+              <button class="secondary" on:click={testCloudConnection} disabled={cloudTestStatus === 'testing'}>
+                {cloudTestStatus === 'testing' ? 'Testing…' : 'Test connection'}
+              </button>
+            </div>
+            {#if cloudTestStatus === 'ok'}
+              <div class="feedback ok">✓ {cloudTestMessage}</div>
+            {:else if cloudTestStatus === 'err'}
+              <div class="feedback err">✗ {cloudTestMessage}</div>
+            {/if}
+          </section>
+          {/if}
 
           <section>
             <label class="row-label" for="autoRefine">Auto-refine on stop</label>
@@ -761,14 +961,57 @@
     letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 8px;
   }
 
-  .presets { display: flex; gap: 8px; }
-  .preset {
-    flex: 1; background: var(--bg-card); color: var(--text-secondary);
-    border: 1px solid var(--border-subtle); padding: 8px 10px;
-    border-radius: var(--radius-sm); font-size: 13px; transition: all 0.12s;
+  .segmented {
+    display: flex;
+    gap: 0;
+    padding: 3px;
+    background: var(--bg-app);
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    transition: opacity 0.15s ease;
   }
-  .preset:hover { background: var(--bg-hover); }
-  .preset.active { background: var(--bg-elevated); border-color: var(--accent); color: var(--text-primary); }
+  .segmented.segmented-disabled { opacity: 0.5; pointer-events: none; }
+  .segment {
+    flex: 1;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+  }
+  .segment:hover:not(.segment-active) { color: var(--text-secondary); }
+  .segment-active {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25), inset 0 0 0 1px var(--accent);
+  }
+  .segment:disabled { cursor: default; }
+
+  .managed-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+  }
+  .managed-toggle-text { min-width: 0; }
+  .managed-toggle-title {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+  .managed-toggle-text .hint { margin-top: 2px; }
 
   input, select, textarea {
     width: 100%; background: var(--bg-app); color: var(--text-primary);
