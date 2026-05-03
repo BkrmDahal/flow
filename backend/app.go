@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/user/flow/backend/internal/config"
+	"github.com/user/flow/backend/internal/llamacpp"
 	"github.com/user/flow/backend/internal/llm"
 	"github.com/user/flow/backend/internal/session"
 	"github.com/user/flow/backend/internal/speech"
@@ -23,6 +24,7 @@ type App struct {
 	baseDir string
 	cfg     *config.Config
 	llm     llm.LLMClient
+	llama   *llamacpp.Manager
 
 	// Agent / session infrastructure
 	sessionMgr *session.Manager
@@ -55,6 +57,7 @@ func (a *App) Startup(ctx context.Context) {
 		return
 	}
 	a.cfg = cfg
+	a.llama = llamacpp.NewManager(base)
 
 	// Initialise session manager.
 	a.sessionMgr = session.NewManager(base)
@@ -90,6 +93,11 @@ func (a *App) Startup(ctx context.Context) {
 func (a *App) Shutdown(ctx context.Context) {
 	if speech.IsDictationEnabled() {
 		speech.TeardownDictation()
+	}
+	if a.llama != nil {
+		if err := a.llama.Stop(); err != nil {
+			log.Printf("flow: stop llama-server failed: %v", err)
+		}
 	}
 	speech.HideMenuBarIcon()
 	log.Println("flow: shutdown")

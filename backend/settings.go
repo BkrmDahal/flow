@@ -17,6 +17,11 @@ type SettingsPayload struct {
 	APIKey        string `json:"apiKey"`
 	Model         string `json:"model"`
 
+	LlamaManagedEnabled bool   `json:"llamaManagedEnabled"`
+	LlamaModelPath      string `json:"llamaModelPath"`
+	LlamaPort           int    `json:"llamaPort"`
+	LlamaContextSize    int    `json:"llamaContextSize"`
+
 	// Cloud provider keys (agent/chat)
 	AnthropicKey string `json:"anthropicKey"`
 	OpenAIKey    string `json:"openaiKey"`
@@ -56,6 +61,13 @@ func (a *App) SaveSettings(p SettingsPayload) error {
 	oldHotkeyEnabled := a.cfg != nil && a.cfg.HotkeyEnabled
 
 	cfg := fromPayload(p)
+	if cfg.LlamaManagedEnabled {
+		if cfg.LlamaPort == 0 {
+			cfg.LlamaPort = 8080
+		}
+		cfg.BaseURL = fmt.Sprintf("http://127.0.0.1:%d/v1", cfg.LlamaPort)
+		cfg.APIKey = ""
+	}
 	// Preserve existing agents config — settings panel doesn't touch it.
 	if a.cfg != nil && a.cfg.Agents != nil {
 		cfg.Agents = a.cfg.Agents
@@ -166,21 +178,25 @@ func (a *App) rebuildLLMClient() error {
 
 func toPayload(c *config.Config) *SettingsPayload {
 	return &SettingsPayload{
-		ProviderType:     c.ProviderType,
-		ProviderLabel:    c.ProviderLabel,
-		BaseURL:          c.BaseURL,
-		APIKey:           c.APIKey,
-		Model:            c.Model,
-		AnthropicKey:     c.AnthropicKey,
-		OpenAIKey:        c.OpenAIKey,
-		GeminiKey:        c.GeminiKey,
-		DeepgramKey:      c.DeepgramKey,
-		HotkeyEnabled:    c.HotkeyEnabled,
-		HotkeyModifier:   c.HotkeyModifier,
-		SpeechProvider:   c.SpeechProvider,
-		SpeechAPIKey:     c.SpeechAPIKey,
-		SpeechModel:      c.SpeechModel,
-		SpeechLanguage:   c.SpeechLanguage,
+		ProviderType:           c.ProviderType,
+		ProviderLabel:          c.ProviderLabel,
+		BaseURL:                c.BaseURL,
+		APIKey:                 c.APIKey,
+		Model:                  c.Model,
+		LlamaManagedEnabled:    c.LlamaManagedEnabled,
+		LlamaModelPath:         c.LlamaModelPath,
+		LlamaPort:              c.LlamaPort,
+		LlamaContextSize:       c.LlamaContextSize,
+		AnthropicKey:           c.AnthropicKey,
+		OpenAIKey:              c.OpenAIKey,
+		GeminiKey:              c.GeminiKey,
+		DeepgramKey:            c.DeepgramKey,
+		HotkeyEnabled:          c.HotkeyEnabled,
+		HotkeyModifier:         c.HotkeyModifier,
+		SpeechProvider:         c.SpeechProvider,
+		SpeechAPIKey:           c.SpeechAPIKey,
+		SpeechModel:            c.SpeechModel,
+		SpeechLanguage:         c.SpeechLanguage,
 		SpeechPrompt:           c.SpeechPrompt,
 		AutoRefineAction:       c.AutoRefineAction,
 		AutoRefineCustomPrompt: c.AutoRefineCustomPrompt,
@@ -189,21 +205,25 @@ func toPayload(c *config.Config) *SettingsPayload {
 
 func fromPayload(p SettingsPayload) *config.Config {
 	return &config.Config{
-		ProviderType:     p.ProviderType,
-		ProviderLabel:    p.ProviderLabel,
-		BaseURL:          p.BaseURL,
-		APIKey:           p.APIKey,
-		Model:            p.Model,
-		AnthropicKey:     p.AnthropicKey,
-		OpenAIKey:        p.OpenAIKey,
-		GeminiKey:        p.GeminiKey,
-		DeepgramKey:      p.DeepgramKey,
-		HotkeyEnabled:    p.HotkeyEnabled,
-		HotkeyModifier:   p.HotkeyModifier,
-		SpeechProvider:   p.SpeechProvider,
-		SpeechAPIKey:     p.SpeechAPIKey,
-		SpeechModel:      p.SpeechModel,
-		SpeechLanguage:   p.SpeechLanguage,
+		ProviderType:           p.ProviderType,
+		ProviderLabel:          p.ProviderLabel,
+		BaseURL:                p.BaseURL,
+		APIKey:                 p.APIKey,
+		Model:                  p.Model,
+		LlamaManagedEnabled:    p.LlamaManagedEnabled,
+		LlamaModelPath:         p.LlamaModelPath,
+		LlamaPort:              p.LlamaPort,
+		LlamaContextSize:       p.LlamaContextSize,
+		AnthropicKey:           p.AnthropicKey,
+		OpenAIKey:              p.OpenAIKey,
+		GeminiKey:              p.GeminiKey,
+		DeepgramKey:            p.DeepgramKey,
+		HotkeyEnabled:          p.HotkeyEnabled,
+		HotkeyModifier:         p.HotkeyModifier,
+		SpeechProvider:         p.SpeechProvider,
+		SpeechAPIKey:           p.SpeechAPIKey,
+		SpeechModel:            p.SpeechModel,
+		SpeechLanguage:         p.SpeechLanguage,
 		SpeechPrompt:           p.SpeechPrompt,
 		AutoRefineAction:       p.AutoRefineAction,
 		AutoRefineCustomPrompt: p.AutoRefineCustomPrompt,

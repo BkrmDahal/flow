@@ -25,11 +25,17 @@ type Config struct {
 	APIKey        string `json:"api_key"`        // API key for OpenAI-compat providers
 	Model         string `json:"model"`          // model id for Cowork
 
+	// ── Managed llama.cpp server ─────────────────────────────────────────────
+	LlamaManagedEnabled bool   `json:"llama_managed_enabled"`
+	LlamaModelPath      string `json:"llama_model_path"`
+	LlamaPort           int    `json:"llama_port"`
+	LlamaContextSize    int    `json:"llama_context_size"`
+
 	// ── Cloud provider keys (agent/chat modes) ───────────────────────────────
 	AnthropicKey string `json:"anthropic_key"` // Anthropic Claude API key
 	OpenAIKey    string `json:"openai_key"`    // OpenAI API key
 	GeminiKey    string `json:"gemini_key"`    // Google Gemini API key
-	DeepgramKey  string `json:"deepgram_key"` // Deepgram STT API key
+	DeepgramKey  string `json:"deepgram_key"`  // Deepgram STT API key
 
 	// ── Named agent configs (keyed by name, e.g. "main") ────────────────────
 	Agents map[string]AgentConfig `json:"agents,omitempty"`
@@ -90,6 +96,8 @@ func Bootstrap() (string, error) {
 			BaseURL:          "http://localhost:1234/v1",
 			APIKey:           "lm-studio",
 			Model:            "",
+			LlamaPort:        8080,
+			LlamaContextSize: 4096,
 			HotkeyEnabled:    false,
 			HotkeyModifier:   "right_option",
 			SpeechProvider:   "local",
@@ -174,6 +182,12 @@ func Load(base string) (*Config, error) {
 
 	if cfg.ProviderType == "" {
 		cfg.ProviderType = "local-openai"
+	}
+	if cfg.LlamaPort == 0 {
+		cfg.LlamaPort = 8080
+	}
+	if cfg.LlamaContextSize == 0 {
+		cfg.LlamaContextSize = 4096
 	}
 	if cfg.HotkeyModifier == "" {
 		cfg.HotkeyModifier = "right_option"

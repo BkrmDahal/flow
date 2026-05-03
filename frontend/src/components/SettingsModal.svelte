@@ -1,13 +1,13 @@
 <script>
-  import { onMount, onDestroy } from 'svelte'
-  import { Backend } from '../lib/wails.js'
+  import { onDestroy } from 'svelte'
+  import { Backend, Events } from '../lib/wails.js'
 
   export let open = false
   export let onClose = () => {}
 
   const PRESETS = [
     { id: 'lmstudio', label: 'LM Studio', baseUrl: 'http://localhost:1234/v1', apiKey: 'lm-studio' },
-    { id: 'llamacpp', label: 'llama.cpp', baseUrl: 'http://localhost:8080/v1', apiKey: '' },
+    { id: 'llamacpp', label: 'llama.cpp', baseUrl: 'http://127.0.0.1:8080/v1', apiKey: '' },
     { id: 'custom',   label: 'Custom',    baseUrl: '',                          apiKey: '' },
   ]
 
@@ -79,6 +79,19 @@
   let lastAutoRefineAction = 'off'
   let saving = false
   let saveError = ''
+  let llamaManagedEnabled = false
+  let llamaModelPath = ''
+  let llamaPort = 8080
+  let llamaContextSize = 4096
+  let llamaStatus = { state: 'stopped', running: false, baseUrl: 'http://127.0.0.1:8080/v1', port: 8080 }
+  let llamaBusy = false
+  let llamaMessage = ''
+  let llamaError = ''
+  let llamaDownloadURL = ''
+  let llamaDownloading = false
+  let llamaDownloadFilename = ''
+  let llamaDownloadDownloaded = 0
+  let llamaDownloadTotal = 0
 
   // ── Voice settings ──
   let speechProvider = 'local'
@@ -103,9 +116,14 @@
     const p = PRESETS.find((x) => x.id === id)
     if (!p) return
     providerLabel = p.label
+    llamaManagedEnabled = p.id === 'llamacpp'
     if (p.id !== 'custom') {
       baseUrl = p.baseUrl
       apiKey = p.apiKey
+    }
+    if (p.id === 'llamacpp') {
+      baseUrl = `http://127.0.0.1:${llamaPort || 8080}/v1`
+      apiKey = ''
     }
   }
 
@@ -152,6 +170,10 @@
       baseUrl           = s.baseUrl           || 'http://localhost:1234/v1'
       apiKey            = s.apiKey            || ''
       model             = s.model             || ''
+      llamaManagedEnabled = s.llamaManagedEnabled || providerLabel === 'llama.cpp'
+      llamaModelPath    = s.llamaModelPath    || ''
+      llamaPort         = s.llamaPort         || 8080
+      llamaContextSize  = s.llamaContextSize  || 4096
       autoRefineAction  = s.autoRefineAction  || 'off'
       autoRefineCustomPrompt = s.autoRefineCustomPrompt || REFINE_PROMPTS[autoRefineAction] || ''
       lastAutoRefineAction = autoRefineAction
@@ -162,8 +184,117 @@
       speechModel       = s.speechModel       || (speechProvider === 'local' ? 'base.en' : 'gpt-4o-mini-transcribe')
       speechLanguage    = s.speechLanguage    || 'en'
       speechPrompt      = s.speechPrompt      || ''
+      if (llamaManagedEnabled) baseUrl = `http://127.0.0.1:${llamaPort}/v1`
+      await refreshLlamaStatus()
     } catch (e) {
       console.warn('GetSettings failed:', e)
+    }
+  }
+
+  async function refreshLlamaStatus() {
+    try {
+      llamaStatus = await Backend.GetLlamaServerStatus()
+      if (llamaStatus?.running && llamaStatus?.baseUrl && llamaManagedEnabled) {
+        baseUrl = llamaStatus.baseUrl
+      }
+    } catch (e) {
+      console.warn('GetLlamaServerStatus failed:', e)
+    }
+  }
+
+  function formatBytes(n) {
+    if (!n || n <= 0) return ''
+    const units = ['B', 'KB', 'MB', 'GB']
+    let i = 0
+    let v = n
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+    return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`
+  }
+
+  $: llamaDownloadPercent = llamaDownloadTotal > 0
+    ? Math.min(100, Math.floor((llamaDownloadDownloaded / llamaDownloadTotal) * 100))
+    : 0
+
+  async function downloadLlamaModel() {
+    llamaError = ''
+    llamaMessage = ''
+    if (!llamaDownloadURL.trim()) {
+      llamaError = 'Paste a Hugging Face GGUF URL first'
+      return
+    }
+    llamaDownloading = true
+    llamaDownloadDownloaded = 0
+    llamaDownloadTotal = 0
+    llamaDownloadFilename = ''
+    try {
+      const path = await Backend.DownloadLlamaModel(llamaDownloadURL.trim())
+      if (path) {
+        llamaModelPath = path
+        llamaMessage = `Downloaded ${llamaDownloadFilename || 'model'}`
+        llamaDownloadURL = ''
+      }
+    } catch (e) {
+      llamaError = String(e?.message ?? e)
+    } finally {
+      llamaDownloading = false
+    }
+  }
+
+  function handleDownloadProgress(payload) {
+    if (!payload) return
+    if (payload.filename) llamaDownloadFilename = payload.filename
+    if (typeof payload.downloaded === 'number') llamaDownloadDownloaded = payload.downloaded
+    if (typeof payload.total === 'number') llamaDownloadTotal = payload.total
+  }
+
+  async function chooseLlamaModel() {
+    llamaError = ''
+    try {
+      const path = await Backend.PickLlamaModel()
+      if (path) llamaModelPath = path
+    } catch (e) {
+      llamaError = String(e?.message ?? e)
+    }
+  }
+
+  async function startLlamaServer() {
+    llamaBusy = true
+    llamaError = ''
+    llamaMessage = 'Starting llama.cpp...'
+    try {
+      const result = await Backend.StartLlamaServer(llamaModelPath, Number(llamaPort) || 8080, Number(llamaContextSize) || 4096)
+      llamaStatus = result?.status || llamaStatus
+      availableModels = result?.models ?? []
+      baseUrl = llamaStatus?.baseUrl || `http://127.0.0.1:${llamaPort || 8080}/v1`
+      apiKey = ''
+      if (!model && availableModels.length > 0) model = availableModels[0].id
+      if (availableModels.length === 1 && (!model || model === '')) model = availableModels[0].id
+      llamaMessage = `${availableModels.length} model${availableModels.length === 1 ? '' : 's'} available`
+      testStatus = 'ok'
+      testMessage = llamaMessage
+    } catch (e) {
+      llamaError = String(e?.message ?? e)
+      testStatus = 'err'
+      testMessage = llamaError
+      availableModels = []
+      await refreshLlamaStatus()
+    } finally {
+      llamaBusy = false
+    }
+  }
+
+  async function stopLlamaServer() {
+    llamaBusy = true
+    llamaError = ''
+    llamaMessage = ''
+    try {
+      llamaStatus = await Backend.StopLlamaServer()
+      testStatus = ''
+      testMessage = ''
+    } catch (e) {
+      llamaError = String(e?.message ?? e)
+    } finally {
+      llamaBusy = false
     }
   }
 
@@ -193,6 +324,10 @@
         baseUrl,
         apiKey,
         model,
+        llamaManagedEnabled,
+        llamaModelPath,
+        llamaPort: Number(llamaPort) || 8080,
+        llamaContextSize: Number(llamaContextSize) || 4096,
         hotkeyEnabled,
         hotkeyModifier,
         speechProvider,
@@ -227,10 +362,23 @@
     lastAutoRefineAction = autoRefineAction
   }
 
-  $: if (open) { loadSettings(); activeTab = 'general' }
+  $: if (llamaManagedEnabled) {
+    baseUrl = `http://127.0.0.1:${Number(llamaPort) || 8080}/v1`
+    apiKey = ''
+  }
+
+  $: if (open) {
+    loadSettings()
+    activeTab = 'general'
+    Events.on('flow:llama:download:progress', handleDownloadProgress)
+  }
+  $: if (!open) {
+    Events.off?.('flow:llama:download:progress')
+  }
 
   onDestroy(() => {
     window.removeEventListener('keydown', windowHotkeyHandler, true)
+    Events.off?.('flow:llama:download:progress')
   })
 </script>
 
@@ -268,13 +416,95 @@
 
           <section>
             <label class="row-label" for="baseUrl">Base URL</label>
-            <input id="baseUrl" type="text" bind:value={baseUrl} placeholder="http://localhost:1234/v1" />
+            <input id="baseUrl" type="text" bind:value={baseUrl} placeholder="http://localhost:1234/v1" readonly={llamaManagedEnabled} />
           </section>
 
-          <section>
-            <label class="row-label" for="apiKey">API key (optional)</label>
-            <input id="apiKey" type="password" bind:value={apiKey} placeholder="lm-studio" />
-          </section>
+          {#if llamaManagedEnabled}
+            <section class="llama-panel">
+              <div class="llama-panel-header">
+                <div>
+                  <span class="row-label">Managed llama.cpp</span>
+                  <p class="hint panel-hint">Flow starts llama-server locally with your GGUF model.</p>
+                </div>
+                <span class="status-pill" class:status-running={llamaStatus?.running} class:status-error={llamaStatus?.state === 'error'}>
+                  {llamaStatus?.state || 'stopped'}
+                </span>
+              </div>
+
+              <label class="row-label" for="llamaModelPath">Model file</label>
+              <div class="row">
+                <input id="llamaModelPath" type="text" bind:value={llamaModelPath} placeholder="/path/to/model.gguf" />
+                <button class="secondary" on:click={chooseLlamaModel} disabled={llamaBusy || llamaDownloading}>Choose model</button>
+              </div>
+
+              <label class="row-label download-label" for="llamaDownloadURL">Or download from Hugging Face</label>
+              <div class="row">
+                <input
+                  id="llamaDownloadURL"
+                  type="text"
+                  bind:value={llamaDownloadURL}
+                  placeholder="https://huggingface.co/.../model.gguf"
+                  disabled={llamaDownloading}
+                />
+                <button class="secondary" on:click={downloadLlamaModel} disabled={llamaDownloading || !llamaDownloadURL.trim()}>
+                  {llamaDownloading ? 'Downloading…' : 'Download'}
+                </button>
+              </div>
+              {#if llamaDownloading || (llamaDownloadFilename && llamaDownloadDownloaded > 0)}
+                <div class="download-progress">
+                  <div class="download-bar">
+                    <div class="download-bar-fill" style="width: {llamaDownloadPercent}%"></div>
+                  </div>
+                  <div class="download-meta">
+                    <span>{llamaDownloadFilename || 'model.gguf'}</span>
+                    <span>
+                      {formatBytes(llamaDownloadDownloaded)}{llamaDownloadTotal > 0 ? ` / ${formatBytes(llamaDownloadTotal)}` : ''}
+                      {llamaDownloadTotal > 0 ? ` (${llamaDownloadPercent}%)` : ''}
+                    </span>
+                  </div>
+                </div>
+              {/if}
+              <p class="hint">Replaces any previously-downloaded model in Flow's managed folder.</p>
+
+              <div class="llama-grid">
+                <label>
+                  <span class="row-label">Port</span>
+                  <input type="number" min="1024" max="65535" bind:value={llamaPort} />
+                </label>
+                <label>
+                  <span class="row-label">Context</span>
+                  <input type="number" min="512" step="512" bind:value={llamaContextSize} />
+                </label>
+              </div>
+
+              <div class="row llama-actions">
+                {#if llamaStatus?.running}
+                  <button class="secondary" on:click={stopLlamaServer} disabled={llamaBusy}>Stop</button>
+                {:else}
+                  <button class="secondary" on:click={startLlamaServer} disabled={llamaBusy || llamaDownloading || !llamaModelPath}>
+                    {llamaBusy ? 'Starting...' : 'Start'}
+                  </button>
+                {/if}
+                <button class="secondary" on:click={testConnection} disabled={testStatus === 'testing'}>
+                  {testStatus === 'testing' ? 'Testing...' : 'Test connection'}
+                </button>
+              </div>
+              {#if llamaMessage}
+                <div class="feedback ok">{llamaMessage}</div>
+              {/if}
+              {#if llamaError}
+                <div class="feedback err">{llamaError}</div>
+              {/if}
+              {#if llamaStatus?.logExcerpt}
+                <pre class="llama-log">{llamaStatus.logExcerpt}</pre>
+              {/if}
+            </section>
+          {:else}
+            <section>
+              <label class="row-label" for="apiKey">API key (optional)</label>
+              <input id="apiKey" type="password" bind:value={apiKey} placeholder="lm-studio" />
+            </section>
+          {/if}
 
           <section>
             <label class="row-label" for="modelSelect">Model</label>
@@ -288,9 +518,11 @@
               {:else}
                 <input id="modelSelect" type="text" bind:value={model} placeholder="qwen2.5-coder-7b-instruct" />
               {/if}
-              <button class="secondary" on:click={testConnection} disabled={testStatus === 'testing'}>
-                {testStatus === 'testing' ? 'Testing…' : 'Test connection'}
-              </button>
+              {#if !llamaManagedEnabled}
+                <button class="secondary" on:click={testConnection} disabled={testStatus === 'testing'}>
+                  {testStatus === 'testing' ? 'Testing…' : 'Test connection'}
+                </button>
+              {/if}
             </div>
             {#if testStatus === 'ok'}
               <div class="feedback ok">✓ {testMessage}</div>
@@ -570,6 +802,80 @@
   .feedback.ok { color: var(--accent); }
   .feedback.err { color: #f87171; }
   .hint { color: var(--text-muted); font-size: 11px; margin-top: 6px; line-height: 1.4; }
+
+  .llama-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md, 8px);
+    padding: 14px;
+  }
+  .llama-panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .panel-hint { margin: -2px 0 0; }
+  .status-pill {
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-size: 11px;
+    padding: 3px 8px;
+    text-transform: capitalize;
+  }
+  .status-pill.status-running {
+    border-color: rgba(45, 212, 191, 0.45);
+    color: var(--accent);
+  }
+  .status-pill.status-error {
+    border-color: rgba(248, 113, 113, 0.45);
+    color: #f87171;
+  }
+  .llama-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .llama-actions { margin-top: 12px; }
+  .download-label { margin-top: 12px; }
+  .download-progress { margin-top: 10px; }
+  .download-bar {
+    height: 6px;
+    background: var(--bg-app);
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .download-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.15s ease;
+  }
+  .download-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .llama-log {
+    max-height: 90px;
+    overflow: auto;
+    margin: 10px 0 0;
+    padding: 8px;
+    background: var(--bg-app);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+  }
 
   /* ── Hotkeys Tab ── */
   .hotkeys-section { padding-bottom: 4px; }
