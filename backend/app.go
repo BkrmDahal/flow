@@ -136,3 +136,17 @@ func (a *App) SubmitSandboxApproval(id string, approved bool) {
 		}
 	}
 }
+
+// SubmitCommandApproval is called by the Svelte frontend to respond to a pending command approval request
+func (a *App) SubmitCommandApproval(id string, choice string) {
+	tools.CommandApprovalMu.Lock()
+	ch, exists := tools.PendingCommandApprovals[id]
+	tools.CommandApprovalMu.Unlock()
+
+	if exists {
+		select {
+		case ch <- tools.CommandApprovalResponse{Choice: choice}:
+		default:
+		}
+	}
+}

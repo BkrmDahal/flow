@@ -29,6 +29,19 @@ var (
 	SandboxApprovalMu       sync.Mutex
 )
 
+type CommandApprovalResponse struct {
+	Choice string // "deny" | "session" | "always"
+}
+
+var (
+	PendingCommandApprovals = make(map[string]chan CommandApprovalResponse)
+	CommandApprovalMu       sync.Mutex
+
+	// SessionAllowedCommands maps session working directory paths to whitelisted command prefixes
+	SessionAllowedCommands = make(map[string][]string)
+	SessionAllowedMu       sync.Mutex
+)
+
 // hardBlocked is a small hardcoded blocklist of obviously destructive
 // patterns. Any command containing one of these substrings is refused.
 // We do not maintain an allowlist in v1 — the agent can run anything else.
@@ -98,7 +111,7 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 		if len(parts) > 0 {
 			exe := parts[0]
 
-			// Dynamic Python Path Whitelisting
+			// 1. Dynamic Python Path Whitelisting
 			cfg, err := config.Load(t.baseDir)
 			if err == nil && cfg != nil && cfg.PythonPath != "" {
 				cleanExe := filepath.Clean(exe)
@@ -109,6 +122,21 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 				}
 			}
 
+			// 2. Session Allowed Whitelisting
+			sessionDir := SessionDirFromContext(ctx)
+			if !allowed && sessionDir != "" {
+				SessionAllowedMu.Lock()
+				sessionList := SessionAllowedCommands[sessionDir]
+				SessionAllowedMu.Unlock()
+				for _, allowedCmd := range sessionList {
+					if exe == allowedCmd || strings.HasPrefix(trimmedCmd, allowedCmd) {
+						allowed = true
+						break
+					}
+				}
+			}
+
+			// 3. Static approvals.Allowed Whitelisting
 			if !allowed {
 				approvals, err := config.LoadExecApprovals(t.baseDir)
 				if err == nil && approvals != nil && len(approvals.Allowed) > 0 {
@@ -120,14 +148,34 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 					}
 				}
 			}
+
+			// 4. If still blocked, intercept and ask the user for permission dynamically!
+			if !allowed {
+				// Only show prompt if there is an active allowlist configured on disk
+				approvals, err := config.LoadExecApprovals(t.baseDir)
+				if err == nil && approvals != nil && len(approvals.Allowed) > 0 {
+					decision := AskCommandApproval(ctx, in.Command, exe)
+					if decision.Choice == "session" {
+						if sessionDir != "" {
+							SessionAllowedMu.Lock()
+							SessionAllowedCommands[sessionDir] = append(SessionAllowedCommands[sessionDir], exe)
+							SessionAllowedMu.Unlock()
+						}
+						allowed = true
+					} else if decision.Choice == "always" {
+						approvals.Allowed = append(approvals.Allowed, exe)
+						_ = config.SaveExecApprovals(t.baseDir, approvals)
+						allowed = true
+					}
+				} else {
+					// No allowlist configured, allow by default
+					allowed = true
+				}
+			}
 		}
 
 		if !allowed {
-			// Double check if there's any approval list at all
-			approvals, err := config.LoadExecApprovals(t.baseDir)
-			if err == nil && approvals != nil && len(approvals.Allowed) > 0 {
-				return fmt.Sprintf("Error: command %q is not in the allowed commands list. You can allow it in Settings -> General.", in.Command), nil
-			}
+			return fmt.Sprintf("Error: command %q is not in the allowed commands list. Command execution rejected by user.", in.Command), nil
 		}
 	}
 
@@ -342,4 +390,37 @@ func rewritePythonCommand(cmdStr string, pythonPath string) string {
 	cmdStr = rePy.ReplaceAllString(cmdStr, `${1}`+pythonPath)
 
 	return cmdStr
+}
+
+// AskCommandApproval emits an event to the Svelte frontend requesting command execution permission,
+// and blocks Go thread execution until the user clicks Allow Always, Allow Session, or Block.
+func AskCommandApproval(ctx context.Context, cmdStr string, exe string) CommandApprovalResponse {
+	id := fmt.Sprintf("cmd_app_%d", time.Now().UnixNano())
+	ch := make(chan CommandApprovalResponse, 1)
+
+	CommandApprovalMu.Lock()
+	PendingCommandApprovals[id] = ch
+	CommandApprovalMu.Unlock()
+
+	defer func() {
+		CommandApprovalMu.Lock()
+		delete(PendingCommandApprovals, id)
+		CommandApprovalMu.Unlock()
+	}()
+
+	// Emit event to the frontend
+	wailsRuntime.EventsEmit(ctx, "command:request_approval", map[string]interface{}{
+		"id":      id,
+		"command": cmdStr,
+		"exe":     exe,
+	})
+
+	select {
+	case resp := <-ch:
+		return resp
+	case <-time.After(90 * time.Second): // 90s timeout
+		return CommandApprovalResponse{Choice: "deny"}
+	case <-ctx.Done():
+		return CommandApprovalResponse{Choice: "deny"}
+	}
 }

@@ -4,6 +4,7 @@
   import SettingsModal from './components/SettingsModal.svelte';
   import SkillToolkitPanel from './components/SkillToolkitPanel.svelte';
   import SandboxApprovalModal from './components/SandboxApprovalModal.svelte';
+  import CommandApprovalModal from './components/CommandApprovalModal.svelte';
 
   import { OpenFileInApp } from '../wailsjs/go/backend/App';
 
@@ -66,6 +67,7 @@
 
   <SettingsModal open={settingsOpen} onClose={() => settingsOpen = false} />
   <SandboxApprovalModal />
+  <CommandApprovalModal />
 </main>
 
 <style>
