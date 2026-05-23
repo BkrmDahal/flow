@@ -58,7 +58,7 @@
           </div>
           <div class="plan-list">
             {#each progressSteps as step}
-              <div class="plan-item" class:completed={step.status === 'completed'} class:active={step.status === 'in_progress'} class:pending={step.status === 'pending'}>
+              <div class="plan-item" title={step.label} class:completed={step.status === 'completed'} class:active={step.status === 'in_progress'} class:pending={step.status === 'pending'}>
                 <div class="plan-icon">
                   {#if step.status === 'completed'}
                     <div class="icon-completed">
@@ -244,7 +244,17 @@
   /* Plan */
   .plan-summary { margin-bottom: 12px; }
   .plan-count { font-size: 12px; color: var(--text-muted); font-weight: 500; }
-  .plan-list { display: flex; flex-direction: column; gap: 0; }
+  .plan-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-height: 144px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .plan-list::-webkit-scrollbar { width: 3px; }
+  .plan-list::-webkit-scrollbar-track { background: transparent; }
+  .plan-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 1.5px; }
 
   .plan-item {
     display: flex; align-items: flex-start; gap: 10px;
@@ -278,7 +288,9 @@
 
   .plan-label {
     font-size: 12.5px; color: var(--text-secondary);
-    line-height: 1.45; word-wrap: break-word; min-width: 0;
+    line-height: 1.45; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    flex: 1;
   }
   .plan-label.strikethrough { text-decoration: line-through; color: var(--text-muted); opacity: 0.7; }
   .plan-item.active .plan-label { color: var(--text-primary); font-weight: 500; }
