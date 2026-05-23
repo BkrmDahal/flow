@@ -239,3 +239,20 @@ void StopAudioRecording(void) {
 int IsAudioRecording(void) {
     return (apiRecorder && apiRecorder.isRecording) ? 1 : 0;
 }
+
+int CheckMicrophonePermission(void) {
+    if (@available(macOS 10.14, *)) {
+        AVAuthorizationStatus status =
+            [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+        if (status == AVAuthorizationStatusAuthorized) {
+            return 3; // Authorized
+        } else if (status == AVAuthorizationStatusNotDetermined) {
+            return 0; // NotDetermined
+        } else if (status == AVAuthorizationStatusRestricted) {
+            return 1; // Restricted
+        } else if (status == AVAuthorizationStatusDenied) {
+            return 2; // Denied
+        }
+    }
+    return 3; // Default to Authorized on older systems
+}

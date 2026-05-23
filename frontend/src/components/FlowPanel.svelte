@@ -18,6 +18,28 @@
   let errorMsg = ''
   let searchQuery = ''
   let modelDownload = null        // { downloaded, total } while bundled model downloads
+  let micPermission = 'authorized' // 'authorized' | 'denied' | 'restricted' | 'undetermined'
+
+  async function checkMicPermission() {
+    try {
+      if (Backend.CheckMicrophonePermission) {
+        micPermission = await Backend.CheckMicrophonePermission()
+      }
+    } catch (e) {
+      console.warn('Failed to check microphone permission:', e)
+    }
+  }
+
+  async function openMicrophoneSettings() {
+    try {
+      if (Backend.OpenMicrophoneSettings) {
+        await Backend.OpenMicrophoneSettings()
+        setTimeout(checkMicPermission, 1000)
+      }
+    } catch (e) {
+      console.error('Failed to open microphone settings:', e)
+    }
+  }
 
   // ── Resizer state ──
   let sidebarWidth = 220;
@@ -141,6 +163,7 @@
   function onSettingsSaved() {
     hotkeyBannerDismissed = false
     loadHotkeyStatus()
+    checkMicPermission()
   }
 
   $: wordCount = (viewing ? viewingText : liveText).trim().split(/\s+/).filter(Boolean).length
@@ -260,7 +283,6 @@
   }
 
   async function deleteTranscript(id) {
-    if (!confirm('Delete this transcript?')) return
     try {
       await Backend.DeleteFlowTranscript(id)
       if (selectedId === id) {
@@ -316,7 +338,9 @@
     }
     refreshList()
     loadHotkeyStatus()
+    checkMicPermission()
     window.addEventListener('flow:settings-saved', onSettingsSaved)
+    window.addEventListener('focus', checkMicPermission)
     Events.on('flow:result', (payload) => {
       liveText = payload.text ?? liveText
     })
@@ -324,6 +348,9 @@
       errorMsg = payload.error ?? 'Unknown speech error'
       isRecording = false
       stopTimer()
+      if (errorMsg.toLowerCase().includes('permission')) {
+        checkMicPermission()
+      }
     })
     Events.on('flow:hotkey:toggle', () => {
       if (isRecording) {
@@ -346,6 +373,7 @@
     Events.off('flow:hotkey:toggle')
     Events.off('flow:model:download:progress')
     window.removeEventListener('flow:settings-saved', onSettingsSaved)
+    window.removeEventListener('focus', checkMicPermission)
     stopTimer()
   })
 </script>
@@ -431,7 +459,25 @@
   <!-- Main content -->
   <main class="content">
     <!-- ─── Hotkey Banner ─── -->
-    {#if hotkeyLoaded && !hotkeyBannerDismissed}
+    <!-- ─── Microphone Permission Alert Banner ─── -->
+    {#if micPermission === 'denied' || micPermission === 'restricted'}
+      <div class="hotkey-banner hotkey-banner-warning">
+        <div class="hotkey-banner-icon hotkey-banner-icon-warning">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="1" y1="1" x2="23" y2="23" />
+            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+            <path d="M17 11.5a6 6 0 0 1-2.5 4.5" />
+            <path d="M12 19v4" />
+            <path d="M8 23h8" />
+          </svg>
+        </div>
+        <div class="hotkey-banner-body">
+          <span class="hotkey-banner-title">Microphone permission denied</span>
+          <span class="hotkey-banner-desc">Flow requires microphone access for voice dictation. Please enable it in System Settings → Privacy & Security → Microphone.</span>
+        </div>
+        <button class="hotkey-banner-btn warning-btn" on:click={openMicrophoneSettings} type="button">Open System Settings</button>
+      </div>
+    {:else if hotkeyLoaded && !hotkeyBannerDismissed}
       {#if !hotkeyEnabled}
         <div class="hotkey-banner hotkey-banner-enable">
           <div class="hotkey-banner-icon">
@@ -644,6 +690,10 @@
     background: rgba(34, 197, 94, 0.06);
     border-bottom: 1px solid rgba(34, 197, 94, 0.18);
   }
+  .hotkey-banner-warning {
+    background: rgba(239, 68, 68, 0.06);
+    border-bottom: 1px solid rgba(239, 68, 68, 0.18);
+  }
   .hotkey-banner-icon {
     width: 34px; height: 34px;
     display: flex; align-items: center; justify-content: center;
@@ -655,6 +705,17 @@
   .hotkey-banner-icon-active {
     background: rgba(34, 197, 94, 0.12);
     color: #4ade80;
+  }
+  .hotkey-banner-icon-warning {
+    background: rgba(239, 68, 68, 0.12);
+    color: var(--danger);
+  }
+  .warning-btn {
+    background: var(--danger) !important;
+    color: #fff !important;
+  }
+  .warning-btn:hover {
+    background: #dc2626 !important;
   }
   .hotkey-banner-body {
     flex: 1;

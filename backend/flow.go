@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -311,5 +312,32 @@ func (a *App) UpdateFlowTranscript(id string, text string) error {
 
 	log.Printf("[flow] updated %s (%d words)", id, t.WordCount)
 	return nil
+}
+
+// CheckMicrophonePermission returns the microphone status:
+// "authorized", "denied", "restricted", or "undetermined"
+func (a *App) CheckMicrophonePermission() string {
+	status := speech.CheckMicrophonePermission()
+	switch status {
+	case 0:
+		return "undetermined"
+	case 1:
+		return "restricted"
+	case 2:
+		return "denied"
+	case 3:
+		return "authorized"
+	default:
+		return "authorized"
+	}
+}
+
+// OpenMicrophoneSettings opens macOS System Settings to the Microphone privacy pane.
+func (a *App) OpenMicrophoneSettings() {
+	log.Println("[flow] opening macOS microphone settings")
+	cmd := exec.Command("open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+	if err := cmd.Run(); err != nil {
+		log.Printf("[flow] failed to open microphone settings: %v", err)
+	}
 }
 
