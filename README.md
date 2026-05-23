@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  Built with Go + Svelte via Wails, <strong>Flow</strong> is a gorgeous, native desktop command center that seamlessly fuses a multi-turn agentic AI chat workspace (<strong>Cowork</strong>) and instantaneous, push-to-talk disfluency-free dictation refinement (<strong>Flow</strong>) directly into your daily macOS workflow.
+  Built with Go + Svelte via Wails, <strong>Flow</strong> is native desktop command center that seamlessly fuses a multi-turn agentic AI chat workspace (<strong>Cowork</strong>) and instantaneous, push-to-talk disfluency-free dictation refinement (<strong>Flow</strong>) directly into your daily macOS workflow. Run it completely locally using Whisper and any local model, or add cloud LLM keys.
 </p>
 
 ---
