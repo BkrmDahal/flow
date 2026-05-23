@@ -429,7 +429,11 @@
       {:else}
         {#if adding}
           {#if $activeSection === 'skills'}
-            <div class="detail-header"><h2 class="detail-title">New Skill</h2></div>
+            <div class="detail-header">
+              <div class="detail-header-top">
+                <h2 class="detail-title">New Skill</h2>
+              </div>
+            </div>
             <div class="edit-form">
               <div class="edit-field">
                 <label for="skill-add-name">Name</label>
@@ -451,7 +455,11 @@
               </div>
             </div>
           {:else}
-            <div class="detail-header"><h2 class="detail-title">New Snippet</h2></div>
+            <div class="detail-header">
+              <div class="detail-header-top">
+                <h2 class="detail-title">New Snippet</h2>
+              </div>
+            </div>
             <div class="edit-form">
               <div class="edit-field">
                 <label for="snippet-add-trigger">Trigger abbreviation</label>
@@ -565,17 +573,17 @@
   .toolkit-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-app); }
   .toolkit-content { flex: 1; display: flex; overflow: hidden; min-height: 0; }
   .section-nav { --wails-draggable: drag; width: 180px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); padding: 38px 10px 16px; gap: 2px; background: var(--bg-sidebar); }
-  .section-nav-top { --wails-draggable: no-drag; display: flex; align-items: center; gap: 4px; padding: 0 4px 8px; }
+  .section-nav-top { --wails-draggable: no-drag; display: flex; align-items: center; gap: 4px; padding: 0 4px 8px; height: 32px; box-sizing: border-box; }
   .back-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; background: none; border: none; border-radius: 7px; color: var(--text-muted); cursor: pointer; transition: all 0.15s ease; flex-shrink: 0; }
   .back-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
-  .section-nav-header { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  .section-nav-header { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: var(--text-primary); }
   .section-nav-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; padding: 8px 10px 4px; }
   .section-btn { --wails-draggable: no-drag; display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; background: none; border: none; border-radius: 7px; color: var(--text-secondary); font-size: 13px; font-family: var(--font-sans); cursor: pointer; transition: all 0.15s ease; text-align: left; }
   .section-btn.active { background: rgba(255,255,255,0.08); color: var(--text-primary); }
   .section-count { margin-left: auto; font-size: 11px; color: var(--text-muted); background: var(--bg-card); padding: 1px 6px; border-radius: 8px; }
   .item-list { width: 230px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow: hidden; padding-top: 38px; background: var(--bg-app); }
-  .item-list-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 14px 8px; }
-  .item-list-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .item-list-header { display: flex; align-items: center; justify-content: space-between; padding: 0 14px 8px; height: 32px; box-sizing: border-box; }
+  .item-list-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
   .btn-add-item { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); cursor: pointer; transition: all 0.15s ease; }
   .btn-add-item:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--text-muted); }
   .item-search { display: flex; align-items: center; gap: 6px; padding: 4px 14px 8px; }
@@ -594,9 +602,9 @@
   .item-delete-btn.visible { opacity: 1; pointer-events: auto; }
   .item-delete-btn:hover { background: var(--danger-bg); color: var(--danger); }
   .detail-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; position: relative; padding-top: 38px; background: var(--bg-app); }
-  .detail-header { padding: 20px 24px 0; flex-shrink: 0; }
-  .detail-header-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .detail-title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin: 0; }
+  .detail-header { padding: 0 24px 0; flex-shrink: 0; }
+  .detail-header-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 32px; box-sizing: border-box; margin-bottom: 8px; }
+  .detail-title { font-size: 15px; font-weight: 600; color: var(--text-primary); margin: 0; }
   .detail-meta { display: flex; gap: 16px; margin-top: 8px; }
   .meta-item { display: flex; gap: 6px; font-size: 12px; }
   .meta-label { color: var(--text-muted); }
