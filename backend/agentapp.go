@@ -275,16 +275,30 @@ func (a *App) CancelStream(sessionID string) error {
 
 // OpenFileInApp opens a file or directory in the default macOS application.
 func (a *App) OpenFileInApp(filePath string) error {
+	if strings.Contains(filePath, "://") {
+		return fmt.Errorf("opening URLs is not allowed")
+	}
 	if strings.HasPrefix(filePath, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
 			filePath = filepath.Join(home, filePath[2:])
 		}
+	}
+	// Verify the path exists and is not an .app bundle.
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return fmt.Errorf("path does not exist: %w", err)
+	}
+	if info.IsDir() && strings.HasSuffix(filePath, ".app") {
+		return fmt.Errorf("opening .app bundles is not allowed")
 	}
 	return exec.Command("open", filePath).Run()
 }
 
 // RevealInFinder reveals a file in Finder, highlighting it in its parent folder.
 func (a *App) RevealInFinder(filePath string) error {
+	if strings.Contains(filePath, "://") {
+		return fmt.Errorf("opening URLs is not allowed")
+	}
 	if strings.HasPrefix(filePath, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
 			filePath = filepath.Join(home, filePath[2:])

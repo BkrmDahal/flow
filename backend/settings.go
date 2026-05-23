@@ -3,6 +3,7 @@ package backend
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/user/flow/backend/internal/config"
 	"github.com/user/flow/backend/internal/llm"
@@ -73,6 +74,21 @@ func (a *App) SaveSettings(p SettingsPayload) error {
 	oldHotkeyEnabled := a.cfg != nil && a.cfg.HotkeyEnabled
 
 	cfg := fromPayload(p)
+
+	// Preserve existing API keys when the frontend sends back masked values.
+	// The frontend receives masked keys (e.g. "sk-****abcd") and should not
+	// overwrite the real keys stored in memory.
+	if a.cfg != nil {
+		preserveKeyIfMasked(&cfg.APIKey, a.cfg.APIKey)
+		preserveKeyIfMasked(&cfg.AnthropicKey, a.cfg.AnthropicKey)
+		preserveKeyIfMasked(&cfg.OpenAIKey, a.cfg.OpenAIKey)
+		preserveKeyIfMasked(&cfg.GeminiKey, a.cfg.GeminiKey)
+		preserveKeyIfMasked(&cfg.OpenRouterKey, a.cfg.OpenRouterKey)
+		preserveKeyIfMasked(&cfg.DeepgramKey, a.cfg.DeepgramKey)
+		preserveKeyIfMasked(&cfg.CustomCloudKey, a.cfg.CustomCloudKey)
+		preserveKeyIfMasked(&cfg.SpeechAPIKey, a.cfg.SpeechAPIKey)
+	}
+
 	if cfg.LlamaManagedEnabled {
 		if cfg.LlamaPort == 0 {
 			cfg.LlamaPort = 8080
@@ -213,38 +229,63 @@ func (a *App) rebuildLLMClient() error {
 	return nil
 }
 
+// maskKey returns a masked version of an API key for frontend display.
+// Shows the first 4 and last 4 characters with **** in the middle.
+// Returns empty string if the key is empty.
+func maskKey(key string) string {
+	if key == "" {
+		return ""
+	}
+	if len(key) <= 8 {
+		return "****"
+	}
+	return key[:4] + "****" + key[len(key)-4:]
+}
+
 func toPayload(c *config.Config) *SettingsPayload {
 	return &SettingsPayload{
 		ProviderType:           c.ProviderType,
 		ProviderLabel:          c.ProviderLabel,
 		BaseURL:                c.BaseURL,
-		APIKey:                 c.APIKey,
+		APIKey:                 maskKey(c.APIKey),
 		Model:                  c.Model,
 		LlamaManagedEnabled:    c.LlamaManagedEnabled,
 		LlamaModelPath:         c.LlamaModelPath,
 		LlamaDownloadURL:       c.LlamaDownloadURL,
 		LlamaPort:              c.LlamaPort,
 		LlamaContextSize:       c.LlamaContextSize,
-		AnthropicKey:           c.AnthropicKey,
-		OpenAIKey:              c.OpenAIKey,
-		GeminiKey:              c.GeminiKey,
-		OpenRouterKey:          c.OpenRouterKey,
-		DeepgramKey:            c.DeepgramKey,
+		AnthropicKey:           maskKey(c.AnthropicKey),
+		OpenAIKey:              maskKey(c.OpenAIKey),
+		GeminiKey:              maskKey(c.GeminiKey),
+		OpenRouterKey:          maskKey(c.OpenRouterKey),
+		DeepgramKey:            maskKey(c.DeepgramKey),
 		ProviderMode:           c.ProviderMode,
 		CloudProvider:          c.CloudProvider,
 		CloudModel:             c.CloudModel,
 		CustomCloudURL:         c.CustomCloudURL,
-		CustomCloudKey:         c.CustomCloudKey,
+		CustomCloudKey:         maskKey(c.CustomCloudKey),
 		HotkeyEnabled:          c.HotkeyEnabled,
 		HotkeyModifier:         c.HotkeyModifier,
 		SpeechProvider:         c.SpeechProvider,
-		SpeechAPIKey:           c.SpeechAPIKey,
+		SpeechAPIKey:           maskKey(c.SpeechAPIKey),
 		SpeechModel:            c.SpeechModel,
 		SpeechLanguage:         c.SpeechLanguage,
 		SpeechPrompt:           c.SpeechPrompt,
 		AutoRefineAction:       c.AutoRefineAction,
 		AutoRefineCustomPrompt: c.AutoRefineCustomPrompt,
 		PythonPath:             c.PythonPath,
+	}
+}
+
+// isMasked returns true if the value is a masked placeholder from maskKey().
+func isMasked(v string) bool {
+	return strings.Contains(v, "****")
+}
+
+// preserveKeyIfMasked keeps the existing key if the incoming value is masked.
+func preserveKeyIfMasked(incoming *string, existing string) {
+	if isMasked(*incoming) {
+		*incoming = existing
 	}
 }
 

@@ -3,6 +3,7 @@ package backend
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -147,7 +148,7 @@ func (a *App) DownloadLlamaModel(rawURL string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("User-Agent", "flow-llama-downloader")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Timeout: 30 * time.Minute}).Do(req) // large file downloads can take a while
 	if err != nil {
 		a.emitDownloadProgress("error", 0, 0, filename, err.Error())
 		return "", fmt.Errorf("download: %w", err)
@@ -263,6 +264,26 @@ func normalizeGGUFURL(raw string) (string, string, error) {
 	if u.Scheme != "https" && u.Scheme != "http" {
 		return "", "", fmt.Errorf("URL must start with https://")
 	}
+
+	// Validate the download host against trusted sources.
+	trustedHosts := []string{
+		"huggingface.co",
+		"github.com",
+		"objects.githubusercontent.com",
+		"ollama.com",
+	}
+	hostLower := strings.ToLower(u.Hostname())
+	isTrusted := false
+	for _, trusted := range trustedHosts {
+		if hostLower == trusted || strings.HasSuffix(hostLower, "."+trusted) {
+			isTrusted = true
+			break
+		}
+	}
+	if !isTrusted {
+		log.Printf("[llama] WARNING: downloading GGUF from untrusted host %q — verify this is safe", u.Host)
+	}
+
 	if strings.Contains(u.Host, "huggingface.co") {
 		u.Path = strings.Replace(u.Path, "/blob/", "/resolve/", 1)
 	}

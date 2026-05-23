@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -224,6 +225,11 @@ func (t *FetchURLTool) Execute(ctx context.Context, input json.RawMessage) (stri
 		targetURL = "https://" + targetURL
 	}
 
+	// SSRF protection: block requests to internal/private network addresses.
+	if err := validateURLTarget(targetURL); err != nil {
+		return fmt.Sprintf("Error: %v", err), nil
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
 	if err != nil {
 		return fmt.Sprintf("Error creating request: %v", err), nil
@@ -254,6 +260,76 @@ func (t *FetchURLTool) Execute(ctx context.Context, input json.RawMessage) (stri
 	}
 
 	return fmt.Sprintf("URL: %s\n\nContent:\n%s", targetURL, cleanText), nil
+}
+
+// validateURLTarget blocks requests to internal/private IP ranges to
+// prevent SSRF attacks via prompt injection.
+func validateURLTarget(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	// Only allow http and https schemes.
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("only http:// and https:// URLs are allowed")
+	}
+
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("URL has no hostname")
+	}
+
+	// Block well-known internal hostnames.
+	lowerHost := strings.ToLower(host)
+	blockedHosts := []string{"localhost", "metadata.google.internal"}
+	for _, blocked := range blockedHosts {
+		if lowerHost == blocked {
+			return fmt.Errorf("access to %s is blocked for security reasons", host)
+		}
+	}
+
+	// Resolve the hostname to IP to check against private ranges.
+	// This also prevents DNS rebinding attacks.
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		// If we can't resolve it, let the HTTP client handle the error naturally.
+		return nil
+	}
+
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			return fmt.Errorf("access to internal/private network address %s (%s) is blocked", host, ip.String())
+		}
+	}
+
+	return nil
+}
+
+// isPrivateIP returns true if the given IP is in a private, loopback,
+// link-local, or cloud metadata range.
+func isPrivateIP(ip net.IP) bool {
+	privateRanges := []string{
+		"127.0.0.0/8",    // Loopback
+		"10.0.0.0/8",     // Private Class A
+		"172.16.0.0/12",  // Private Class B
+		"192.168.0.0/16", // Private Class C
+		"169.254.0.0/16", // Link-local / cloud metadata
+		"::1/128",        // IPv6 loopback
+		"fc00::/7",       // IPv6 unique local
+		"fe80::/10",      // IPv6 link-local
+	}
+
+	for _, cidr := range privateRanges {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func convertHTMLToText(html string) string {
