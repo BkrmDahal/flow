@@ -260,4 +260,5 @@ sudo xattr -r -d com.apple.quarantine /Applications/Flow.app
 
 ## 📄 License
 
-Private / All Rights Reserved
+MIT License
+
