@@ -68,7 +68,13 @@ func NewRunBashTool(baseDir string) *RunBashTool { return &RunBashTool{baseDir: 
 func (t *RunBashTool) Name() string { return "run_bash" }
 
 func (t *RunBashTool) Description() string {
-	return "Execute a shell command on the local machine via `sh -c`. Returns combined stdout and stderr, truncated to 10KB. Use this for things like ls, grep, running scripts, git, package managers, etc. The command is killed after 60 seconds."
+	desc := "Execute a shell command on the local machine via `sh -c`. Returns combined stdout and stderr, truncated to 10KB. Use this for things like ls, grep, running scripts, git, package managers, etc. The command is killed after 60 seconds."
+	if t.baseDir != "" {
+		if cfg, err := config.Load(t.baseDir); err == nil && cfg != nil && cfg.PythonPath != "" && cfg.PythonPath != "python" && cfg.PythonPath != "python3" {
+			desc += fmt.Sprintf(" Standard 'python'/'python3' calls are dynamically rewritten to execute within your custom configured Python environment: %q. If you need to install packages, run packages, or check installed libs, use this environment (e.g. run 'python -m pip install' to install packages into it directly).", cfg.PythonPath)
+		}
+	}
+	return desc
 }
 
 func (t *RunBashTool) Schema() map[string]interface{} {
@@ -154,17 +160,24 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 				// Only show prompt if there is an active allowlist configured on disk
 				approvals, err := config.LoadExecApprovals(t.baseDir)
 				if err == nil && approvals != nil && len(approvals.Allowed) > 0 {
-					decision := AskCommandApproval(ctx, in.Command, exe)
-					if decision.Choice == "session" {
-						if sessionDir != "" {
-							SessionAllowedMu.Lock()
-							SessionAllowedCommands[sessionDir] = append(SessionAllowedCommands[sessionDir], exe)
-							SessionAllowedMu.Unlock()
+					// Check if the executable actually exists in PATH before prompting
+					if _, lookErr := exec.LookPath(exe); lookErr == nil {
+						decision := AskCommandApproval(ctx, in.Command, exe)
+						if decision.Choice == "session" {
+							if sessionDir != "" {
+								SessionAllowedMu.Lock()
+								SessionAllowedCommands[sessionDir] = append(SessionAllowedCommands[sessionDir], exe)
+								SessionAllowedMu.Unlock()
+							}
+							allowed = true
+						} else if decision.Choice == "always" {
+							approvals.Allowed = append(approvals.Allowed, exe)
+							_ = config.SaveExecApprovals(t.baseDir, approvals)
+							allowed = true
 						}
-						allowed = true
-					} else if decision.Choice == "always" {
-						approvals.Allowed = append(approvals.Allowed, exe)
-						_ = config.SaveExecApprovals(t.baseDir, approvals)
+					} else {
+						// Allow it to pass through to let standard shell throw "command not found" error
+						// rather than prompting the user for an executable that does not exist.
 						allowed = true
 					}
 				} else {
@@ -216,8 +229,9 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 			}
 		}
 
-		// 4. Standard temporary / system storage paths
+		// 4. Standard temporary / system storage paths and dev devices
 		allowedWritePaths = append(allowedWritePaths, "/tmp", "/private/tmp", "/var", "/private/var", os.TempDir())
+		allowedWritePaths = append(allowedWritePaths, "/dev/null", "/dev/urandom", "/dev/stdin", "/dev/stdout", "/dev/stderr", "/dev/tty")
 
 		// Clean, absolute, and deduplicate default directories
 		uniquePaths := make(map[string]bool)
@@ -254,8 +268,10 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 
 			// If it's not whitelisted, and is a valid external path, prompt the user!
 			if !isAllowed && absDir != "/" && absDir != "." && absDir != ".." {
-				if AskSandboxApproval(ctx, absDir) {
-					uniquePaths[absDir] = true
+				if isWritable(absDir) {
+					if AskSandboxApproval(ctx, absDir) {
+						uniquePaths[absDir] = true
+					}
 				}
 			}
 		}
@@ -423,4 +439,44 @@ func AskCommandApproval(ctx context.Context, cmdStr string, exe string) CommandA
 	case <-ctx.Done():
 		return CommandApprovalResponse{Choice: "deny"}
 	}
+}
+
+// isWritable checks if the current process has write permissions to a path (or its closest existing parent directory)
+func isWritable(path string) bool {
+	current := path
+	for {
+		if current == "" || current == "." || current == "/" {
+			break
+		}
+		info, err := os.Stat(current)
+		if err == nil {
+			if !info.IsDir() {
+				current = filepath.Dir(current)
+				continue
+			}
+			// Directory exists, check if we can write by attempting to create a temp file
+			tempFile, err := os.CreateTemp(current, ".flow_write_test_")
+			if err != nil {
+				return false
+			}
+			tempFile.Close()
+			os.Remove(tempFile.Name())
+			return true
+		}
+		// Go up one level
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+
+	// Default fallback using TempDir
+	tempFile, err := os.CreateTemp("", ".flow_write_test_")
+	if err == nil {
+		tempFile.Close()
+		os.Remove(tempFile.Name())
+		return true
+	}
+	return false
 }
