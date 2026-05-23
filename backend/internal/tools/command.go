@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/user/flow/backend/internal/config"
 )
 
 const (
@@ -32,9 +34,11 @@ var hardBlocked = []string{
 // RunBashTool executes a shell command via `sh -c`.
 // Output is combined stdout+stderr, truncated to 10KB; the call is
 // cancelled after 60 seconds.
-type RunBashTool struct{}
+type RunBashTool struct {
+	baseDir string
+}
 
-func NewRunBashTool() *RunBashTool { return &RunBashTool{} }
+func NewRunBashTool(baseDir string) *RunBashTool { return &RunBashTool{baseDir: baseDir} }
 
 func (t *RunBashTool) Name() string { return "run_bash" }
 
@@ -71,6 +75,28 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 	for _, b := range hardBlocked {
 		if strings.Contains(in.Command, b) {
 			return fmt.Sprintf("Error: command refused — contains blocked pattern %q", b), nil
+		}
+	}
+
+	// Enforce Allowed command list from exec-approvals.json
+	if t.baseDir != "" {
+		approvals, err := config.LoadExecApprovals(t.baseDir)
+		if err == nil && approvals != nil && len(approvals.Allowed) > 0 {
+			allowed := false
+			trimmedCmd := strings.TrimSpace(in.Command)
+			parts := strings.Fields(trimmedCmd)
+			if len(parts) > 0 {
+				exe := parts[0]
+				for _, allowedCmd := range approvals.Allowed {
+					if exe == allowedCmd || strings.HasPrefix(trimmedCmd, allowedCmd) {
+						allowed = true
+						break
+					}
+				}
+			}
+			if !allowed {
+				return fmt.Sprintf("Error: command %q is not in the allowed commands list. You can allow it in Settings -> General.", in.Command), nil
+			}
 		}
 	}
 

@@ -62,7 +62,7 @@ func (r *Registry) AllDefs() []llm.ToolDef {
 func RegisterStandard(r *Registry) {
 	r.Register(&ReadFileTool{})
 	r.Register(&WriteFileTool{})
-	r.Register(NewRunBashTool())
+	r.Register(NewRunBashTool(""))
 }
 
 // RegisterStandardTools wires all standard tools including memory, todo, and skill.
@@ -70,7 +70,7 @@ func RegisterStandard(r *Registry) {
 func RegisterStandardTools(r *Registry, baseDir string) {
 	r.Register(&ReadFileTool{})
 	r.Register(&WriteFileTool{})
-	r.Register(NewRunBashTool())
+	r.Register(NewRunBashTool(baseDir))
 
 	memoryDir := filepath.Join(baseDir, "memory")
 	r.Register(NewSaveMemoryTool(memoryDir))
@@ -79,6 +79,5 @@ func RegisterStandardTools(r *Registry, baseDir string) {
 	r.Register(NewDeleteMemoryTool(memoryDir))
 
 	r.Register(NewTodoWriteTool())
-	r.Register(NewUseSkillTool(baseDir))
 }
 

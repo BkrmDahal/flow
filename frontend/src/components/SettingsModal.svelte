@@ -123,6 +123,34 @@
   let hotkeyModifier = 'right_option'
   let hotkeyListening = false
 
+  // ── Command Approvals settings ──
+  let allowedCommands = []
+  let blockedCommands = []
+  let newAllowedCommand = ''
+
+  async function loadApprovals() {
+    try {
+      const approvals = await Backend.GetExecApprovals()
+      allowedCommands = approvals?.allowed || []
+      blockedCommands = approvals?.blocked || []
+    } catch (e) {
+      console.warn('Failed to load approvals:', e)
+    }
+  }
+
+  function addAllowedCommand() {
+    const cmd = newAllowedCommand.trim()
+    if (!cmd) return
+    if (!allowedCommands.includes(cmd)) {
+      allowedCommands = [...allowedCommands, cmd]
+    }
+    newAllowedCommand = ''
+  }
+
+  function removeAllowedCommand(cmd) {
+    allowedCommands = allowedCommands.filter(c => c !== cmd)
+  }
+
   function setManagedLlama(enabled) {
     if (enabled && !llamaManagedEnabled) {
       // Capture user's URL/key so we can restore them when toggling off.
@@ -421,6 +449,9 @@
         customCloudURL,
         customCloudKey,
       })
+      // Save approvals
+      await Backend.SaveExecApprovals(allowedCommands, blockedCommands);
+
       // Notify other components (e.g. FlowPanel banner) that settings changed.
       window.dispatchEvent(new CustomEvent('flow:settings-saved'))
       onClose()
@@ -452,6 +483,7 @@
 
   $: if (open) {
     loadSettings()
+    loadApprovals()
     activeTab = 'general'
     Events.on('flow:llama:download:progress', handleDownloadProgress)
   }
@@ -703,6 +735,42 @@
             {/if}
           </section>
           {/if}
+
+          <!-- Divider line to separate Provider from Bash Approvals -->
+          <div style="height: 1px; background: var(--border-subtle); margin: 20px 0;"></div>
+
+          <!-- ── Allowed Bash Commands Section ── -->
+          <section>
+            <span class="row-label">Allowed Bash Commands</span>
+            <p class="hint" style="margin-bottom: 10px;">
+              Specify command prefixes that Flow is allowed to run. Enter a command prefix and press Enter or click Add.
+            </p>
+            <div class="allowed-commands-list">
+              {#each allowedCommands as cmd}
+                <span class="command-tag">
+                  <code>{cmd}</code>
+                  <button type="button" class="command-remove-btn" on:click={() => removeAllowedCommand(cmd)} title="Remove command">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                      <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                </span>
+              {/each}
+              {#if allowedCommands.length === 0}
+                <span style="font-size: 12px; color: var(--text-muted);">No commands allowed. Bash access is disabled.</span>
+              {/if}
+            </div>
+            
+            <div class="row" style="margin-top: 10px;">
+              <input
+                type="text"
+                bind:value={newAllowedCommand}
+                placeholder="e.g., git, npm, ls, python"
+                on:keydown={(e) => e.key === 'Enter' && (e.preventDefault(), addAllowedCommand())}
+              />
+              <button type="button" class="secondary" on:click={addAllowedCommand}>Add</button>
+            </div>
+          </section>
 
         <!-- ── Voice / STT Tab ── -->
         {:else if activeTab === 'voice'}
@@ -1207,4 +1275,50 @@
   }
   .primary:hover { background: var(--accent-dim); }
   .primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  /* Allowed commands list styles */
+  .allowed-commands-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px;
+    background: var(--bg-app);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    min-height: 48px;
+    box-sizing: border-box;
+  }
+  .command-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+  .command-tag code {
+    font-family: var(--font-mono);
+    color: var(--accent);
+  }
+  .command-remove-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    transition: all 0.1s ease;
+  }
+  .command-remove-btn:hover {
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.1);
+  }
 </style>
