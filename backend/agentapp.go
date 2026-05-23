@@ -62,9 +62,10 @@ const coworkSystemPromptSuffix = `
 You have access to the full standard tool set, including todo_write.
 
 ### Planning Rules
-- Only create a plan (via todo_write) when the task requires multiple distinct steps. For simple, single-step tasks, skip planning and act directly.
-- Each plan item must be a concise description of WHAT to do, not HOW. Write steps as plain-language goals (e.g. "Add error handling to the upload function"), never as code snippets or shell commands to run.
-- Update the plan as you progress, marking items in_progress or completed.
+- **Plan BEFORE executing:** For any request that involves multiple distinct steps (2 or more actions or tools), you MUST use the todo_write tool to create a visible plan before executing any other tools. Call todo_write as your very first action.
+- **High-Level Goals Only:** Each plan item must describe a high-level goal or milestone in plain, user-friendly language (e.g., "1. make invoice sample", "2. use python to convert to pdf", "3. check samples"). 
+- **NO Tool Calls in Plan:** Never write steps as low-level tool calls, technical procedures, or code details (e.g. do NOT write "write_file", "run_bash with python", "execute_code"). The user must see what you are trying to achieve, not which tool/command you are using to do it.
+- **Progress Tracking:** Update the plan as you progress, marking completed items as completed, and the active item as in_progress using todo_write with merge=true.
 
 ## Clarifying Questions & Options (IMPORTANT)
 Avoid asking too many clarifying questions. Be proactive: make safe, reasonable assumptions whenever possible to keep moving forward. Only ask questions when you are genuinely blocked or need the user to make a key choice.
@@ -79,67 +80,6 @@ Would you like to keep them in the same folder or move them?
 </options>
 Keep options extremely short, clear, and action-oriented. Do not include markdown formatting inside option lines.`
 
-// --- Wails-bound Agent Methods ---
-
-// NewAgentSession starts a fresh agent task session and returns the new session ID.
-func (a *App) NewAgentSession() string {
-	prefix := "agent_main"
-	if a.cfg != nil {
-		if ac, ok := a.cfg.Agents["main"]; ok && ac.SessionPrefix != "" {
-			prefix = ac.SessionPrefix
-		}
-	}
-	return fmt.Sprintf("%s_%d", prefix, time.Now().UnixMilli())
-}
-
-// SendAgentTaskStream starts a streaming agent turn for an agent task.
-// Returns immediately; events are emitted on "agent:stream:event".
-func (a *App) SendAgentTaskStream(input string, sessionID string) error {
-	if a.llm == nil {
-		return fmt.Errorf("LLM not configured — please add an API key in Settings")
-	}
-	content, err := json.Marshal(input)
-	if err != nil {
-		return fmt.Errorf("marshal input: %w", err)
-	}
-
-	sid := sessionID
-	if sid == "" {
-		sid = fmt.Sprintf("agent_%d", time.Now().UnixMilli())
-	}
-
-	workDir := filepath.Join(a.baseDir, "agents", sid)
-	go a.runAgentStream(sid, content, workDir)
-	return nil
-}
-
-// SendAgentTaskStreamWithFiles starts a streaming agent turn with file attachments.
-// Supports image, PDF (native), and text-extractable documents.
-func (a *App) SendAgentTaskStreamWithFiles(input string, files []streaming.FileAttachment, sessionID string) error {
-	if a.llm == nil {
-		return fmt.Errorf("LLM not configured — please add an API key in Settings")
-	}
-
-	sid := sessionID
-	if sid == "" {
-		sid = fmt.Sprintf("agent_%d", time.Now().UnixMilli())
-	}
-
-	workDir := filepath.Join(a.baseDir, "agents", sid)
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
-		return fmt.Errorf("create workdir: %w", err)
-	}
-
-	raw, err := streaming.BuildContent(input, files, streaming.ContentOptions{
-		WorkDir: workDir,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal content: %w", err)
-	}
-
-	go a.runAgentStream(sid, raw, workDir)
-	return nil
-}
 
 // SendCoworkTaskStream starts a streaming agent turn for a Cowork-style task.
 // The Cowork system prompt is injected. Events are emitted on "cowork:stream:event".
@@ -201,84 +141,8 @@ func (a *App) NewCoworkSession() string {
 	return fmt.Sprintf("cowork_%d", time.Now().UnixMilli())
 }
 
+
 // --- Stream runners ---
-
-// runAgentStream runs the agent turn in a goroutine and emits events on "agent:stream:event".
-func (a *App) runAgentStream(sessionID string, userContent json.RawMessage, workDir string) {
-	ctx, cleanup := a.streams.Start(a.ctx, sessionID)
-	defer cleanup()
-
-	if a.sessionMgr == nil {
-		log.Println("[agent] session manager not initialized")
-		a.emitAgentEvent(sessionID, map[string]interface{}{
-			"type":       "error",
-			"session_id": sessionID,
-			"error":      "session manager not initialized",
-			"seq":        a.seq.Next(),
-		})
-		return
-	}
-
-	emit := func(evt agent.StreamEvent) {
-		payload := map[string]interface{}{
-			"type":       evt.Type,
-			"session_id": sessionID,
-			"seq":        a.seq.Next(),
-		}
-		if evt.Content != "" {
-			payload["content"] = evt.Content
-		}
-		if evt.ToolName != "" {
-			payload["tool_name"] = evt.ToolName
-		}
-		if evt.ToolInput != "" {
-			payload["tool_input"] = evt.ToolInput
-		}
-		if evt.Path != "" {
-			payload["path"] = evt.Path
-		}
-		if evt.Name != "" {
-			payload["name"] = evt.Name
-		}
-		if evt.TodoItems != nil {
-			payload["todo_items"] = evt.TodoItems
-		}
-		a.emitAgentEvent(sessionID, payload)
-	}
-
-	toolReg := tools.NewRegistry()
-	tools.RegisterStandardTools(toolReg, a.baseDir)
-
-	deps := agent.Deps{
-		SessionMgr:   a.sessionMgr,
-		LLMClient:    a.llm,
-		ToolRegistry: toolReg,
-		WorkDir:      workDir,
-		BaseDir:      a.baseDir,
-	}
-
-	result, err := agent.RunTurnStreamWithContent(ctx, sessionID, "", userContent, deps, emit)
-	if err != nil {
-		if ctx.Err() == nil {
-			a.emitAgentEvent(sessionID, map[string]interface{}{
-				"type":       "error",
-				"session_id": sessionID,
-				"error":      err.Error(),
-				"seq":        a.seq.Next(),
-			})
-		}
-		return
-	}
-
-	stepsRaw, _ := json.Marshal(result.Steps)
-	a.emitAgentEvent(sessionID, map[string]interface{}{
-		"type":       "done",
-		"session_id": sessionID,
-		"final_text": result.FinalText,
-		"steps":      json.RawMessage(stepsRaw),
-		"seq":        a.seq.Next(),
-	})
-}
 
 // runCoworkStream executes a streaming cowork turn and emits events on "cowork:stream:event".
 func (a *App) runCoworkStream(sessionID string, content json.RawMessage, workDir string) {
@@ -360,17 +224,8 @@ func (a *App) runCoworkStream(sessionID string, content json.RawMessage, workDir
 	})
 }
 
-func (a *App) emitAgentEvent(sessionID string, payload map[string]interface{}) {
-	wailsRuntime.EventsEmit(a.ctx, "agent:stream:event", payload)
-}
 
 // --- Cancel ---
-
-// CancelStream cancels a streaming agent turn for the given session.
-func (a *App) CancelStream(sessionID string) error {
-	a.streams.Cancel(sessionID)
-	return nil
-}
 
 // CancelCoworkStream cancels the stream for the given cowork session ID.
 func (a *App) CancelCoworkStream(sessionID string) {
@@ -378,32 +233,6 @@ func (a *App) CancelCoworkStream(sessionID string) {
 }
 
 // --- Session CRUD ---
-
-// ListAgentSessions returns metadata for all agent task sessions, sorted newest first.
-func (a *App) ListAgentSessions() ([]session.SessionInfo, error) {
-	if a.sessionMgr == nil {
-		return []session.SessionInfo{}, nil
-	}
-	return a.sessionMgr.ListAgentSessions()
-}
-
-// LoadAgentSession returns the raw session messages for a given session ID.
-func (a *App) LoadAgentSession(sessionID string) ([]session.Message, error) {
-	if a.sessionMgr == nil {
-		return []session.Message{}, nil
-	}
-	return a.sessionMgr.Load(sessionID)
-}
-
-// DeleteAgentSession deletes an agent session. If the session is currently
-// streaming, it is cancelled first.
-func (a *App) DeleteAgentSession(sessionID string) error {
-	a.streams.Cancel(sessionID)
-	if a.sessionMgr == nil {
-		return nil
-	}
-	return a.sessionMgr.DeleteSession(sessionID)
-}
 
 // ListCoworkSessions returns metadata for all cowork sessions, newest first.
 func (a *App) ListCoworkSessions() ([]session.SessionInfo, error) {
@@ -496,15 +325,6 @@ func (a *App) RenameCoworkSession(sessionID string, newTitle string) error {
 
 // --- Work directory & files ---
 
-// GetTaskWorkDir returns the working directory path for an agent task.
-func (a *App) GetTaskWorkDir(taskID string) (string, error) {
-	dir := filepath.Join(a.baseDir, "agents", taskID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("create task dir: %w", err)
-	}
-	return dir, nil
-}
-
 // GetCoworkWorkDir returns the working directory path for a cowork session.
 func (a *App) GetCoworkWorkDir(sessionID string) (string, error) {
 	dir, err := config.FlowDir()
@@ -518,38 +338,6 @@ func (a *App) GetCoworkWorkDir(sessionID string) (string, error) {
 	return workDir, nil
 }
 
-// ListTaskFiles returns a list of files in an agent task's working directory.
-func (a *App) ListTaskFiles(taskID string) ([]TaskFileInfo, error) {
-	dir := filepath.Join(a.baseDir, "agents", taskID)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []TaskFileInfo{}, nil
-		}
-		return nil, fmt.Errorf("read task dir: %w", err)
-	}
-
-	var files []TaskFileInfo
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if e.Name() == "session.json" || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		files = append(files, TaskFileInfo{
-			Name: e.Name(),
-			Path: filepath.Join(dir, e.Name()),
-			Size: info.Size(),
-		})
-	}
-
-	return files, nil
-}
 
 // ListCoworkFiles returns files in a cowork session's working directory.
 func (a *App) ListCoworkFiles(sessionID string) ([]TaskFileInfo, error) {

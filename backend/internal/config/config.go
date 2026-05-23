@@ -87,7 +87,6 @@ func Bootstrap() (string, error) {
 	dirs := []string{
 		filepath.Join(base, "flow"),
 		filepath.Join(base, "cowork"),
-		filepath.Join(base, "agents"),
 		filepath.Join(base, "sessions"),
 		filepath.Join(base, "memory"),
 		filepath.Join(base, "workspace"),

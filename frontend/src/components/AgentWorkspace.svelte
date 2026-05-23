@@ -182,8 +182,8 @@
 
   // Build summary from all steps across all messages
   $: allSteps = messages.flatMap(m => m.steps || []);
-  $: commandCount = allSteps.filter(s => s.type === 'tool_call').length;
-  $: toolNames = [...new Set(allSteps.filter(s => s.type === 'tool_call').map(s => s.tool_name))];
+  $: commandCount = allSteps.filter(s => s.type === 'tool_call' && s.tool_name !== 'todo_write').length;
+  $: toolNames = [...new Set(allSteps.filter(s => s.type === 'tool_call' && s.tool_name !== 'todo_write').map(s => s.tool_name))];
   $: summaryText = buildSummary(commandCount, toolNames.length);
 
   function buildSummary(cmds, tools) {
@@ -719,76 +719,78 @@
                       {step.content}
                     </div>
                   {:else if step.type === 'tool_call'}
-                    <button class="step-toggle step-tool" class:step-skill={step.tool_name === 'use_skill'} on:click={() => toggleStep(msgIdx, i)}>
-                      <span class="step-icon">{expandedSteps[`${msgIdx}-${i}`] ? '▼' : '▶'}</span>
-                      <span class="step-tool-icon">
-                        {#if step.tool_name === 'use_skill'}
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-                          </svg>
-                        {:else}
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-                          </svg>
-                        {/if}
-                      </span>
-                      <span class="step-label">{formatToolLabel(step.tool_name, step.tool_input)}</span>
-                      {#if pendingApprovals[`${msgIdx}-${i}`]}
-                        <span class="pending-approval-badge">Requires Action</span>
-                      {/if}
-                    </button>
-                    {#if expandedSteps[`${msgIdx}-${i}`]}
-                      <div class="step-content step-tool-content">
-                        <pre>{step.tool_input}</pre>
-                      </div>
-                      {#if pendingApprovals[`${msgIdx}-${i}`]}
-                        {@const req = pendingApprovals[`${msgIdx}-${i}`]}
-                        <div class="inline-approval-card">
-                          {#if req.type === 'command'}
-                            <div class="approval-header">
-                              <svg class="warning-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                                <line x1="12" y1="9" x2="12" y2="13"/>
-                                <line x1="12" y1="17" x2="12.01" y2="17"/>
-                              </svg>
-                              <span class="approval-text">Command requires permission:</span>
-                            </div>
-                            <div class="approval-actions">
-                              <button class="btn-compact btn-always" on:click={() => submitCommandApproval(`${msgIdx}-${i}`, req.id, 'always')}>
-                                Allow Always
-                              </button>
-                              <button class="btn-compact btn-session" on:click={() => submitCommandApproval(`${msgIdx}-${i}`, req.id, 'session')}>
-                                Allow Session
-                              </button>
-                              <button class="btn-compact btn-deny" on:click={() => submitCommandApproval(`${msgIdx}-${i}`, req.id, 'deny')}>
-                                Block
-                              </button>
-                            </div>
-                          {:else if req.type === 'sandbox'}
-                            <div class="approval-header">
-                              <svg class="warning-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                              </svg>
-                              <span class="approval-text">Wants access to folder: <code>{req.path}</code></span>
-                            </div>
-                            <div class="approval-actions">
-                              <button class="btn-compact btn-deny" on:click={() => submitSandboxApproval(`${msgIdx}-${i}`, req.id, false)}>
-                                Deny
-                              </button>
-                              <button class="btn-compact btn-allow" on:click={() => submitSandboxApproval(`${msgIdx}-${i}`, req.id, true)}>
-                                Allow
-                              </button>
-                            </div>
+                    {#if step.tool_name !== 'todo_write'}
+                      <button class="step-toggle step-tool" class:step-skill={step.tool_name === 'use_skill'} on:click={() => toggleStep(msgIdx, i)}>
+                        <span class="step-icon">{expandedSteps[`${msgIdx}-${i}`] ? '▼' : '▶'}</span>
+                        <span class="step-tool-icon">
+                          {#if step.tool_name === 'use_skill'}
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                            </svg>
+                          {:else}
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                            </svg>
                           {/if}
+                        </span>
+                        <span class="step-label">{formatToolLabel(step.tool_name, step.tool_input)}</span>
+                        {#if pendingApprovals[`${msgIdx}-${i}`]}
+                          <span class="pending-approval-badge">Requires Action</span>
+                        {/if}
+                      </button>
+                      {#if expandedSteps[`${msgIdx}-${i}`]}
+                        <div class="step-content step-tool-content">
+                          <pre>{step.tool_input}</pre>
                         </div>
-                      {/if}
-                      {#if message.steps[i + 1]?.type === 'tool_result'}
-                        <div class="step-content step-result-content">
-                          <div class="step-result-header">Result:</div>
-                          <pre>{message.steps[i + 1].content}</pre>
-                        </div>
+                        {#if pendingApprovals[`${msgIdx}-${i}`]}
+                          {@const req = pendingApprovals[`${msgIdx}-${i}`]}
+                          <div class="inline-approval-card">
+                            {#if req.type === 'command'}
+                              <div class="approval-header">
+                                <svg class="warning-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                  <line x1="12" y1="9" x2="12" y2="13"/>
+                                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                </svg>
+                                <span class="approval-text">Command requires permission:</span>
+                              </div>
+                              <div class="approval-actions">
+                                <button class="btn-compact btn-always" on:click={() => submitCommandApproval(`${msgIdx}-${i}`, req.id, 'always')}>
+                                  Allow Always
+                                </button>
+                                <button class="btn-compact btn-session" on:click={() => submitCommandApproval(`${msgIdx}-${i}`, req.id, 'session')}>
+                                  Allow Session
+                                </button>
+                                <button class="btn-compact btn-deny" on:click={() => submitCommandApproval(`${msgIdx}-${i}`, req.id, 'deny')}>
+                                  Block
+                                </button>
+                              </div>
+                            {:else if req.type === 'sandbox'}
+                              <div class="approval-header">
+                                <svg class="warning-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                </svg>
+                                <span class="approval-text">Wants access to folder: <code>{req.path}</code></span>
+                              </div>
+                              <div class="approval-actions">
+                                <button class="btn-compact btn-deny" on:click={() => submitSandboxApproval(`${msgIdx}-${i}`, req.id, false)}>
+                                  Deny
+                                </button>
+                                <button class="btn-compact btn-allow" on:click={() => submitSandboxApproval(`${msgIdx}-${i}`, req.id, true)}>
+                                  Allow
+                                </button>
+                              </div>
+                            {/if}
+                          </div>
+                        {/if}
+                        {#if message.steps[i + 1]?.type === 'tool_result'}
+                          <div class="step-content step-result-content">
+                            <div class="step-result-header">Result:</div>
+                            <pre>{message.steps[i + 1].content}</pre>
+                          </div>
+                        {/if}
                       {/if}
                     {/if}
                   {:else if step.type === 'tool_result'}

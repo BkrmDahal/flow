@@ -17,6 +17,10 @@
     masterPromptLoading,
     loadMasterPrompt,
     saveMasterPrompt,
+    coworkPrompt,
+    coworkPromptLoading,
+    loadCoworkPrompt,
+    saveCoworkPrompt,
   } from '../lib/stores/pluginsStore.js';
 
   const dispatch = createEventDispatcher();
@@ -47,6 +51,8 @@
   onMount(async () => {
     if ($activeSection === 'prompt') {
       await handleSwitchSection('prompt');
+    } else if ($activeSection === 'cowork_prompt') {
+      await handleSwitchSection('cowork_prompt');
     } else {
       await handleSwitchSection('skills');
     }
@@ -59,9 +65,12 @@
     : $skills;
   $: detail = $activeSection === 'skills' ? $activeItemDetail : null;
 
-  // Sync editPromptBody with masterPrompt when it updates
+  // Sync editPromptBody when prompts update in store
   $: if ($masterPrompt !== undefined && !promptSaving && $activeSection === 'prompt') {
     editPromptBody = $masterPrompt;
+  }
+  $: if ($coworkPrompt !== undefined && !promptSaving && $activeSection === 'cowork_prompt') {
+    editPromptBody = $coworkPrompt;
   }
 
   async function handleSwitchSection(section) {
@@ -75,6 +84,9 @@
     } else if (section === 'prompt') {
       await loadMasterPrompt();
       editPromptBody = $masterPrompt || '';
+    } else if (section === 'cowork_prompt') {
+      await loadCoworkPrompt();
+      editPromptBody = $coworkPrompt || '';
     }
   }
 
@@ -83,13 +95,17 @@
     promptSuccess = false;
     promptSaving = true;
     try {
-      await saveMasterPrompt(editPromptBody);
+      if ($activeSection === 'prompt') {
+        await saveMasterPrompt(editPromptBody);
+      } else if ($activeSection === 'cowork_prompt') {
+        await saveCoworkPrompt(editPromptBody);
+      }
       promptSuccess = true;
       setTimeout(() => {
         promptSuccess = false;
       }, 3000);
     } catch (e) {
-      promptError = e?.message || 'Failed to save master prompt.';
+      promptError = e?.message || 'Failed to save prompt.';
     } finally {
       promptSaving = false;
     }
@@ -198,6 +214,10 @@
         Skills
         {#if $skills.length > 0}<span class="section-count">{$skills.length}</span>{/if}
       </button>
+      <button class="section-btn" class:active={$activeSection === 'cowork_prompt'} on:click={() => handleSwitchSection('cowork_prompt')}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Cowork Prompt
+      </button>
       <button class="section-btn" class:active={$activeSection === 'prompt'} on:click={() => handleSwitchSection('prompt')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
         Master Prompt
@@ -245,44 +265,48 @@
     {/if}
 
     <div class="detail-panel">
-      {#if $activeSection === 'prompt'}
+      {#if $activeSection === 'prompt' || $activeSection === 'cowork_prompt'}
         <div class="detail-header">
           <div class="detail-header-top">
-            <h2 class="detail-title">Master Prompt</h2>
+            <h2 class="detail-title">{$activeSection === 'prompt' ? 'Master Prompt' : 'Cowork Prompt'}</h2>
             <div class="prompt-badge">System Prompt</div>
           </div>
           <p class="detail-description">
-            The global instructions that define Flow's core personality, capabilities, rules, and task planning strategies. Changes here directly affect all subsequent turns and agent interactions.
+            {#if $activeSection === 'prompt'}
+              The global instructions that define Flow's core personality, capabilities, rules, and task planning strategies. Changes here directly affect all subsequent turns and agent interactions.
+            {:else}
+              The system instructions that guide the Cowork assistant during conversational chat and coding sessions. These define its tone, style, formatting, and behavior.
+            {/if}
           </p>
         </div>
 
-        {#if $masterPromptLoading}
+        {#if $activeSection === 'prompt' ? $masterPromptLoading : $coworkPromptLoading}
           <div class="detail-loading"><div class="spinner"></div></div>
         {:else}
           <div class="edit-form prompt-editor-form">
             <div class="edit-field edit-field-body">
-              <label for="master-prompt-textarea">System Prompt (Markdown)</label>
+              <label for="prompt-textarea">System Prompt (Markdown)</label>
               <textarea
-                id="master-prompt-textarea"
+                id="prompt-textarea"
                 bind:value={editPromptBody}
                 placeholder="# System Instructions..."
                 disabled={promptSaving}
               ></textarea>
             </div>
             {#if promptError}<div class="edit-error">{promptError}</div>{/if}
-            {#if promptSuccess}<div class="edit-success">Master prompt saved successfully!</div>{/if}
+            {#if promptSuccess}<div class="edit-success">System prompt saved successfully!</div>{/if}
             <div class="edit-actions">
               <button
                 class="btn-cancel"
-                on:click={() => { editPromptBody = $masterPrompt; promptError = ''; promptSuccess = false; }}
-                disabled={promptSaving || editPromptBody === $masterPrompt}
+                on:click={() => { editPromptBody = $activeSection === 'prompt' ? $masterPrompt : $coworkPrompt; promptError = ''; promptSuccess = false; }}
+                disabled={promptSaving || editPromptBody === ($activeSection === 'prompt' ? $masterPrompt : $coworkPrompt)}
               >
                 Reset
               </button>
               <button
                 class="btn-save"
                 on:click={handleSavePrompt}
-                disabled={promptSaving || editPromptBody === $masterPrompt}
+                disabled={promptSaving || editPromptBody === ($activeSection === 'prompt' ? $masterPrompt : $coworkPrompt)}
               >
                 {promptSaving ? 'Saving...' : 'Save Prompt'}
               </button>

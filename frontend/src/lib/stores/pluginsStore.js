@@ -12,6 +12,8 @@ import {
   DeleteSkill,
   GetMasterPrompt,
   SaveMasterPrompt as SaveMasterPromptAPI,
+  GetCoworkPrompt,
+  SaveCoworkPrompt as SaveCoworkPromptAPI,
   ListMemoryFiles,
   GetMemoryFile,
   AddMemoryFile,
@@ -22,7 +24,7 @@ import {
 // ─── Commands State ───
 export const commands = writable([]);
 export const skills = writable([]);
-export const activeSection = writable('commands'); // 'commands' | 'skills' | 'memory' | 'prompt'
+export const activeSection = writable('commands'); // 'commands' | 'skills' | 'memory' | 'prompt' | 'cowork_prompt'
 export const activeItemId = writable(null);
 export const activeItemDetail = writable(null);
 export const detailLoading = writable(false);
@@ -30,6 +32,10 @@ export const detailLoading = writable(false);
 // ─── Master Prompt ───
 export const masterPrompt = writable('');
 export const masterPromptLoading = writable(false);
+
+// ─── Cowork Prompt ───
+export const coworkPrompt = writable('');
+export const coworkPromptLoading = writable(false);
 
 // ─── Memory Files ───
 export const memoryFiles = writable([]);
@@ -152,6 +158,25 @@ export async function saveMasterPrompt(body) {
   await SaveMasterPromptAPI(body);
   masterPrompt.set(body);
 }
+
+// ─── Cowork Prompt ───
+
+export async function loadCoworkPrompt() {
+  coworkPromptLoading.set(true);
+  try {
+    const body = await GetCoworkPrompt();
+    coworkPrompt.set(body || '');
+  } catch (e) {
+    console.error('Failed to load cowork prompt:', e);
+  }
+  coworkPromptLoading.set(false);
+}
+
+export async function saveCoworkPrompt(body) {
+  await SaveCoworkPromptAPI(body);
+  coworkPrompt.set(body);
+}
+
 
 // ─── Memory Files CRUD ───
 

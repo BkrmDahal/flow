@@ -21,7 +21,7 @@ A full-featured, multi-turn chat workspace powered by LLMs with agentic tool-cal
   - Persist key facts across sessions (`memory_read`, `memory_write`)
   - Load custom skills into context (`skill_load`)
 - **Session management** — create, list, load, and delete chat sessions
-- **Customisable system prompt** — edit `~/.flow/cowork_prompt.md` to tailor the agent's behaviour
+- **Customisable system prompts** — edit both Cowork and Master prompts directly from the Toolkit UI (or via `~/.flow/cowork_prompt.md` and `~/.flow/workspace/Master_prompt.md`) to tailor assistant behavior
 
 ### 🎙️ Flow — Voice Recorder & Transcript Refiner
 
@@ -212,15 +212,15 @@ All configuration lives in `~/.flow/`:
 | File | Purpose |
 |------|---------|
 | `config.json` | App settings (providers, API keys, hotkey, STT config) |
-| `cowork_prompt.md` | Editable Cowork system prompt |
+| `cowork_prompt.md` | Editable Cowork system prompt (customizable via Toolkit) |
+| `workspace/Master_prompt.md` | Editable Master system prompt for task/agent flows (customizable via Toolkit) |
 | `exec-approvals.json` | Allowed/blocked shell command patterns |
 | `flow.log` | Application log file |
 | `flow/` | Saved Flow transcripts (JSON) |
 | `cowork/` | Cowork session data |
-| `agents/` | Agent task sessions and working directories |
 | `llamacpp/` | Managed llama-server binary and downloaded GGUF models |
 | `plugins/` | Commands & Skills store |
-| `snippets/` | Snippets store |
+| `snippets.json` | Snippets store (JSON) |
 | `memory/` | Agent persistent memory |
 
 ---

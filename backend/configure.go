@@ -36,6 +36,31 @@ func (a *App) SaveMasterPrompt(body string) error {
 	return nil
 }
 
+// ─── Cowork Prompt ───
+
+// GetCoworkPrompt reads the cowork_prompt.md file and returns its content.
+func (a *App) GetCoworkPrompt() (string, error) {
+	promptPath := filepath.Join(a.baseDir, "cowork_prompt.md")
+	data, err := os.ReadFile(promptPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return coworkDefaultSystemPrompt, nil
+		}
+		return "", fmt.Errorf("read cowork_prompt.md: %w", err)
+	}
+	return string(data), nil
+}
+
+// SaveCoworkPrompt writes the given body to cowork_prompt.md.
+func (a *App) SaveCoworkPrompt(body string) error {
+	promptPath := filepath.Join(a.baseDir, "cowork_prompt.md")
+	if err := os.WriteFile(promptPath, []byte(body), 0o644); err != nil {
+		return fmt.Errorf("write cowork_prompt.md: %w", err)
+	}
+	log.Printf("[configure] saved cowork_prompt.md (%d bytes)", len(body))
+	return nil
+}
+
 // ─── Memory Files ───
 
 // MemoryFileInfo holds metadata about a memory file.

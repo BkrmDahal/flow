@@ -44,17 +44,19 @@ const chatBrevitySuffix = `
 Keep your responses **short and to the point**. Be concise — no lengthy explanations, preambles, or unnecessary detail. Answer directly. Use bullet points only when listing multiple items.
 `
 
-// todoPromptSuffix points the agent at todo_write for genuinely complex,
-// long-horizon work — without forcing it on every multi-step request.
+// todoPromptSuffix instructs the agent to always plan before executing any multi-step task,
+// and to write plans with high-level goal-oriented steps rather than technical tool calls.
 const todoPromptSuffix = `
 
 ## Task Planning
 
-The todo_write tool is available when it actually helps — use it for **complex, long-horizon work**: 5+ distinct steps, work spanning multiple files, or anything where the user benefits from seeing a live plan they can follow.
+For ANY task that requires more than a single simple action (i.e., any task requiring two or more steps or tools), you MUST use the todo_write tool to create a visible plan BEFORE executing any other tools. 
 
-Skip todo_write for simple requests: answering questions, single-file edits, quick fixes, lookups, or anything obvious from your output. Don't create a checklist just because the task has more than one step.
-
-When you do use it: call todo_write up front with concrete steps, then update with merge=true as each step completes.
+### Planning Rules:
+1. **Plan BEFORE executing:** Call todo_write as your very first tool call in the turn. Do not perform any edits, searches, or run commands until the plan is created.
+2. **High-Level Goals Only:** Every plan item must describe a high-level goal or milestone in plain, user-friendly language (e.g., "1. make invoice sample", "2. use python to convert to pdf", "3. check samples"). 
+3. **NO Tool Calls in Plan:** Never write steps as low-level tool calls, technical procedures, or code details (e.g., do NOT write "call write_file to save script", "run run_bash with python"). The user must see what you are trying to achieve, not which API or command you are invoking.
+4. **Progress Tracking:** Update the plan as you progress by calling todo_write with merge=true, marking completed items as completed, and the current active item as in_progress.
 `
 
 // agentOptionsPromptSuffix instructs the agent to output options inside `<options>` block when asking clarifying questions.
