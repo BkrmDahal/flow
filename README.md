@@ -27,9 +27,9 @@ A full-featured, multi-turn chat workspace powered by LLMs with agentic tool-cal
 
 Record voice notes and transcribe them with configurable speech-to-text providers:
 
-- **One-click record/stop** with macOS native audio capture (M4A)
-- **Cloud STT providers**: OpenAI Whisper, Deepgram
-- **Local STT**: bundled whisper.cpp — fully offline, no API key required
+- **One-click record/stop** with audio capture (M4A)
+- **Local STT** — bundled whisper.cpp (fully offline, no API key required)
+- **Cloud STT** — OpenAI Whisper, Deepgram
 - **Transcript refinement** via LLM (streaming):
   - **Clean** — fix grammar, punctuation, and disfluencies
   - **Summarize** — condense to 2-3 sentences
@@ -45,12 +45,11 @@ Record voice notes and transcribe them with configurable speech-to-text provider
 - **Native macOS overlay** — visual recording indicator with live status
 - **Menu bar icon** — pinwheel status indicator (idle / recording / transcribing)
 
-### 🧩 Plugins — Commands, Skills & Snippets
+### 🧩 Reusable Skills & Snippets
 
-- **Commands** — named prompt templates callable by name (e.g., `/summarize`)
-- **Skills** — reusable instruction sets the agent can load into context at runtime
+- **Skills** — reusable instruction sets the agent can load into context at runtime to guide specialized behaviors (customizable via the Toolkit)
 - **Snippets** — trigger/expansion text replacements applied to transcriptions
-- Full CRUD from the Settings UI
+- Full CRUD from the Settings/Toolkit UI
 
 ### 🦙 Local LLM Support (llama.cpp)
 
@@ -95,7 +94,7 @@ flow/
 │   ├── settings.go            # Settings load/save, LLM client management
 │   ├── models.go              # OpenAI-compatible /v1/models listing
 │   ├── llama.go               # Managed llama.cpp server + GGUF download
-│   ├── plugins.go             # Commands & Skills CRUD (Wails facades)
+│   ├── plugins.go             # Skills CRUD (Wails facades)
 │   ├── snippets.go            # Snippets CRUD (Wails facades)
 │   └── internal/
 │       ├── agent/             # Agentic loop: multi-turn tool-calling orchestration
@@ -103,7 +102,7 @@ flow/
 │       ├── llm/               # LLM client abstraction (Anthropic, OpenAI)
 │       ├── llamacpp/          # llama-server process manager
 │       ├── parser/            # Content parsing utilities
-│       ├── plugins/           # Commands & Skills store (file-backed)
+│       ├── plugins/           # Skills store (file-backed)
 │       ├── session/           # Session persistence (JSONL-based)
 │       ├── snippets/          # Snippets store (file-backed)
 │       ├── speech/            # STT (Whisper, Deepgram, local), dictation, menu bar, overlay
@@ -219,7 +218,7 @@ All configuration lives in `~/.flow/`:
 | `flow/` | Saved Flow transcripts (JSON) |
 | `cowork/` | Cowork session data |
 | `llamacpp/` | Managed llama-server binary and downloaded GGUF models |
-| `plugins/` | Commands & Skills store |
+| `plugins/` | Skills store |
 | `snippets.json` | Snippets store (JSON) |
 | `memory/` | Agent persistent memory |
 
