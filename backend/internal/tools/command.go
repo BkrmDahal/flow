@@ -40,6 +40,10 @@ var (
 	// SessionAllowedCommands maps session working directory paths to whitelisted command prefixes
 	SessionAllowedCommands = make(map[string][]string)
 	SessionAllowedMu       sync.Mutex
+
+	// SessionAllowedSandboxPaths maps session working directory paths to whitelisted absolute folder paths
+	SessionAllowedSandboxPaths = make(map[string][]string)
+	SessionAllowedSandboxMu    sync.Mutex
 )
 
 // hardBlocked is a small hardcoded blocklist of obviously destructive
@@ -250,6 +254,15 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 			if absSession, err := filepath.Abs(sessionDir); err == nil {
 				allowedWritePaths = append(allowedWritePaths, absSession)
 			}
+			// 2.5. Session whitelisted sandbox paths
+			SessionAllowedSandboxMu.Lock()
+			sessionSandboxList := SessionAllowedSandboxPaths[sessionDir]
+			SessionAllowedSandboxMu.Unlock()
+			for _, allowedSandboxPath := range sessionSandboxList {
+				if absAllowedSandbox, err := filepath.Abs(allowedSandboxPath); err == nil {
+					allowedWritePaths = append(allowedWritePaths, absAllowedSandbox)
+				}
+			}
 		}
 
 		// 3. Current working directory of the application
@@ -312,6 +325,11 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 				if isWritable(absDir) {
 					if AskSandboxApproval(ctx, absDir) {
 						uniquePaths[absDir] = true
+						if sessionDir != "" {
+							SessionAllowedSandboxMu.Lock()
+							SessionAllowedSandboxPaths[sessionDir] = append(SessionAllowedSandboxPaths[sessionDir], absDir)
+							SessionAllowedSandboxMu.Unlock()
+						}
 					}
 				}
 			}
