@@ -101,7 +101,7 @@
   let llamaDownloadTotal = 0
 
   // ── Cloud settings ──
-  let providerMode = 'local'  // 'local' | 'cloud'
+  let providerMode = 'none'  // 'local' | 'cloud' | 'none'
   let cloudProvider = 'openai'  // 'openai' | 'anthropic' | 'openrouter' | 'custom'
   let cloudModel = ''
   let openaiKey = ''
@@ -234,7 +234,7 @@
       speechModel       = s.speechModel       || (speechProvider === 'local' ? 'base.en' : 'gpt-4o-mini-transcribe')
       speechLanguage    = s.speechLanguage    || 'en'
       speechPrompt      = s.speechPrompt      || ''
-      providerMode      = s.providerMode      || 'local'
+      providerMode      = s.providerMode      || 'none'
       cloudProvider     = s.cloudProvider     || 'openai'
       cloudModel        = s.cloudModel        || ''
       openaiKey         = s.openaiKey         || ''

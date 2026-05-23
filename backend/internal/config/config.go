@@ -116,6 +116,7 @@ func Bootstrap() (string, error) {
 			SpeechLanguage:   "en",
 			AutoRefineAction: "off",
 			PythonPath:       "python3",
+			ProviderMode:     "none",
 			Agents: map[string]AgentConfig{
 				"main": {
 					Name:           "Flow",
@@ -228,6 +229,9 @@ func Load(base string) (*Config, error) {
 	}
 	if cfg.PythonPath == "" {
 		cfg.PythonPath = "python3"
+	}
+	if cfg.ProviderMode == "" {
+		cfg.ProviderMode = "none"
 	}
 	return &cfg, nil
 }
