@@ -1,7 +1,8 @@
 <script>
-  import { afterUpdate, createEventDispatcher, tick } from 'svelte';
+  import { afterUpdate, createEventDispatcher, tick, onMount, onDestroy } from 'svelte';
   import { renderMarkdown } from '../lib/markdown.js';
   import { formatToolLabel, formatToolName } from '../lib/utils/formatters.js';
+  import { Backend, Events } from '../lib/wails.js';
   import AgentFileCard from './AgentFileCard.svelte';
   import AgentInfoPanel from './AgentInfoPanel.svelte';
   import TypingIndicator from './TypingIndicator.svelte';
@@ -108,6 +109,95 @@
     expandedSteps[key] = !expandedSteps[key];
     expandedSteps = expandedSteps;
     skipNextScroll = true;
+  }
+
+  let pendingApprovals = {};
+
+  $: if (messages.length === 0) {
+    pendingApprovals = {};
+  }
+
+  onMount(() => {
+    Events.on('sandbox:request_approval', handleSandboxApproval);
+    Events.on('command:request_approval', handleCommandApproval);
+  });
+
+  onDestroy(() => {
+    Events.off('sandbox:request_approval');
+    Events.off('command:request_approval');
+  });
+
+  function handleSandboxApproval(req) {
+    if (!req || !req.id || !req.path) return;
+    const active = findActiveToolStep();
+    if (active) {
+      const key = `${active.msgIdx}-${active.stepIdx}`;
+      pendingApprovals[key] = {
+        type: 'sandbox',
+        id: req.id,
+        path: req.path
+      };
+      pendingApprovals = pendingApprovals;
+      
+      // Auto expand this step so they see the inline prompt immediately
+      expandedSteps[key] = true;
+      expandedSteps = expandedSteps;
+    }
+  }
+
+  function handleCommandApproval(req) {
+    if (!req || !req.id || !req.command) return;
+    const active = findActiveToolStep();
+    if (active) {
+      const key = `${active.msgIdx}-${active.stepIdx}`;
+      pendingApprovals[key] = {
+        type: 'command',
+        id: req.id,
+        command: req.command,
+        exe: req.exe
+      };
+      pendingApprovals = pendingApprovals;
+
+      // Auto expand this step so they see the inline prompt immediately
+      expandedSteps[key] = true;
+      expandedSteps = expandedSteps;
+    }
+  }
+
+  function findActiveToolStep() {
+    // Traverse backwards to find the last assistant tool call step
+    for (let m = messages.length - 1; m >= 0; m--) {
+      const msg = messages[m];
+      if (msg.role === 'assistant' && msg.steps) {
+        for (let s = msg.steps.length - 1; s >= 0; s--) {
+          const step = msg.steps[s];
+          if (step.type === 'tool_call') {
+            return { msgIdx: m, stepIdx: s };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  async function submitCommandApproval(key, id, choice) {
+    try {
+      await Backend.SubmitCommandApproval(id, choice);
+    } catch (e) {
+      console.error('SubmitCommandApproval failed:', e);
+    }
+    delete pendingApprovals[key];
+    pendingApprovals = pendingApprovals;
+  }
+
+  async function submitSandboxApproval(key, id, approved) {
+    try {
+      await Backend.SubmitSandboxApproval(id, approved);
+    } catch (e) {
+      console.error('SubmitSandboxApproval failed:', e);
+    }
+    delete pendingApprovals[key];
+    pendingApprovals = pendingApprovals;
   }
 
   function handleOpenFile(e) {
@@ -471,11 +561,56 @@
                         {/if}
                       </span>
                       <span class="step-label">{formatToolLabel(step.tool_name, step.tool_input)}</span>
+                      {#if pendingApprovals[`${msgIdx}-${i}`]}
+                        <span class="pending-approval-badge">Requires Action</span>
+                      {/if}
                     </button>
                     {#if expandedSteps[`${msgIdx}-${i}`]}
                       <div class="step-content step-tool-content">
                         <pre>{step.tool_input}</pre>
                       </div>
+                      {#if pendingApprovals[`${msgIdx}-${i}`]}
+                        {@const req = pendingApprovals[`${msgIdx}-${i}`]}
+                        <div class="inline-approval-card">
+                          {#if req.type === 'command'}
+                            <div class="approval-header">
+                              <svg class="warning-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                <line x1="12" y1="9" x2="12" y2="13"/>
+                                <line x1="12" y1="17" x2="12.01" y2="17"/>
+                              </svg>
+                              <span class="approval-text">Command requires permission:</span>
+                            </div>
+                            <div class="approval-actions">
+                              <button class="btn-compact btn-always" on:click={() => submitCommandApproval(`${msgIdx}-${i}`, req.id, 'always')}>
+                                Allow Always
+                              </button>
+                              <button class="btn-compact btn-session" on:click={() => submitCommandApproval(`${msgIdx}-${i}`, req.id, 'session')}>
+                                Allow Session
+                              </button>
+                              <button class="btn-compact btn-deny" on:click={() => submitCommandApproval(`${msgIdx}-${i}`, req.id, 'deny')}>
+                                Block
+                              </button>
+                            </div>
+                          {:else if req.type === 'sandbox'}
+                            <div class="approval-header">
+                              <svg class="warning-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                              </svg>
+                              <span class="approval-text">Wants access to folder: <code>{req.path}</code></span>
+                            </div>
+                            <div class="approval-actions">
+                              <button class="btn-compact btn-deny" on:click={() => submitSandboxApproval(`${msgIdx}-${i}`, req.id, false)}>
+                                Deny
+                              </button>
+                              <button class="btn-compact btn-allow" on:click={() => submitSandboxApproval(`${msgIdx}-${i}`, req.id, true)}>
+                                Allow
+                              </button>
+                            </div>
+                          {/if}
+                        </div>
+                      {/if}
                       {#if message.steps[i + 1]?.type === 'tool_result'}
                         <div class="step-content step-result-content">
                           <div class="step-result-header">Result:</div>
@@ -909,6 +1044,136 @@
 
   .step-label {
     font-weight: 500;
+  }
+
+  .pending-approval-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #eab308;
+    background: rgba(234, 179, 8, 0.12);
+    border: 1px solid rgba(234, 179, 8, 0.2);
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: auto;
+    animation: pulse-glow 2s infinite ease-in-out;
+  }
+
+  .inline-approval-card {
+    margin: 8px 12px;
+    padding: 10px 12px;
+    background: rgba(30, 30, 30, 0.4);
+    border: 1px solid rgba(234, 179, 8, 0.25);
+    border-radius: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    animation: fadeInStep 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  
+  .approval-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 200px;
+  }
+
+  .warning-icon {
+    color: #eab308;
+    flex-shrink: 0;
+  }
+
+  .approval-text {
+    font-size: 11.5px;
+    color: var(--text-secondary, #e5e7eb);
+    line-height: 1.4;
+  }
+  
+  .approval-text code {
+    font-family: var(--font-mono, monospace);
+    font-size: 10.5px;
+    background: rgba(0, 0, 0, 0.25);
+    padding: 1.5px 5px;
+    border-radius: 4px;
+    color: var(--accent, #3b82f6);
+  }
+
+  .approval-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .btn-compact {
+    padding: 4px 10px;
+    font-size: 11.5px;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    border: none;
+    transition: all 0.12s ease;
+  }
+
+  .btn-always {
+    background: #007aff;
+    color: #ffffff;
+    box-shadow: 0 2px 4px rgba(0, 122, 255, 0.15);
+  }
+  .btn-always:hover {
+    background: #1a88ff;
+  }
+  .btn-always:active {
+    transform: scale(0.97);
+  }
+
+  .btn-session {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary, #ffffff);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+  }
+  .btn-session:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .btn-session:active {
+    transform: scale(0.97);
+  }
+
+  .btn-deny {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.1);
+  }
+  .btn-deny:hover {
+    background: rgba(239, 68, 68, 0.22);
+  }
+  .btn-deny:active {
+    transform: scale(0.97);
+  }
+
+  .btn-allow {
+    background: #007aff;
+    color: #ffffff;
+    box-shadow: 0 2px 4px rgba(0, 122, 255, 0.15);
+  }
+  .btn-allow:hover {
+    background: #1a88ff;
+  }
+  .btn-allow:active {
+    transform: scale(0.97);
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+  @keyframes fadeInStep {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   .step-thinking-inline {
