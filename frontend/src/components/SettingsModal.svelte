@@ -520,6 +520,21 @@
 
         <!-- ── General Tab (Allowed Commands Only) ── -->
         {#if activeTab === 'general'}
+          <section class="about-section" style="margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border-subtle);">
+            <span class="row-label" style="margin-bottom: 12px;">About Flow</span>
+            <div style="display: flex; align-items: center; gap: 16px; background: var(--bg-card, rgba(255, 255, 255, 0.02)); border: 1px solid var(--border-subtle); padding: 16px; border-radius: var(--radius-md, 8px);">
+              <!-- Beautiful custom gradient logo container -->
+              <div style="width: 54px; height: 54px; border-radius: 14px; background: linear-gradient(135deg, var(--accent, #2dd4bf), #3b82f6); display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 800; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.15); box-shadow: 0 4px 14px rgba(45, 212, 191, 0.25);">
+                F
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 3px;">
+                <span style="font-size: 16px; font-weight: 600; color: var(--text-primary);">Flow Developer Agent</span>
+                <span style="font-size: 12px; color: var(--text-muted);">Version 0.1.0</span>
+                <span style="font-size: 11px; color: var(--text-muted); opacity: 0.85;">© 2026 Flow. All rights reserved.</span>
+              </div>
+            </div>
+          </section>
+
           <section>
             <span class="row-label">Allowed Bash Commands</span>
             <p class="hint" style="margin-bottom: 10px;">
