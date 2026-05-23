@@ -1864,26 +1864,20 @@
     justify-content: center;
     width: 32px;
     height: 32px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 50%;
-    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--text-muted);
     cursor: pointer;
-    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.15s ease;
   }
   .btn-integrations-toggle:hover {
-    background: var(--accent, #007aff);
-    color: #ffffff;
-    border-color: var(--accent, #007aff);
-    transform: translateY(-1px) scale(1.08);
-    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+    color: var(--text-secondary);
+    background: var(--bg-hover);
   }
   .btn-integrations-toggle.active {
-    background: var(--accent, #007aff);
-    color: #ffffff;
-    border-color: var(--accent, #007aff);
-    transform: scale(0.95);
-    box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
+    color: var(--accent);
+    background: var(--bg-hover);
   }
 
   /* Integrations Menu Popover */
@@ -1898,11 +1892,11 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
-    padding: 14px;
+    padding: 10px 12px;
     z-index: 100;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
     animation: integrationsMenuFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
@@ -1989,7 +1983,7 @@
   .integrations-list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
     max-height: 220px;
     overflow-y: auto;
   }
@@ -2005,7 +1999,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 10px;
+    padding: 6px 8px;
     border-radius: 8px;
     transition: background 0.12s ease;
   }
