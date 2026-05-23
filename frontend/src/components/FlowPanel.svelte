@@ -259,8 +259,7 @@
     }
   }
 
-  async function deleteTranscript(id, evt) {
-    evt?.stopPropagation()
+  async function deleteTranscript(id) {
     if (!confirm('Delete this transcript?')) return
     try {
       await Backend.DeleteFlowTranscript(id)
@@ -383,7 +382,15 @@
                 <div class="transcript-meta">
                   {t.wordCount} words · {formatDuration(t.duration)}
                 </div>
-                <button class="transcript-delete" on:click={(e) => deleteTranscript(t.id, e)} title="Delete recording">×</button>
+                <button
+                  class="transcript-delete"
+                  on:click|stopPropagation={() => deleteTranscript(t.id)}
+                  title="Delete recording"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                  </svg>
+                </button>
               </button>
             {/each}
           </div>
@@ -846,19 +853,16 @@
   }
   .transcript-delete {
     position: absolute;
-    top: 5px; right: 6px;
-    background: transparent;
-    color: var(--text-muted);
-    border: none;
-    font-size: 15px;
-    line-height: 1;
-    padding: 2px 5px;
-    border-radius: 4px;
-    opacity: 0;
+    top: 10px; right: 10px;
+    display: flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; padding: 0;
+    background: transparent; border: none; border-radius: 4px;
+    color: var(--text-muted); cursor: pointer;
     transition: all 0.15s ease;
+    opacity: 0;
   }
   .transcript-item:hover .transcript-delete { opacity: 1; }
-  .transcript-delete:hover { color: var(--danger); background: var(--danger-bg); }
+  .transcript-delete:hover { color: #f87171; background: rgba(248,113,113,0.1); }
 
   .sidebar-empty {
     padding: 12px;
