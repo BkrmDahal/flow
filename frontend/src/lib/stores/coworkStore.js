@@ -25,6 +25,7 @@ export const coworkIsStreaming = writable(false);
 export const coworkParseDocuments = writable(true);     // Whether to parse PDF/XLSX text
 export const coworkWebSearchEnabled = writable(false);   // Whether web_search/fetch_url tools are available
 export const coworkScreenCaptureEnabled = writable(false); // Whether capture_screen tool is available
+export const coworkMemoryEnabled = writable(false);       // Whether memory tools are available
 export const backgroundCoworkStreamingSessions = writable(new Set());
 
 
@@ -568,6 +569,9 @@ function getDisabledTools() {
   }
   if (!get(coworkScreenCaptureEnabled)) {
     disabled.push('capture_screen');
+  }
+  if (!get(coworkMemoryEnabled)) {
+    disabled.push('save_memory', 'memory_search', 'list_memories', 'delete_memory');
   }
   return disabled;
 }

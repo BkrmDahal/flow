@@ -11,7 +11,7 @@
     coworkTaskTitle, coworkMessages, coworkCreatedFiles,
     coworkContextTools, coworkProgressSteps, coworkSkillsUsed,
     coworkLoading, coworkIsStreaming, coworkParseDocuments,
-    coworkWebSearchEnabled, coworkScreenCaptureEnabled,
+    coworkWebSearchEnabled, coworkScreenCaptureEnabled, coworkMemoryEnabled,
     backgroundCoworkStreamingSessions,
     refreshCoworkHistory, startCoworkTask, sendCoworkFollowUp,
     cancelCowork, newCoworkTask, selectCoworkTask, deleteCoworkTask,
@@ -57,6 +57,13 @@
       iconClass: 'screen-icon',
       iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
       description: 'Take screenshots for visual context',
+    },
+    {
+      id: 'memory',
+      name: 'memory',
+      iconClass: 'memory-icon',
+      iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path></svg>`,
+      description: 'Persist & Recall memories across sessions',
     }
   ];
 
@@ -379,7 +386,7 @@
                         <label class="toggle-switch">
                           <input
                             type="checkbox"
-                            checked={item.id === 'parse-document' ? $coworkParseDocuments : item.id === 'web-search' ? $coworkWebSearchEnabled : item.id === 'screencapture' ? $coworkScreenCaptureEnabled : false}
+                            checked={item.id === 'parse-document' ? $coworkParseDocuments : item.id === 'web-search' ? $coworkWebSearchEnabled : item.id === 'screencapture' ? $coworkScreenCaptureEnabled : item.id === 'memory' ? $coworkMemoryEnabled : false}
                             on:change={(e) => {
                               if (item.id === 'parse-document') {
                                 $coworkParseDocuments = e.target.checked;
@@ -387,6 +394,8 @@
                                 $coworkWebSearchEnabled = e.target.checked;
                               } else if (item.id === 'screencapture') {
                                 $coworkScreenCaptureEnabled = e.target.checked;
+                              } else if (item.id === 'memory') {
+                                $coworkMemoryEnabled = e.target.checked;
                               }
                             }}
                           />
@@ -815,6 +824,11 @@
   .integration-icon.screen-icon {
     background: rgba(139, 92, 246, 0.12);
     color: #8b5cf6;
+  }
+
+  .integration-icon.memory-icon {
+    background: rgba(245, 158, 11, 0.12);
+    color: #f59e0b;
   }
 
   .integration-name {
