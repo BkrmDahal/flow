@@ -46,10 +46,28 @@ case "${1:-}" in
         open "${APP_BUNDLE}"
         ;;
     dmg)
-        PLATFORM="${2:-darwin/arm64}"
-        echo "==> Building Flow.app (${PLATFORM})..."
-        wails build -platform "${PLATFORM}"
-        echo ""
+        PLATFORM="darwin/arm64"
+        SKIP_BUILD=false
+        
+        # Check if --skip-build is in the arguments
+        for arg in "$@"; do
+            if [ "$arg" = "--skip-build" ]; then
+                SKIP_BUILD=true
+            fi
+        done
+
+        # If the second argument is not --skip-build and is provided, use it as platform
+        if [ "${2:-}" != "--skip-build" ] && [ -n "${2:-}" ]; then
+            PLATFORM="$2"
+        fi
+
+        if [ "$SKIP_BUILD" = false ]; then
+            echo "==> Building Flow.app (${PLATFORM})...."
+            wails build -platform "${PLATFORM}"
+            echo ""
+        else
+            echo "==> Skipping build, packaging existing Flow.app bundle..."
+        fi
 
         echo "==> Creating DMG installer..."
 

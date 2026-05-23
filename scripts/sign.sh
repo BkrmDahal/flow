@@ -125,7 +125,7 @@ codesign -vvv --deep --strict "$APP_BUNDLE"
 
 # 5. Package into DMG
 echo -e "\n${BLUE}==> [4/6] Creating DMG Installer...${NC}"
-./flow.sh dmg darwin/universal
+./flow.sh dmg darwin/universal --skip-build
 
 if [ ! -f "$DMG_OUTPUT" ]; then
     echo -e "${RED}Error: DMG Installer creation failed. Make sure ./flow.sh dmg succeeded.${NC}"
@@ -148,11 +148,39 @@ xcrun notarytool submit "$DMG_OUTPUT" --keychain-profile "$NOTARY_PROFILE" --wai
 
 # 7. Staple the Notarization Ticket
 echo -e "\n${BLUE}==> [6/6] Stapling Notarization Ticket...${NC}"
-echo "Stapling ticket to DMG..."
-xcrun stapler staple "$DMG_OUTPUT"
+
+# Helper to staple with a retry loop due to Apple CloudKit propagation lag
+staple_with_retry() {
+    local target="$1"
+    local max_retries=10
+    local delay=15
+    local attempt=1
+
+    echo "Stapling ticket to $target..."
+    while [ $attempt -le $max_retries ]; do
+        echo "Stapling attempt $attempt of $max_retries..."
+        # Running the command within a conditional ('if') prevents 'set -e' from aborting the script on failure
+        if xcrun stapler staple "$target"; then
+            echo -e "${GREEN}Successfully stapled $target!${NC}"
+            return 0
+        else
+            echo -e "${YELLOW}Warning: stapler failed on attempt $attempt (likely due to Apple's propagation delay).${NC}"
+            if [ $attempt -lt $max_retries ]; then
+                echo "Waiting $delay seconds before next attempt..."
+                sleep $delay
+            fi
+        fi
+        attempt=$((attempt + 1))
+    done
+
+    echo -e "${RED}Error: Failed to staple ticket to $target after $max_retries attempts.${NC}"
+    return 1
+}
+
+staple_with_retry "$DMG_OUTPUT"
 
 echo "Stapling ticket to App Bundle (for offline validation inside DMG)..."
-xcrun stapler staple "$APP_BUNDLE"
+staple_with_retry "$APP_BUNDLE"
 
 echo -e "\n${GREEN}${BOLD}🎉 SUCCESS! Your application is fully Signed, Notarized, and Stapled!${NC}"
 echo -e "Users can now download and install: ${BOLD}${DMG_OUTPUT}${NC}"
