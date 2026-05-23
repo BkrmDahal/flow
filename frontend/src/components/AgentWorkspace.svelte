@@ -5,6 +5,7 @@
   import { Backend, Events } from '../lib/wails.js';
   import AgentFileCard from './AgentFileCard.svelte';
   import AgentInfoPanel from './AgentInfoPanel.svelte';
+  import ModelSelector from './ModelSelector.svelte';
   import TypingIndicator from './TypingIndicator.svelte';
   import LoadingSpinner from './LoadingSpinner.svelte';
   import { skills, refreshSkills } from '../lib/stores/pluginsStore.js';
@@ -52,6 +53,8 @@
   export let loading = false;
   export let disabled = false;
   export let parseDocuments = true;
+  export let activeModel = '';
+  export let onOpenSettings = () => {};
 
   // Data for the info panel
   export let progressSteps = [];     // Array of { label, status }
@@ -1062,6 +1065,7 @@
             </button>
           </div>
           <div class="workspace-input-bottom-right">
+            <ModelSelector onOpenSettings={onOpenSettings} />
             {#if loading}
               <button
                 class="btn-send btn-cancel"
@@ -1105,6 +1109,7 @@
     files={createdFiles}
     {contextTools}
     {skillsUsed}
+    {activeModel}
     on:openFile={handleInfoOpenFile}
     on:openFolder={handleOpenFolder}
   />

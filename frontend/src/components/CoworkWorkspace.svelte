@@ -3,6 +3,7 @@
   import AgentSidebar from './AgentSidebar.svelte';
   import AgentWelcome from './AgentWelcome.svelte';
   import AgentWorkspace from './AgentWorkspace.svelte';
+  import ModelSelector from './ModelSelector.svelte';
   import { Backend } from '../lib/wails.js';
   import { skills, refreshSkills } from '../lib/stores/pluginsStore.js';
 
@@ -105,14 +106,53 @@
   const IMAGE_TYPES = new Set(['image/png','image/jpeg','image/gif','image/webp']);
   const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
+  let activeModel = '';
+
+  async function loadActiveModelForPlan() {
+    try {
+      const s = await Backend.GetSettings();
+      if (s) {
+        if (s.providerMode === 'local') {
+          if (s.llamaManagedEnabled && s.llamaModelPath) {
+            activeModel = s.llamaModelPath.split('/').pop() || s.model || 'Local GGUF';
+          } else {
+            activeModel = s.model || 'Local LLM';
+          }
+        } else {
+          const provider = s.cloudProvider;
+          const model = s.cloudModel;
+          const list = [
+            { id: 'claude-3-5-sonnet-latest', label: 'Sonnet 4.6' },
+            { id: 'claude-3-5-haiku-latest', label: 'Haiku 4.5' },
+            { id: 'claude-3-opus-latest', label: 'Opus 4.7' },
+            { id: 'gpt-4o', label: 'GPT-4o' },
+            { id: 'gpt-4o-mini', label: 'GPT-4o mini' }
+          ];
+          const found = list.find(m => m.id === model);
+          if (found) {
+            activeModel = found.label;
+          } else {
+            const providerLabels = { anthropic: 'Claude', openai: 'OpenAI', openrouter: 'OpenRouter', custom: 'Custom' };
+            activeModel = `${providerLabels[provider] || 'Cloud'}: ${model ? model.split('/').pop() : 'Default'}`;
+          }
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
   onMount(() => {
     refreshCoworkHistory();
     refreshSkills();
+    loadActiveModelForPlan();
     window.addEventListener('click', handleGlobalClick);
+    window.addEventListener('flow:settings-saved', loadActiveModelForPlan);
   });
 
   onDestroy(() => {
     window.removeEventListener('click', handleGlobalClick);
+    window.removeEventListener('flow:settings-saved', loadActiveModelForPlan);
   });
 
   // ─── Welcome input ───
@@ -490,13 +530,16 @@
                 </svg>
               </button>
             </div>
-            <button class="btn-send" on:click={handleWelcomeSend}
-              disabled={(!agentInput.trim() && agentFiles.length === 0 && !selectedSkill) || $coworkLoading}
-              title="Send message">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M7 11l5-5m0 0l5 5m-5-5v12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
+            <div class="input-bottom-right">
+              <ModelSelector onOpenSettings={onOpenSettings} />
+              <button class="btn-send" on:click={handleWelcomeSend}
+                disabled={(!agentInput.trim() && agentFiles.length === 0 && !selectedSkill) || $coworkLoading}
+                title="Send message">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M7 11l5-5m0 0l5 5m-5-5v12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -520,6 +563,7 @@
         createdFiles={$coworkCreatedFiles}
         contextTools={$coworkContextTools}
         skillsUsed={$coworkSkillsUsed}
+        {activeModel}
         bind:parseDocuments={$coworkParseDocuments}
         on:openFile={handleOpenFile}
         on:openFolder={handleOpenFolder}
@@ -614,6 +658,12 @@
     align-items: center;
     justify-content: space-between;
     padding: 4px 8px 8px;
+  }
+
+  .input-bottom-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .btn-send {
