@@ -61,7 +61,8 @@ When you do use it: call todo_write up front with concrete steps, then update wi
 const agentOptionsPromptSuffix = `
 
 ## Clarifying Questions & Options (IMPORTANT)
-When you need clarification, a decision, or to present choices to the user, ALWAYS provide 2-4 explicit, concise option suggestions that the user can choose from.
+Avoid asking too many clarifying questions. Be proactive: make safe, reasonable assumptions whenever possible to keep moving forward. Only ask questions when you are genuinely blocked or need the user to make a key choice.
+When you DO need clarification, a decision, or to present choices to the user, ALWAYS provide 2-4 explicit, concise option suggestions that the user can choose from.
 Format these options at the very end of your response inside an <options> block, with one option per line prefixed by a bullet (-).
 Example:
 Would you like to keep them in the same folder or move them?
