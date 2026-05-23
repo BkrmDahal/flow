@@ -18,7 +18,7 @@ import (
 )
 
 // maxToolIterations prevents infinite loops in the agent turn.
-const maxToolIterations = 25
+const maxToolIterations = 50
 
 // maxWebSearchPerTurn limits how many web_search/fetch_url calls the agent
 // can make in a single turn before we inject a "use your knowledge" nudge.
