@@ -1,8 +1,25 @@
-# Flow
+<p align="center">
+  <img src="docs/images/appicon.png" alt="Flow Logo" width="128" height="128" style="border-radius: 28px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);" />
+</p>
 
-Flow is a powerful, unified macOS desktop application built with [Wails](https://wails.io/) (Go + Svelte). It combines an AI agent workspace, voice-to-text dictation, transcript refinement, and extensible tooling into a single, beautiful native app — designed to supercharge your daily productivity.
+<h1 align="center">Flow</h1>
+
+<p align="center">
+  <strong>The Ultimate Native AI Copilot & Voice Dictation Workspace for macOS</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/BkrmDahal/flow/releases/download/v0.6.0/Flow-Installer.dmg">
+    <img src="https://img.shields.io/badge/Download%20for%20macOS-Universal%20DMG-007AFF?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" />
+  </a>
+</p>
+
+<p align="center">
+  Built with Go + Svelte via Wails, <strong>Flow</strong> is a gorgeous, native desktop command center that seamlessly fuses a multi-turn agentic AI chat workspace (<strong>Cowork</strong>) and instantaneous, push-to-talk disfluency-free dictation refinement (<strong>Flow</strong>) directly into your daily macOS workflow.
+</p>
 
 ---
+
 
 ## 🖥️ Visual Preview
 
