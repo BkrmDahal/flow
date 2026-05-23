@@ -576,7 +576,12 @@
   }
 
   // Reset other options state whenever a new stream starts or messages load
-  $: if (isStreaming || messages.length) {
+  let lastMessageCount = 0;
+  $: if (messages.length !== lastMessageCount) {
+    otherInputValue = '';
+    lastMessageCount = messages.length;
+  }
+  $: if (isStreaming) {
     otherInputValue = '';
   }
 </script>
