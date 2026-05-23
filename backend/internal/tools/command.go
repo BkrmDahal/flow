@@ -44,16 +44,40 @@ var (
 
 // hardBlocked is a small hardcoded blocklist of obviously destructive
 // patterns. Any command containing one of these substrings is refused.
-// We do not maintain an allowlist in v1 — the agent can run anything else.
+// This is defense-in-depth; the primary protection is the sandbox + approval system.
 var hardBlocked = []string{
 	"rm -rf /",
 	"rm -rf ~",
+	"rm -r -f /",
+	"rm -r -f ~",
+	"rm --recursive --force /",
+	"rm --recursive --force ~",
+	"rm -rf /*",
 	"mkfs",
 	"dd if=",
 	":(){ :|:& };:",
 	"shutdown",
 	"reboot",
 	"halt",
+	"init 0",
+	"init 6",
+	"systemctl poweroff",
+	"systemctl reboot",
+	"> /dev/sda",
+	"chmod -R 777 /",
+	"chown -R",
+	"launchctl unload",
+	"diskutil eraseDisk",
+	"diskutil partitionDisk",
+}
+
+// hardBlockedRegexps catches variants of destructive commands that
+// substring matching can miss (e.g. flag reordering: rm -fr /).
+var hardBlockedRegexps = []*regexp.Regexp{
+	// rm with recursive + force flags in any order targeting / or ~
+	regexp.MustCompile(`\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\s+[/~]`),
+	// curl/wget piped to sh/bash (common RCE pattern)
+	regexp.MustCompile(`(curl|wget)\s+.*\|\s*(sh|bash|zsh)`),
 }
 
 // RunBashTool executes a shell command via `sh -c`.
@@ -108,6 +132,11 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 			return fmt.Sprintf("Error: command refused — contains blocked pattern %q", b), nil
 		}
 	}
+	for _, re := range hardBlockedRegexps {
+		if re.MatchString(in.Command) {
+			return fmt.Sprintf("Error: command refused — matches blocked pattern %q", re.String()), nil
+		}
+	}
 
 	// Enforce Allowed command list from exec-approvals.json
 	if t.baseDir != "" {
@@ -157,34 +186,35 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 
 			// 4. If still blocked, intercept and ask the user for permission dynamically!
 			if !allowed {
-				// Only show prompt if there is an active allowlist configured on disk
-				approvals, err := config.LoadExecApprovals(t.baseDir)
-				if err == nil && approvals != nil && len(approvals.Allowed) > 0 {
-					// Check if the executable actually exists in PATH before prompting
-					if _, lookErr := exec.LookPath(exe); lookErr == nil {
-						decision := AskCommandApproval(ctx, in.Command, exe)
-						if decision.Choice == "session" {
-							if sessionDir != "" {
-								SessionAllowedMu.Lock()
-								SessionAllowedCommands[sessionDir] = append(SessionAllowedCommands[sessionDir], exe)
-								SessionAllowedMu.Unlock()
-							}
-							allowed = true
-						} else if decision.Choice == "always" {
-							approvals.Allowed = append(approvals.Allowed, exe)
-							_ = config.SaveExecApprovals(t.baseDir, approvals)
-							allowed = true
-						}
-					} else {
-						// Allow it to pass through to let standard shell throw "command not found" error
-						// rather than prompting the user for an executable that does not exist.
-						allowed = true
+			// Intercept and ask the user for permission dynamically.
+			// Even if no allowlist is configured, we default to prompting
+			// the user rather than silently allowing commands (fail-closed).
+			approvals, _ := config.LoadExecApprovals(t.baseDir)
+
+			// Check if the executable actually exists in PATH before prompting
+			if _, lookErr := exec.LookPath(exe); lookErr == nil {
+				decision := AskCommandApproval(ctx, in.Command, exe)
+				if decision.Choice == "session" {
+					if sessionDir != "" {
+						SessionAllowedMu.Lock()
+						SessionAllowedCommands[sessionDir] = append(SessionAllowedCommands[sessionDir], exe)
+						SessionAllowedMu.Unlock()
 					}
-				} else {
-					// No allowlist configured, allow by default
+					allowed = true
+				} else if decision.Choice == "always" {
+					if approvals == nil {
+						approvals = &config.ExecApprovals{}
+					}
+					approvals.Allowed = append(approvals.Allowed, exe)
+					_ = config.SaveExecApprovals(t.baseDir, approvals)
 					allowed = true
 				}
+			} else {
+				// Allow it to pass through to let standard shell throw "command not found" error
+				// rather than prompting the user for an executable that does not exist.
+				allowed = true
 			}
+		}
 		}
 
 		if !allowed {
@@ -233,12 +263,18 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 		allowedWritePaths = append(allowedWritePaths, "/tmp", "/private/tmp", "/var", "/private/var", os.TempDir())
 		allowedWritePaths = append(allowedWritePaths, "/dev/null", "/dev/urandom", "/dev/stdin", "/dev/stdout", "/dev/stderr", "/dev/tty")
 
-		// Clean, absolute, and deduplicate default directories
+		// Clean, absolute, deduplicate, and resolve symlinks for write paths.
 		uniquePaths := make(map[string]bool)
 		for _, p := range allowedWritePaths {
 			cleaned := filepath.Clean(p)
 			if cleaned != "" && cleaned != "/" {
-				uniquePaths[cleaned] = true
+				// Resolve symlinks to prevent symlink-based sandbox escapes
+				// (e.g. creating a symlink inside allowed dir pointing to /etc).
+				if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+					uniquePaths[resolved] = true
+				} else {
+					uniquePaths[cleaned] = true
+				}
 			}
 		}
 
@@ -256,6 +292,11 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 				continue
 			}
 			absDir = filepath.Clean(absDir)
+
+			// Resolve symlinks for the path check too.
+			if resolved, err := filepath.EvalSymlinks(absDir); err == nil {
+				absDir = resolved
+			}
 
 			// Check if this directory is already inside our whitelisted write paths
 			isAllowed := false
@@ -290,17 +331,25 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 )
 `, strings.Join(writeRules, "\n    "))
 
-		// Block access to highly sensitive paths
+		// Block writes to critical system paths even if they somehow end up in the allow list.
+		profile += "\n(deny file-write* (subpath \"/etc\") (subpath \"/System\") (subpath \"/Library\") (subpath \"/usr\") (subpath \"/bin\") (subpath \"/sbin\"))\n"
+
+		// Block access to highly sensitive paths (read and write).
 		if homeDir != "" {
 			sensitivePaths := []string{
 				filepath.Join(homeDir, ".ssh"),
 				filepath.Join(homeDir, ".aws"),
 				filepath.Join(homeDir, ".kube"),
+				filepath.Join(homeDir, ".gnupg"),
+				filepath.Join(homeDir, ".config", "gcloud"),
 			}
 			var readDenyRules []string
 			for _, sp := range sensitivePaths {
 				readDenyRules = append(readDenyRules, fmt.Sprintf("(subpath %q)", filepath.Clean(sp)))
 			}
+			// Also block reading the Flow config file (contains API keys).
+			configPath := filepath.Join(homeDir, ".flow", "config.json")
+			readDenyRules = append(readDenyRules, fmt.Sprintf("(literal %q)", configPath))
 			profile += fmt.Sprintf("\n(deny file-read* %s)\n", strings.Join(readDenyRules, " "))
 		}
 

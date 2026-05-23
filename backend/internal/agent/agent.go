@@ -19,6 +19,11 @@ import (
 // maxToolIterations prevents infinite loops in the agent turn.
 const maxToolIterations = 50
 
+// minIterationInterval is the minimum delay between consecutive LLM API
+// calls within one turn. This rate-limits prompt-injection attempts that
+// try to burn through API credits via rapid tool-call loops.
+const minIterationInterval = 500 * time.Millisecond
+
 // agentCodeFileSuffix is appended to the system prompt for agent tasks. It
 // points the agent at write_file when the user actually wants code saved, but
 // leaves room for inline code in conversational answers.
@@ -183,6 +188,14 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 	result := &TurnResult{}
 
 	for i := 0; i < maxToolIterations; i++ {
+		// Rate-limit consecutive API calls to prevent credit burn.
+		if i > 0 {
+			select {
+			case <-time.After(minIterationInterval):
+			case <-ctx.Done():
+				return result, ctx.Err()
+			}
+		}
 		onDelta := func(delta llm.StreamDelta) {
 			switch delta.Type {
 			case "thinking_start":

@@ -128,7 +128,7 @@ func Bootstrap() (string, error) {
 			},
 		}
 		data, _ := json.MarshalIndent(def, "", "  ")
-		if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		if err := os.WriteFile(cfgPath, data, 0o600); err != nil {
 			return "", fmt.Errorf("write config.json: %w", err)
 		}
 	}
@@ -174,7 +174,7 @@ memory_search to recall it, and delete_memory to remove outdated entries.
 			"blocked": {"rm -rf /", "mkfs", "dd if="},
 		}
 		data, _ := json.MarshalIndent(defaultApprovals, "", "  ")
-		_ = os.WriteFile(approvalsPath, data, 0o644)
+		_ = os.WriteFile(approvalsPath, data, 0o600)
 	}
 
 	return base, nil
@@ -239,7 +239,7 @@ func Save(base string, cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(base, "config.json"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(base, "config.json"), data, 0o600); err != nil {
 		return fmt.Errorf("write config.json: %w", err)
 	}
 	return nil
@@ -273,7 +273,7 @@ func SaveExecApprovals(base string, approvals *ExecApprovals) error {
 	if err != nil {
 		return fmt.Errorf("marshal exec-approvals: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write exec-approvals.json: %w", err)
 	}
 	return nil

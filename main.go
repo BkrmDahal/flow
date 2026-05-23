@@ -27,7 +27,7 @@ func setupLogFile() (*os.File, error) {
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", logDir, err)
 	}
-	f, err := os.OpenFile(filepath.Join(logDir, "flow.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(filepath.Join(logDir, "flow.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open log: %w", err)
 	}
