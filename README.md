@@ -88,7 +88,7 @@ flow/
 │
 ├── backend/                   # Go backend (Wails-bound)
 │   ├── app.go                 # App struct, Startup/Shutdown lifecycle
-│   ├── agentapp.go            # Agent & Cowork streaming, session CRUD
+│   ├── agentapp.go            # Cowork streaming & session CRUD
 │   ├── flow.go                # Voice recording, transcription, transcript CRUD
 │   ├── flow_refine.go         # LLM-powered transcript refinement (streaming)
 │   ├── dictation.go           # System-wide dictation hotkey setup
@@ -119,11 +119,11 @@ flow/
 │           ├── CoworkWorkspace.svelte   # Cowork agent chat UI
 │           ├── FlowPanel.svelte         # Voice recorder & transcript viewer
 │           ├── FlowRefineMenu.svelte    # Refinement action picker
-│           ├── AgentWorkspace.svelte     # Agent task workspace
-│           ├── AgentSidebar.svelte       # Agent session sidebar
-│           ├── AgentInfoPanel.svelte     # Agent task info panel
-│           ├── AgentFileCard.svelte      # File card in agent workspace
-│           ├── AgentWelcome.svelte       # Agent welcome screen
+│           ├── AgentWorkspace.svelte     # Cowork workspace panel
+│           ├── AgentSidebar.svelte       # Cowork sidebar panel
+│           ├── AgentInfoPanel.svelte     # Cowork task info panel
+│           ├── AgentFileCard.svelte      # File card in Cowork workspace
+│           ├── AgentWelcome.svelte       # Cowork welcome panel
 │           ├── SettingsModal.svelte      # Full settings UI
 │           ├── SkillToolkitPanel.svelte  # Skills & commands manager
 │           ├── LoadingSpinner.svelte     # Loading indicator
