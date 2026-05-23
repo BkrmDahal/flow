@@ -82,8 +82,6 @@ func RegisterStandardTools(r *Registry, baseDir string) {
 	r.Register(NewUseSkillTool(baseDir))
 
 	// Supercharged macOS & Web integrations
-	r.Register(&ReadClipboardTool{})
-	r.Register(&WriteClipboardTool{})
 	r.Register(&CaptureScreenTool{})
 	r.Register(&WebSearchTool{})
 	r.Register(&FetchURLTool{})
