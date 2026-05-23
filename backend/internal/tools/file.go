@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/user/flow/backend/internal/parser"
 )
 
 const maxReadBytes = 10 * 1024 // 10KB
@@ -73,7 +75,7 @@ type ReadFileTool struct{}
 func (t *ReadFileTool) Name() string { return "read_file" }
 
 func (t *ReadFileTool) Description() string {
-	return "Read the contents of a file at the given path. Relative paths resolve within the session workspace (~/.flow/cowork/{session_id}/). Absolute paths to external files are also allowed (except sensitive dirs like ~/.ssh). Output is truncated to 10KB. TIP: Always read a file before attempting to overwrite it."
+	return "Read the contents of a file at the given path. Supports plain text files as well as formatted documents (.pdf, .xlsx, .docx, .pptx). Relative paths resolve within the session workspace (~/.flow/cowork/{session_id}/). Absolute paths to external files are also allowed (except sensitive dirs like ~/.ssh). Output is truncated to 10KB. TIP: Always read a file before attempting to overwrite it."
 }
 
 func (t *ReadFileTool) Schema() map[string]interface{} {
@@ -120,7 +122,23 @@ func (t *ReadFileTool) Execute(ctx context.Context, input json.RawMessage) (stri
 		return fmt.Sprintf("Error reading file: %v", err), nil
 	}
 
-	content := string(data)
+	ext := strings.ToLower(readPath)
+	isRichDoc := strings.HasSuffix(ext, ".pdf") ||
+		strings.HasSuffix(ext, ".xlsx") ||
+		strings.HasSuffix(ext, ".docx") ||
+		strings.HasSuffix(ext, ".pptx")
+
+	var content string
+	if isRichDoc {
+		extracted, err := parser.ExtractText(filepath.Base(readPath), data)
+		if err != nil {
+			return fmt.Sprintf("Error extracting text from document: %v", err), nil
+		}
+		content = extracted
+	} else {
+		content = string(data)
+	}
+
 	if len(content) > maxReadBytes {
 		content = content[:maxReadBytes] + "\n... [file truncated at 10KB]"
 	}
