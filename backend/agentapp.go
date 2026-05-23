@@ -123,7 +123,7 @@ func (a *App) SendAgentTaskStreamWithFiles(input string, files []AgentFileAttach
 
 // runAgentStream runs the agent turn in a goroutine and emits events.
 func (a *App) runAgentStream(sessionID string, userContent json.RawMessage, workDir string) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(a.ctx)
 	agentStreamMu.Lock()
 	if prev, ok := agentStreamCancels[sessionID]; ok {
 		prev() // cancel any existing stream for this session

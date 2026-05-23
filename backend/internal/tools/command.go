@@ -5,11 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/user/flow/backend/internal/config"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
@@ -103,7 +107,120 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 	execCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(execCtx, "sh", "-c", in.Command)
+	var cmd *exec.Cmd
+	if runtime.GOOS == "darwin" {
+		homeDir, _ := os.UserHomeDir()
+		var allowedWritePaths []string
+
+		// 1. Base directory (e.g., ~/.flow)
+		if t.baseDir != "" {
+			if absBase, err := filepath.Abs(t.baseDir); err == nil {
+				allowedWritePaths = append(allowedWritePaths, absBase)
+			}
+		}
+
+		// 2. Session working directory
+		sessionDir := SessionDirFromContext(ctx)
+		if sessionDir != "" {
+			if absSession, err := filepath.Abs(sessionDir); err == nil {
+				allowedWritePaths = append(allowedWritePaths, absSession)
+			}
+		}
+
+		// 3. Current working directory of the application
+		if cwd, err := os.Getwd(); err == nil {
+			if absCwd, err := filepath.Abs(cwd); err == nil {
+				allowedWritePaths = append(allowedWritePaths, absCwd)
+			}
+		}
+
+		// 4. Standard temporary / system storage paths
+		allowedWritePaths = append(allowedWritePaths, "/tmp", "/private/tmp", "/var", "/private/var", os.TempDir())
+
+		// Clean, absolute, and deduplicate default directories
+		uniquePaths := make(map[string]bool)
+		for _, p := range allowedWritePaths {
+			cleaned := filepath.Clean(p)
+			if cleaned != "" && cleaned != "/" {
+				uniquePaths[cleaned] = true
+			}
+		}
+
+		// 5. Scan the command for potential external paths and prompt the user dynamically
+		potentialPaths := extractPotentialPaths(in.Command)
+		for _, rawPath := range potentialPaths {
+			dir := rawPath
+			if info, err := os.Stat(rawPath); err != nil || !info.IsDir() {
+				dir = filepath.Dir(rawPath)
+			}
+
+			// Resolve directory to absolute path
+			absDir, err := filepath.Abs(dir)
+			if err != nil {
+				continue
+			}
+			absDir = filepath.Clean(absDir)
+
+			// Check if this directory is already inside our whitelisted write paths
+			isAllowed := false
+			for allowed := range uniquePaths {
+				if absDir == allowed || strings.HasPrefix(absDir, allowed+string(filepath.Separator)) {
+					isAllowed = true
+					break
+				}
+			}
+
+			// If it's not whitelisted, and is a valid external path, prompt the user!
+			if !isAllowed && absDir != "/" && absDir != "." && absDir != ".." {
+				resp, err := wailsRuntime.MessageDialog(ctx, wailsRuntime.MessageDialogOptions{
+					Type:          wailsRuntime.QuestionDialog,
+					Title:         "Sandbox Folder Access Request",
+					Message:       fmt.Sprintf("Flow's terminal tool wants to write/access the following folder:\n\n%s\n\nDo you want to temporarily grant Flow write permissions for this folder?", absDir),
+					Buttons:       []string{"Allow", "Deny"},
+					DefaultButton: "Allow",
+					CancelButton:  "Deny",
+				})
+
+				if err == nil && resp == "Allow" {
+					uniquePaths[absDir] = true
+				}
+			}
+		}
+
+		var writeRules []string
+		for p := range uniquePaths {
+			writeRules = append(writeRules, fmt.Sprintf("(subpath %q)", p))
+		}
+
+		// Build SBPL Profile
+		profile := fmt.Sprintf(`(version 1)
+(allow default)
+(deny file-write* (subpath "/"))
+(allow file-write*
+    %s
+)
+`, strings.Join(writeRules, "\n    "))
+
+		// Block access to highly sensitive paths
+		if homeDir != "" {
+			sensitivePaths := []string{
+				filepath.Join(homeDir, ".ssh"),
+				filepath.Join(homeDir, ".aws"),
+				filepath.Join(homeDir, ".kube"),
+			}
+			var readDenyRules []string
+			for _, sp := range sensitivePaths {
+				readDenyRules = append(readDenyRules, fmt.Sprintf("(subpath %q)", filepath.Clean(sp)))
+			}
+			profile += fmt.Sprintf("\n(deny file-read* %s)\n", strings.Join(readDenyRules, " "))
+		}
+
+		// Wrap with sandbox-exec
+		cmd = exec.CommandContext(execCtx, "sandbox-exec", "-p", profile, "sh", "-c", in.Command)
+	} else {
+		cmd = exec.CommandContext(execCtx, "sh", "-c", in.Command)
+	}
+
 	if dir := SessionDirFromContext(ctx); dir != "" {
 		cmd.Dir = dir
 	}
@@ -124,4 +241,31 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 		return "(command completed with no output)", nil
 	}
 	return output, nil
+}
+
+// extractPotentialPaths scans the command string for absolute or home-relative path substrings
+func extractPotentialPaths(cmdStr string) []string {
+	var paths []string
+	homeDir, _ := os.UserHomeDir()
+
+	words := strings.Fields(cmdStr)
+	for _, word := range words {
+		cleaned := strings.Trim(word, "'\",;()|&<>")
+		
+		isHomeRelative := strings.HasPrefix(cleaned, "~/")
+		isAbsolute := strings.HasPrefix(cleaned, "/")
+		
+		if isHomeRelative || isAbsolute {
+			var fullPath string
+			if isHomeRelative && homeDir != "" {
+				fullPath = filepath.Join(homeDir, cleaned[2:])
+			} else {
+				fullPath = cleaned
+			}
+
+			fullPath = filepath.Clean(fullPath)
+			paths = append(paths, fullPath)
+		}
+	}
+	return paths
 }
