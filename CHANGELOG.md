@@ -4,6 +4,23 @@ All notable changes to **Flow** will be documented in this file.
 
 ---
 
+## [0.6.7] - 2026-05-23
+
+### 🧠 Native Reasoning & Thinking Support (DeepSeek-R1)
+* **Reasoning Stream Extraction**: Integrated native support for streaming thinking blocks (`<thinking>` / `<reasoning>`) from models like DeepSeek-R1 natively in the LLM execution pipeline, maintaining a clean distinction between thought processes and final assistant outputs.
+* **Workspace Image Persistence**: Modified attached image handling to auto-save input images directly to the active session workspace. This allows local scripts and bash commands to run against attached visual files seamlessly.
+* **Smart Vision Recommendations**: Implemented friendly, actionable diagnostics that catch OpenRouter or llama.cpp vision-less model errors and suggest switching to active vision-capable models instead of throwing raw API stack traces.
+
+### ⏱️ Local LLM Loading Indicator
+* **Global Initializing Status**: Integrated a custom window event (`flow:local-llm-loading`) between Wails backend and Svelte frontend to track model booting/initializing lifecycles.
+* **UI Micro-Spinner & Reactive Text**: Replaced the static status light in the composer's model selector with a pulsing green micro-spinner and a label that dynamically shifts to `Loading [Model Name]...`.
+* **Interaction Blocking**: Disabled interaction with the Model Selector and the prompt bar during server boots to prevent concurrent api/port crashes.
+
+### ⚙️ Chat-Only System Prompt Toggle
+* **Dropdown Option Integration**: Developed a premium toggle switch row directly inside the Model Selector dropdown menu next to the tools button.
+* **Context Suppression**: Bypasses system prompt composition inside the Go backend (`agent.go`) exclusively in Chat Mode, allowing raw prompt queries to minimize context window size, reduce response latency, and save token costs.
+* **Protected Multi-Step Agent Tasks**: Ensures multi-step workspace tasks remain completely unaffected, maintaining detailed tool instructions, safety guidelines, and plan compilers active.
+
 ## [0.6.6] - 2026-05-23
 
 ### 🔍 Web Search & Bot Loop Protection
