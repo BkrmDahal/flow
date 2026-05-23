@@ -73,7 +73,7 @@ type ReadFileTool struct{}
 func (t *ReadFileTool) Name() string { return "read_file" }
 
 func (t *ReadFileTool) Description() string {
-	return "Read the contents of a file. Relative paths are resolved within the session workspace (~/.flow/cowork/{session_id}/). Absolute paths outside the session workspace are also allowed. Output is truncated to 10KB to save tokens."
+	return "Read the contents of a file at the given path. Relative paths resolve within the session workspace (~/.flow/cowork/{session_id}/). Absolute paths to external files are also allowed (except sensitive dirs like ~/.ssh). Output is truncated to 10KB. TIP: Always read a file before attempting to overwrite it."
 }
 
 func (t *ReadFileTool) Schema() map[string]interface{} {
@@ -185,7 +185,7 @@ type WriteFileTool struct{}
 func (t *WriteFileTool) Name() string { return "write_file" }
 
 func (t *WriteFileTool) Description() string {
-	return "Write text content to a file. Files are saved in the session workspace (~/.flow/cowork/{session_id}/). Parent directories are created automatically. Use relative paths like 'README.md' or 'src/main.py'."
+	return "Write text content to a file. Files are saved in the session workspace (~/.flow/cowork/{session_id}/). Parent directories are created automatically. Use relative paths like 'README.md' or 'src/main.py'. TIP: For edits, read the file first, modify the content, then write the full result back. Overwrites existing content entirely."
 }
 
 func (t *WriteFileTool) Schema() map[string]interface{} {

@@ -79,6 +79,7 @@ A full-featured, multi-turn chat workspace powered by LLMs with agentic tool-cal
 - **Streaming responses** with live token rendering and smooth fading sidebar text overflow.
 - **File attachments** — upload images, PDFs, CSVs, and text documents directly into the conversation.
 - **Agent Planning & Todo List** — multi-step planning loops with `todo_write` integration for robust execution.
+- **Structured System Prompt** — Pi-inspired composable prompt builder that dynamically injects identity, environment context (date, OS, working directory, Python path), tool guidance, safety guardrails, and mode-specific instructions.
 - **Dynamic Tool use** — the agent can autonomously:
   - Read, write, and create files (`file_read`, `file_write`)
   - Execute shell commands with sandboxed approval (`command`)
@@ -88,7 +89,8 @@ A full-featured, multi-turn chat workspace powered by LLMs with agentic tool-cal
   - Persist key facts across sessions (`memory_read`, `memory_write`)
   - Load custom skills into context (`skill_load`)
 - **Session management** — create, list, load, and delete chat sessions with responsive UI layout.
-- **Customizable prompts** — edit both Cowork and Master prompts directly from the Toolkit UI (or via `~/.flow/cowork_prompt.md` and `~/.flow/workspace/Master_prompt.md`) to tailer assistant behavior.
+- **Customizable system prompt** — edit the base prompt directly from the Toolkit UI (or via `~/.flow/system_prompt.md`). Tool guidance, planning rules, safety guardrails, and environment context are automatically composed on every turn.
+- **Smart output truncation** — head+tail pattern (4KB) ensures the agent sees both the start and end of long tool outputs.
 
 ### 🎙️ Flow — Voice Recorder & Transcript Refiner
 Record voice notes and transcribe them with configurable speech-to-text providers:
@@ -163,7 +165,7 @@ flow/
 │   ├── plugins.go             # Skills CRUD (Wails facades)
 │   ├── snippets.go            # Snippets CRUD (Wails facades)
 │   └── internal/
-│       ├── agent/             # Agentic loop: multi-turn tool-calling orchestration
+│       ├── agent/             # Agentic loop: multi-turn tool-calling, structured prompt builder
 │       ├── config/            # Config bootstrap, load/save, exec approvals
 │       ├── llm/               # LLM client abstraction (Anthropic, OpenAI)
 │       ├── llamacpp/          # llama-server process manager
@@ -282,8 +284,7 @@ All configuration lives in `~/.flow/`:
 | File | Purpose |
 |------|---------|
 | `config.json` | App settings (providers, API keys, hotkey, STT config) |
-| `cowork_prompt.md` | Editable Cowork system prompt (customizable via Toolkit) |
-| `workspace/Master_prompt.md` | Editable Master system prompt for task/agent flows (customizable via Toolkit) |
+| `system_prompt.md` | Unified editable system prompt (customizable via Toolkit UI) |
 | `exec-approvals.json` | Allowed/blocked shell command patterns |
 | `flow.log` | Application log file |
 | `flow/` | Saved Flow transcripts (JSON) |

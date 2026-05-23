@@ -11,6 +11,7 @@
     coworkTaskTitle, coworkMessages, coworkCreatedFiles,
     coworkContextTools, coworkProgressSteps, coworkSkillsUsed,
     coworkLoading, coworkIsStreaming, coworkParseDocuments,
+    coworkWebSearchEnabled, coworkScreenCaptureEnabled,
     backgroundCoworkStreamingSessions,
     refreshCoworkHistory, startCoworkTask, sendCoworkFollowUp,
     cancelCowork, newCoworkTask, selectCoworkTask, deleteCoworkTask,
@@ -378,10 +379,14 @@
                         <label class="toggle-switch">
                           <input
                             type="checkbox"
-                            checked={item.id === 'parse-document' ? $coworkParseDocuments : false}
+                            checked={item.id === 'parse-document' ? $coworkParseDocuments : item.id === 'web-search' ? $coworkWebSearchEnabled : item.id === 'screencapture' ? $coworkScreenCaptureEnabled : false}
                             on:change={(e) => {
                               if (item.id === 'parse-document') {
                                 $coworkParseDocuments = e.target.checked;
+                              } else if (item.id === 'web-search') {
+                                $coworkWebSearchEnabled = e.target.checked;
+                              } else if (item.id === 'screencapture') {
+                                $coworkScreenCaptureEnabled = e.target.checked;
                               }
                             }}
                           />

@@ -23,6 +23,8 @@ export const coworkSkillsUsed = writable([]);           // Skill names loaded vi
 export const coworkLoading = writable(false);
 export const coworkIsStreaming = writable(false);
 export const coworkParseDocuments = writable(true);     // Whether to parse PDF/XLSX text
+export const coworkWebSearchEnabled = writable(false);   // Whether web_search/fetch_url tools are available
+export const coworkScreenCaptureEnabled = writable(false); // Whether capture_screen tool is available
 export const backgroundCoworkStreamingSessions = writable(new Set());
 
 
@@ -557,6 +559,18 @@ function extractSelectedSkillName(text) {
   return match?.[1] || '';
 }
 
+/** Build the list of tool names the user has toggled OFF. */
+function getDisabledTools() {
+  const disabled = [];
+  if (!get(coworkWebSearchEnabled)) {
+    disabled.push('web_search', 'fetch_url');
+  }
+  if (!get(coworkScreenCaptureEnabled)) {
+    disabled.push('capture_screen');
+  }
+  return disabled;
+}
+
 export async function startCoworkTask(text, files = [], selectedSkillName = '') {
   if ((!text?.trim() && files.length === 0 && !selectedSkillName) || get(coworkLoading)) return;
 
@@ -594,12 +608,13 @@ export async function startCoworkTask(text, files = [], selectedSkillName = '') 
 
   try {
     const backendText = buildSkillAugmentedText(text, selectedSkillName);
+    const disabled = getDisabledTools();
     if (files.length > 0) {
       const wailsFiles = buildWailsFiles(files);
       const extractText = get(coworkParseDocuments);
-      await requireBackendMethod('SendCoworkTaskStreamWithFiles')(backendText, wailsFiles, extractText, newId);
+      await requireBackendMethod('SendCoworkTaskStreamWithFiles')(backendText, wailsFiles, extractText, newId, disabled);
     } else {
-      await requireBackendMethod('SendCoworkTaskStream')(backendText, newId);
+      await requireBackendMethod('SendCoworkTaskStream')(backendText, newId, disabled);
     }
   } catch (err) {
     showStreamStartError(err);
@@ -628,12 +643,13 @@ export async function sendCoworkFollowUp(text, files = [], selectedSkillName = '
   try {
     const sid = get(activeCoworkTaskId);
     const backendText = buildSkillAugmentedText(text, selectedSkillName);
+    const disabled = getDisabledTools();
     if (files.length > 0) {
       const wailsFiles = buildWailsFiles(files);
       const extractText = get(coworkParseDocuments);
-      await requireBackendMethod('SendCoworkTaskStreamWithFiles')(backendText, wailsFiles, extractText, sid);
+      await requireBackendMethod('SendCoworkTaskStreamWithFiles')(backendText, wailsFiles, extractText, sid, disabled);
     } else {
-      await requireBackendMethod('SendCoworkTaskStream')(backendText, sid);
+      await requireBackendMethod('SendCoworkTaskStream')(backendText, sid, disabled);
     }
   } catch (err) {
     showStreamStartError(err);

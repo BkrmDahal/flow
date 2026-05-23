@@ -49,41 +49,16 @@ type ChatFile struct {
 	Type string `json:"type"`
 }
 
-// coworkDefaultSystemPrompt is bootstrapped to ~/.flow/cowork_prompt.md on first run.
-const coworkDefaultSystemPrompt = `You are Cowork, a helpful coding assistant.
-You have tools for planning work, reading and writing files, running shell commands, managing memory, and loading skills.
-Keep responses concise. When creating files, use relative paths.`
-
-// coworkSystemPromptSuffix is appended after the user-editable prompt.
-const coworkSystemPromptSuffix = `
-
-## Cowork Tooling
-
-You have access to the full standard tool set, including todo_write.
-
-### Planning Rules
-- **Plan BEFORE executing:** For any request that involves multiple distinct steps (2 or more actions or tools), you MUST use the todo_write tool to create a visible plan before executing any other tools. Call todo_write as your very first action.
-- **High-Level Goals Only:** Each plan item must describe a high-level goal or milestone in plain, user-friendly language (e.g., "1. make invoice sample", "2. use python to convert to pdf", "3. check samples"). 
-- **NO Tool Calls in Plan:** Never write steps as low-level tool calls, technical procedures, or code details (e.g. do NOT write "write_file", "run_bash with python", "execute_code"). The user must see what you are trying to achieve, not which tool/command you are using to do it.
-- **Progress Tracking:** Update the plan as you progress, marking completed items as completed, and the active item as in_progress using todo_write with merge=true.
-
-## Clarifying Questions & Options (IMPORTANT)
-Avoid asking too many clarifying questions. Be proactive: make safe, reasonable assumptions whenever possible to keep moving forward. Only ask questions when you are genuinely blocked or need the user to make a key choice.
-When you DO need clarification, a decision, or to present choices to the user, ALWAYS provide 2-4 explicit, concise option suggestions that the user can choose from.
-Format these options at the very end of your response inside an <options> block, with one option per line prefixed by a bullet (-).
-Example:
-Would you like to keep them in the same folder or move them?
-<options>
-- Keep them in the same folder
-- Move them to ~/Downloads/code_demo/screenshots/
-- Rename them to screenshot_1.png, screenshot_2.png, ...
-</options>
-Keep options extremely short, clear, and action-oriented. Do not include markdown formatting inside option lines.`
+// coworkPromptFileName is the unified system prompt file that the structured
+// builder in agent.go loads. The user can edit this file to customise the
+// base identity prompt; all tool-guidance, planning, safety, and environment
+// sections are composed automatically by agent.go.
+const coworkPromptFileName = "system_prompt.md"
 
 
 // SendCoworkTaskStream starts a streaming agent turn for a Cowork-style task.
-// The Cowork system prompt is injected. Events are emitted on "cowork:stream:event".
-func (a *App) SendCoworkTaskStream(input string, sessionID string) error {
+// disabledTools lists tool names that are toggled off (e.g. ["web_search","fetch_url"]).
+func (a *App) SendCoworkTaskStream(input string, sessionID string, disabledTools []string) error {
 	if a.llm == nil {
 		return fmt.Errorf("no model configured — open Settings first")
 	}
@@ -102,12 +77,12 @@ func (a *App) SendCoworkTaskStream(input string, sessionID string) error {
 	}
 	workDir := filepath.Join(baseDir, "cowork", sessionID)
 
-	go a.runCoworkStream(sessionID, content, workDir)
+	go a.runCoworkStream(sessionID, content, workDir, disabledTools)
 	return nil
 }
 
 // SendCoworkTaskStreamWithFiles starts a streaming cowork turn with file attachments.
-func (a *App) SendCoworkTaskStreamWithFiles(input string, files []streaming.FileAttachment, extractText bool, sessionID string) error {
+func (a *App) SendCoworkTaskStreamWithFiles(input string, files []streaming.FileAttachment, extractText bool, sessionID string, disabledTools []string) error {
 	if a.llm == nil {
 		return fmt.Errorf("no model configured — open Settings first")
 	}
@@ -132,7 +107,7 @@ func (a *App) SendCoworkTaskStreamWithFiles(input string, files []streaming.File
 		return fmt.Errorf("marshal content: %w", err)
 	}
 
-	go a.runCoworkStream(sessionID, raw, workDir)
+	go a.runCoworkStream(sessionID, raw, workDir, disabledTools)
 	return nil
 }
 
@@ -145,7 +120,7 @@ func (a *App) NewCoworkSession() string {
 // --- Stream runners ---
 
 // runCoworkStream executes a streaming cowork turn and emits events on "cowork:stream:event".
-func (a *App) runCoworkStream(sessionID string, content json.RawMessage, workDir string) {
+func (a *App) runCoworkStream(sessionID string, content json.RawMessage, workDir string, disabledTools []string) {
 	ctx, cleanup := a.streams.Start(a.ctx, sessionID)
 	defer cleanup()
 
@@ -183,14 +158,17 @@ func (a *App) runCoworkStream(sessionID string, content json.RawMessage, workDir
 	toolReg := tools.NewRegistry()
 	tools.RegisterStandardTools(toolReg, sessionDir)
 
-	systemPrompt := a.loadCoworkSystemPrompt() + coworkSystemPromptSuffix
+	// Pass the user-editable prompt to the agent builder; it will compose
+	// all remaining sections (tool guidance, safety, planning, env, etc.).
+	systemPrompt := a.loadCoworkSystemPrompt()
 
 	deps := agent.Deps{
-		SessionMgr:   sessMgr,
-		LLMClient:    a.llm,
-		ToolRegistry: toolReg,
-		WorkDir:      workDir,
-		BaseDir:      sessionDir,
+		SessionMgr:    sessMgr,
+		LLMClient:     a.llm,
+		ToolRegistry:  toolReg,
+		WorkDir:       workDir,
+		BaseDir:       sessionDir,
+		DisabledTools: disabledTools,
 	}
 
 	result, err := agent.RunTurnStreamWithContent(ctx, sessionID, systemPrompt, content, deps, emit)
@@ -410,24 +388,22 @@ func (a *App) RevealInFinder(filePath string) error {
 
 // --- Helpers ---
 
-// loadCoworkSystemPrompt reads the user-editable system prompt from disk,
-// or bootstraps it with a sensible default on first run.
+// loadCoworkSystemPrompt reads the user-editable system prompt from the
+// unified file (~/.flow/system_prompt.md). Returns an empty string if
+// no file exists; the structured builder in agent.go will fall back to
+// its built-in default.
 func (a *App) loadCoworkSystemPrompt() string {
 	dir, err := config.FlowDir()
 	if err != nil {
-		return coworkDefaultSystemPrompt
+		return ""
 	}
-	path := filepath.Join(dir, "cowork_prompt.md")
+	path := filepath.Join(dir, coworkPromptFileName)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		// Bootstrap default.
-		_ = os.WriteFile(path, []byte(coworkDefaultSystemPrompt), 0o644)
-		return coworkDefaultSystemPrompt
+		// No file yet — agent.go's builder will bootstrap it.
+		return ""
 	}
-	if s := strings.TrimSpace(string(data)); s != "" {
-		return s
-	}
-	return coworkDefaultSystemPrompt
+	return strings.TrimSpace(string(data))
 }
 
 // parseCoworkMessageForFrontend converts a stored session message to a

@@ -11,54 +11,44 @@ import (
 	"github.com/user/flow/backend/internal/plugins"
 )
 
-// ─── Master Prompt ───
+// ─── System Prompt (Unified) ───
+//
+// Both the legacy "Master Prompt" and "Cowork Prompt" UI sections now
+// read/write the same unified file: ~/.flow/system_prompt.md.
 
-// GetMasterPrompt reads the Master_prompt.md file and returns its content.
+// GetMasterPrompt reads the system_prompt.md file and returns its content.
 func (a *App) GetMasterPrompt() (string, error) {
-	promptPath := filepath.Join(a.baseDir, "workspace", "Master_prompt.md")
+	promptPath := filepath.Join(a.baseDir, coworkPromptFileName)
 	data, err := os.ReadFile(promptPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
-		return "", fmt.Errorf("read Master_prompt.md: %w", err)
+		return "", fmt.Errorf("read system_prompt.md: %w", err)
 	}
 	return string(data), nil
 }
 
-// SaveMasterPrompt writes the given body to Master_prompt.md.
+// SaveMasterPrompt writes the given body to system_prompt.md.
 func (a *App) SaveMasterPrompt(body string) error {
-	promptPath := filepath.Join(a.baseDir, "workspace", "Master_prompt.md")
+	promptPath := filepath.Join(a.baseDir, coworkPromptFileName)
 	if err := os.WriteFile(promptPath, []byte(body), 0o644); err != nil {
-		return fmt.Errorf("write Master_prompt.md: %w", err)
+		return fmt.Errorf("write system_prompt.md: %w", err)
 	}
-	log.Printf("[configure] saved Master_prompt.md (%d bytes)", len(body))
+	log.Printf("[configure] saved system_prompt.md (%d bytes)", len(body))
 	return nil
 }
 
-// ─── Cowork Prompt ───
+// ─── Cowork Prompt (alias for system prompt) ───
 
-// GetCoworkPrompt reads the cowork_prompt.md file and returns its content.
+// GetCoworkPrompt reads the unified system_prompt.md file.
 func (a *App) GetCoworkPrompt() (string, error) {
-	promptPath := filepath.Join(a.baseDir, "cowork_prompt.md")
-	data, err := os.ReadFile(promptPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return coworkDefaultSystemPrompt, nil
-		}
-		return "", fmt.Errorf("read cowork_prompt.md: %w", err)
-	}
-	return string(data), nil
+	return a.GetMasterPrompt()
 }
 
-// SaveCoworkPrompt writes the given body to cowork_prompt.md.
+// SaveCoworkPrompt writes the given body to the unified system_prompt.md.
 func (a *App) SaveCoworkPrompt(body string) error {
-	promptPath := filepath.Join(a.baseDir, "cowork_prompt.md")
-	if err := os.WriteFile(promptPath, []byte(body), 0o644); err != nil {
-		return fmt.Errorf("write cowork_prompt.md: %w", err)
-	}
-	log.Printf("[configure] saved cowork_prompt.md (%d bytes)", len(body))
-	return nil
+	return a.SaveMasterPrompt(body)
 }
 
 // ─── Memory Files ───
