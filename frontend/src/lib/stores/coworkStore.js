@@ -559,10 +559,31 @@ function inferMimeType(file) {
       return 'image/gif';
     case 'webp':
       return 'image/webp';
+    case 'mp3':
+      return 'audio/mp3';
+    case 'wav':
+      return 'audio/wav';
+    case 'ogg':
+      return 'audio/ogg';
+    case 'flac':
+      return 'audio/flac';
+    case 'm4a':
+      return 'audio/m4a';
+    case 'mp4':
+      return 'video/mp4';
+    case 'mov':
+      return 'video/quicktime';
+    case 'webm':
+      return 'video/webm';
+    case 'avi':
+      return 'video/x-msvideo';
+    case 'mkv':
+      return 'video/x-matroska';
     default:
       return 'text/plain';
   }
 }
+
 
 function buildWailsFiles(files) {
   return files.map(file => ({

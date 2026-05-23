@@ -118,16 +118,68 @@ func (c *AnthropicClient) buildRequest(system string, messages []session.Message
 		aTools = append(aTools, at)
 	}
 
+	sanitizedMsgs := c.sanitizeMessages(messages)
+
 	reqBody := anthropicRequest{
 		Model:     c.Model,
 		MaxTokens: maxTok,
 		System:    systemBlocks,
-		Messages:  messages,
+		Messages:  sanitizedMsgs,
 		Tools:     aTools,
 		Thinking:  thinking,
 		Stream:    isStream,
 	}
 	return reqBody, budget
+}
+
+func (c *AnthropicClient) sanitizeMessages(messages []session.Message) []session.Message {
+	sanitized := make([]session.Message, len(messages))
+	for i, msg := range messages {
+		if msg.Role != "user" {
+			sanitized[i] = msg
+			continue
+		}
+
+		// Try parsing as array of content blocks
+		var blocks []map[string]interface{}
+		if json.Unmarshal(msg.Content, &blocks) != nil || len(blocks) == 0 {
+			sanitized[i] = msg
+			continue
+		}
+
+		var newBlocks []map[string]interface{}
+		changed := false
+		for _, block := range blocks {
+			typ, _ := block["type"].(string)
+			if typ == "document" {
+				source, _ := block["source"].(map[string]interface{})
+				if source != nil {
+					mediaType, _ := source["media_type"].(string)
+					// Anthropic only natively supports PDF document attachments.
+					if mediaType != "application/pdf" {
+						changed = true
+						newBlocks = append(newBlocks, map[string]interface{}{
+							"type": "text",
+							"text": fmt.Sprintf("[%s document attached — content not directly available in this format]", friendlyDocName(mediaType)),
+						})
+						continue
+					}
+				}
+			}
+			newBlocks = append(newBlocks, block)
+		}
+
+		if changed {
+			raw, _ := json.Marshal(newBlocks)
+			sanitized[i] = session.Message{
+				Role:    msg.Role,
+				Content: raw,
+			}
+		} else {
+			sanitized[i] = msg
+		}
+	}
+	return sanitized
 }
 
 // SendMessages calls the Anthropic Messages API (non-streaming).

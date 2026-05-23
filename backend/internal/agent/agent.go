@@ -114,6 +114,16 @@ const sectionSafety = `
 - NEVER read from ~/.ssh, ~/.aws, ~/.kube, ~/.gnupg, or similar sensitive directories.
 `
 
+const sectionMultimodal = `
+## Multimodal & Vision Capabilities (CRITICAL)
+
+You have native multimodal and vision capabilities, allowing you to directly see, describe, and transcribe any image, screenshot, or document attached to the chat history.
+
+### Rules:
+1. **Use native vision directly.** When a user asks you to describe, OCR, or transcribe an attached image or screenshot, always perform the task directly using your native vision capabilities.
+2. **Do NOT use workspace files or write code/scripts** (like Tesseract, EasyOCR, or Pillow scripts) to read or OCR an image when it is already visible in the chat itself. Doing so is extremely redundant, slow, and unnecessary. Only use local OCR scripts if specifically requested by the user to build/test a local script for their own use outside this chat.
+`
+
 // buildToolGuidance returns the tool usage tips section, omitting entries
 // for any tools in the disabled set so the LLM doesn't even know they exist.
 func buildToolGuidance(disabledSet map[string]bool) string {
@@ -160,8 +170,9 @@ type Deps struct {
 	WorkDir       string   // per-session working directory
 	BaseDir       string   // ~/.flow/
 	ChatMode      bool     // true for chat sessions (concise), false for agent tasks (detailed)
-	CommandBody   string   // optional plugin command context
-	DisabledTools []string // tool names that are toggled off (e.g. "web_search", "fetch_url")
+	CommandBody         string   // optional plugin command context
+	DisabledTools       []string // tool names that are toggled off (e.g. "web_search", "fetch_url")
+	DisableSystemPrompt bool     // completely suppress sending any system prompt in ChatMode
 }
 
 // StreamEvent is emitted during a streaming turn.
@@ -209,7 +220,11 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 	}
 
 	// Build system prompt using the structured builder.
-	systemPrompt = buildFullSystemPrompt(systemPrompt, deps)
+	if deps.DisableSystemPrompt && deps.ChatMode {
+		systemPrompt = ""
+	} else {
+		systemPrompt = buildFullSystemPrompt(systemPrompt, deps)
+	}
 
 	// Wire up todo_write callback for real-time progress updates.
 	ctx = tools.WithTodoCallback(ctx, func(items []tools.TodoItem) {
@@ -621,27 +636,17 @@ func extractWritePath(input json.RawMessage, workDir string) string {
 
 // ── Structured System Prompt Builder ──
 
-// defaultSystemPrompt is the Pi-style default prompt (~50 lines) used when
-// no user-editable prompt file exists.
 const defaultSystemPrompt = `# Cowork — System Prompt
 
-You are Cowork, a powerful AI coding assistant built into the Flow app.
-You help users write code, analyze files, automate tasks, and solve problems.
-You run on macOS and have direct access to the user's filesystem and shell.
+You are Cowork, a powerful AI pair-programmer and terminal assistant built into the Flow app.
+You have direct macOS terminal access to execute commands, read/write files, and automate coding workflows.
 
-## Core Principles
+## Cognitive Guidelines
 
-- **Be concise** — answer directly, no preambles or unnecessary detail.
-- **Be proactive** — make safe, reasonable assumptions. Don't over-ask.
-- **Be precise** — use exact paths, exact commands, exact values.
-- **Verify your work** — after writing code, test it if possible (run it, check output).
-- **Read before writing** — always read a file before overwriting it.
-- **Plan multi-step tasks** — use todo_write to create a visible plan before executing.
-
-## Memory
-
-You have persistent memory across sessions. Use save_memory to remember important information,
-memory_search to recall it, list_memories to browse, and delete_memory to remove outdated entries.
+- **Precision-First**: Use exact file paths and fully qualified parameters. Never guess or speculate about the state of files — read them first to verify their contents.
+- **Production-Ready Deliverables**: When writing code or creating files, write clean, modular, self-documenting, and robustly error-handled code. Do not use placeholders or write incomplete code blocks.
+- **Robust Verification**: Always verify the correctness of your work. After creating or editing code, execute it or write tests/validations to confirm it runs correctly and produces the expected output.
+- **Concise Explanations**: Focus on giving highly technical, direct answers. Keep conversational fluff, greetings, and generic preambles to a minimum.
 `
 
 // promptFileName is the unified system prompt file.
@@ -684,6 +689,9 @@ func buildFullSystemPrompt(supplied string, deps Deps) string {
 
 	// 4. Safety guardrails.
 	sections = append(sections, sectionSafety)
+
+	// Multimodal & Vision instructions.
+	sections = append(sections, sectionMultimodal)
 
 	// 5. Mode-specific sections.
 	if deps.ChatMode {

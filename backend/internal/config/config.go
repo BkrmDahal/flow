@@ -68,6 +68,9 @@ type Config struct {
 
 	// ── Python Executable ────────────────────────────────────────────────────
 	PythonPath string `json:"python_path"`
+
+	// ── Prompt options ───────────────────────────────────────────────────────
+	DisableSystemPrompt bool `json:"disable_system_prompt"`
 }
 
 // FlowDir returns the resolved path to ~/.flow/.

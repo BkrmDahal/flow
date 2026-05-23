@@ -128,6 +128,18 @@ func BuildContent(text string, files []FileAttachment, opts ContentOptions) (jso
 					"data":       f.Data,
 				},
 			})
+			// Save the image to the workspace if available, so that coding agents
+			// looking for the file on disk can find and process it.
+			if opts.WorkDir != "" {
+				if rawBytes, err := base64.StdEncoding.DecodeString(f.Data); err == nil {
+					destPath := filepath.Join(opts.WorkDir, f.Name)
+					if err := os.WriteFile(destPath, rawBytes, 0o644); err != nil {
+						log.Printf("failed to save image file %s to workspace: %v", f.Name, err)
+					}
+				} else {
+					log.Printf("failed to decode base64 for image %s: %v", f.Name, err)
+				}
+			}
 			continue
 		}
 
@@ -147,24 +159,45 @@ func BuildContent(text string, files []FileAttachment, opts ContentOptions) (jso
 			}
 		}
 
+		// Determine if the file is natively supported (PDF, audio, or video)
+		isNativeType := false
+		lowerName := strings.ToLower(f.Name)
+		if strings.HasSuffix(lowerName, ".pdf") || f.MimeType == "application/pdf" {
+			isNativeType = true
+		} else if strings.HasPrefix(f.MimeType, "audio/") {
+			isNativeType = true
+		} else if strings.HasPrefix(f.MimeType, "video/") {
+			isNativeType = true
+		}
+
 		if opts.ExtractText {
 			extracted, err := parser.ExtractText(f.Name, rawBytes)
-			if err != nil {
-				log.Printf("failed to extract text from %s: %v", f.Name, err)
-				var textContent string
-				if destPath != "" {
-					textContent = fmt.Sprintf("[Attached file %s saved to workspace at %s. Text extraction failed or unsupported.]", f.Name, destPath)
-				} else {
-					textContent = fmt.Sprintf("[Attached file %s. Text extraction failed or unsupported.]", f.Name)
-				}
-				blocks = append(blocks, contentBlock{Type: "text", Text: textContent})
-			} else {
+			if err == nil {
 				textContent := fmt.Sprintf("[Attached file %s content:]\n%s", f.Name, extracted)
 				blocks = append(blocks, contentBlock{Type: "text", Text: textContent})
+			} else {
+				log.Printf("failed to extract text from %s: %v", f.Name, err)
+				if isNativeType {
+					blocks = append(blocks, contentBlock{
+						Type: "document",
+						Source: map[string]interface{}{
+							"type":       "base64",
+							"media_type": f.MimeType,
+							"data":       f.Data,
+						},
+					})
+				} else {
+					var textContent string
+					if destPath != "" {
+						textContent = fmt.Sprintf("[Attached file %s saved to workspace at %s. Text extraction failed or unsupported.]", f.Name, destPath)
+					} else {
+						textContent = fmt.Sprintf("[Attached file %s. Text extraction failed or unsupported.]", f.Name)
+					}
+					blocks = append(blocks, contentBlock{Type: "text", Text: textContent})
+				}
 			}
 		} else {
-			// Native document support for PDFs, text fallback for others.
-			if strings.HasSuffix(strings.ToLower(f.Name), ".pdf") {
+			if isNativeType {
 				blocks = append(blocks, contentBlock{
 					Type: "document",
 					Source: map[string]interface{}{

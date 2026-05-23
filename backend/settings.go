@@ -56,6 +56,9 @@ type SettingsPayload struct {
 
 	// Python Executable Path
 	PythonPath string `json:"pythonPath"`
+
+	// Prompt option
+	DisableSystemPrompt bool `json:"disableSystemPrompt"`
 }
 
 // GetSettings returns the current persisted configuration.
@@ -277,6 +280,7 @@ func toPayload(c *config.Config) *SettingsPayload {
 		AutoRefineAction:       c.AutoRefineAction,
 		AutoRefineCustomPrompt: c.AutoRefineCustomPrompt,
 		PythonPath:             c.PythonPath,
+		DisableSystemPrompt:    c.DisableSystemPrompt,
 	}
 }
 
@@ -325,5 +329,6 @@ func fromPayload(p SettingsPayload) *config.Config {
 		AutoRefineAction:       p.AutoRefineAction,
 		AutoRefineCustomPrompt: p.AutoRefineCustomPrompt,
 		PythonPath:             p.PythonPath,
+		DisableSystemPrompt:    p.DisableSystemPrompt,
 	}
 }

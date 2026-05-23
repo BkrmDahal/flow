@@ -163,12 +163,13 @@ func (a *App) runCoworkStream(sessionID string, content json.RawMessage, workDir
 	systemPrompt := a.loadCoworkSystemPrompt()
 
 	deps := agent.Deps{
-		SessionMgr:    sessMgr,
-		LLMClient:     a.llm,
-		ToolRegistry:  toolReg,
-		WorkDir:       workDir,
-		BaseDir:       sessionDir,
-		DisabledTools: disabledTools,
+		SessionMgr:          sessMgr,
+		LLMClient:           a.llm,
+		ToolRegistry:        toolReg,
+		WorkDir:             workDir,
+		BaseDir:             sessionDir,
+		DisabledTools:       disabledTools,
+		DisableSystemPrompt: a.cfg != nil && a.cfg.DisableSystemPrompt,
 	}
 
 	result, err := agent.RunTurnStreamWithContent(ctx, sessionID, systemPrompt, content, deps, emit)
@@ -526,6 +527,22 @@ func mimeTypeFromFilename(name string) string {
 		return "image/gif"
 	case ".webp":
 		return "image/webp"
+	case ".mp3":
+		return "audio/mp3"
+	case ".wav":
+		return "audio/wav"
+	case ".ogg":
+		return "audio/ogg"
+	case ".flac":
+		return "audio/flac"
+	case ".m4a":
+		return "audio/m4a"
+	case ".mp4":
+		return "video/mp4"
+	case ".mov":
+		return "video/quicktime"
+	case ".webm":
+		return "video/webm"
 	default:
 		return "text/plain"
 	}
