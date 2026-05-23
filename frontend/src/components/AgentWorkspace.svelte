@@ -8,6 +8,43 @@
   import TypingIndicator from './TypingIndicator.svelte';
   import LoadingSpinner from './LoadingSpinner.svelte';
   import { skills, refreshSkills } from '../lib/stores/pluginsStore.js';
+  import { renameCoworkTask, activeCoworkTaskId } from '../lib/stores/coworkStore.js';
+
+  let editingTitle = false;
+  let newTitleValue = '';
+
+  function startEditTitle() {
+    newTitleValue = taskTitle;
+    editingTitle = true;
+  }
+
+  function cancelEditTitle() {
+    editingTitle = false;
+  }
+
+  async function saveTitle() {
+    if (!editingTitle) return;
+    const trimmed = newTitleValue.trim();
+    if (trimmed && trimmed !== taskTitle) {
+      await renameCoworkTask($activeCoworkTaskId, trimmed);
+    }
+    editingTitle = false;
+  }
+
+  function handleTitleKeydown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveTitle();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEditTitle();
+    }
+  }
+
+  function autofocus(node) {
+    node.focus();
+    node.select();
+  }
 
   export let taskTitle = '';
   export let messages = [];            // Array of { role: 'user'|'assistant', content, steps?, isStreaming? }
@@ -589,14 +626,40 @@
 <div class="workspace-layout">
   <!-- Center Content -->
   <div class="workspace-center">
-    <div class="workspace-scroll" bind:this={contentContainer} on:scroll={handleScroll}>
-      <div class="workspace-content">
-        <!-- Task Title -->
-        {#if taskTitle}
-          <div class="task-title-bar">
-            <h2 class="task-title">{taskTitle}</h2>
+    {#if taskTitle}
+      <div class="workspace-header">
+        {#if editingTitle}
+          <div class="workspace-title-edit-form">
+            <input
+              type="text"
+              class="workspace-title-input"
+              bind:value={newTitleValue}
+              on:keydown={handleTitleKeydown}
+              on:blur={saveTitle}
+              use:autofocus
+            />
+            <button class="workspace-title-btn save" on:click={saveTitle} title="Save title">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+            </button>
+            <button class="workspace-title-btn cancel" on:click={cancelEditTitle} title="Cancel">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        {:else}
+          <div class="workspace-title-wrap">
+            <h2 class="workspace-title">{taskTitle}</h2>
+            <button class="workspace-title-edit-btn" on:click={startEditTitle} title="Edit title">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                <path d="M18.5 2.5a2.122 2.122 0 113 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </button>
           </div>
         {/if}
+      </div>
+    {/if}
+    <div class="workspace-scroll" bind:this={contentContainer} on:scroll={handleScroll}>
+      <div class="workspace-content">
 
         <!-- Messages -->
         {#each messages as message, msgIdx}
@@ -1074,16 +1137,105 @@
     padding: 24px 24px 24px;
   }
 
-  /* Task Title */
-  .task-title-bar {
-    margin-bottom: 24px;
+  /* Workspace Header */
+  .workspace-header {
+    height: 46px;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    background: var(--bg-app);
+    flex-shrink: 0;
+    box-sizing: border-box;
   }
 
-  .task-title {
-    font-size: 18px;
+  .workspace-title {
+    font-size: 13.5px;
     font-weight: 600;
     color: var(--text-primary);
-    letter-spacing: -0.3px;
+    letter-spacing: -0.2px;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .workspace-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .workspace-title-edit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.15s ease;
+  }
+
+  .workspace-title-wrap:hover .workspace-title-edit-btn {
+    opacity: 1;
+  }
+
+  .workspace-title-edit-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  /* Edit Form inside Header */
+  .workspace-title-edit-form {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    max-width: 450px;
+  }
+
+  .workspace-title-input {
+    flex: 1;
+    background: var(--bg-input);
+    border: 1px solid var(--border-focus);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--font-sans);
+    padding: 4px 8px;
+    outline: none;
+  }
+
+  .workspace-title-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.12s ease;
+  }
+
+  .workspace-title-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+  }
+
+  .workspace-title-btn.save:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   /* User Message Pill */

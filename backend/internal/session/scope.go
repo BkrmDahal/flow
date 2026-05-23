@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
@@ -90,6 +91,11 @@ func (m *Manager) ListSessionsByPrefix(prefix string) ([]SessionInfo, error) {
 		return nil, err
 	}
 
+	customTitles := make(map[string]string)
+	if data, err := os.ReadFile(filepath.Join(dir, "session_titles.json")); err == nil {
+		_ = json.Unmarshal(data, &customTitles)
+	}
+
 	var sessions []SessionInfo
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
@@ -106,8 +112,11 @@ func (m *Manager) ListSessionsByPrefix(prefix string) ([]SessionInfo, error) {
 			ts = info.ModTime().UnixMilli()
 		}
 
-		// Extract title from first user message.
-		title := extractTitle(filepath.Join(dir, e.Name()))
+		// Extract title from custom titles or first user message.
+		title := customTitles[sessionID]
+		if title == "" {
+			title = extractTitle(filepath.Join(dir, e.Name()))
+		}
 
 		sessions = append(sessions, SessionInfo{
 			ID:        sessionID,

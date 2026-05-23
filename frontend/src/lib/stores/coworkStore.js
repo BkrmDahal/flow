@@ -726,11 +726,17 @@ export async function selectCoworkTask(sessionId) {
 
     coworkMessages.set(msgs);
 
-    // Derive title from first user message.
-    const firstUser = msgs.find(m => m.role === 'user');
-    let title = (firstUser?.content || '').trim();
-    if (title.length > 50) title = title.substring(0, 50) + '...';
-    coworkTaskTitle.set(title);
+    // Check if title is loaded in history, otherwise derive from first user message.
+    const history = get(coworkTaskHistory);
+    const histItem = history.find(h => h.id === sessionId);
+    if (histItem) {
+      coworkTaskTitle.set(histItem.title);
+    } else {
+      const firstUser = msgs.find(m => m.role === 'user');
+      let title = (firstUser?.content || '').trim();
+      if (title.length > 50) title = title.substring(0, 50) + '...';
+      coworkTaskTitle.set(title);
+    }
 
     // Rebuild context tools from steps.
     const allSteps = msgs.flatMap(m => m.steps || []);
@@ -783,5 +789,26 @@ export async function deleteCoworkTask(sessionId) {
     await refreshCoworkHistory();
   } catch (e) {
     console.error('Failed to delete cowork task:', e);
+  }
+}
+
+export async function renameCoworkTask(sessionId, newTitle) {
+  if (!sessionId || !newTitle.trim()) return;
+  try {
+    await requireBackendMethod('RenameCoworkSession')(sessionId, newTitle.trim());
+    
+    // Update local task history title
+    coworkTaskHistory.update(history =>
+      history.map(item =>
+        item.id === sessionId ? { ...item, title: newTitle.trim() } : item
+      )
+    );
+
+    // If active session, update the workspace title store
+    if (sessionId === get(activeCoworkTaskId)) {
+      coworkTaskTitle.set(newTitle.trim());
+    }
+  } catch (e) {
+    console.error('Failed to rename cowork task:', e);
   }
 }

@@ -13,6 +13,10 @@
     updateSkill,
     deleteSkill,
     clearPluginSelection,
+    masterPrompt,
+    masterPromptLoading,
+    loadMasterPrompt,
+    saveMasterPrompt,
   } from '../lib/stores/pluginsStore.js';
 
   const dispatch = createEventDispatcher();
@@ -34,9 +38,18 @@
   let searchQuery = '';
   let hoveredItemId = null;
 
+  // Master Prompt Edit State
+  let editPromptBody = '';
+  let promptSaving = false;
+  let promptError = '';
+  let promptSuccess = false;
+
   onMount(async () => {
-    switchSection('skills');
-    await refreshSkills();
+    if ($activeSection === 'prompt') {
+      await handleSwitchSection('prompt');
+    } else {
+      await handleSwitchSection('skills');
+    }
   });
 
   $: filteredItems = searchQuery
@@ -45,6 +58,42 @@
         (i.description || '').toLowerCase().includes(searchQuery.toLowerCase()))
     : $skills;
   $: detail = $activeSection === 'skills' ? $activeItemDetail : null;
+
+  // Sync editPromptBody with masterPrompt when it updates
+  $: if ($masterPrompt !== undefined && !promptSaving && $activeSection === 'prompt') {
+    editPromptBody = $masterPrompt;
+  }
+
+  async function handleSwitchSection(section) {
+    adding = false;
+    editing = false;
+    promptError = '';
+    promptSuccess = false;
+    switchSection(section);
+    if (section === 'skills') {
+      await refreshSkills();
+    } else if (section === 'prompt') {
+      await loadMasterPrompt();
+      editPromptBody = $masterPrompt || '';
+    }
+  }
+
+  async function handleSavePrompt() {
+    promptError = '';
+    promptSuccess = false;
+    promptSaving = true;
+    try {
+      await saveMasterPrompt(editPromptBody);
+      promptSuccess = true;
+      setTimeout(() => {
+        promptSuccess = false;
+      }, 3000);
+    } catch (e) {
+      promptError = e?.message || 'Failed to save master prompt.';
+    } finally {
+      promptSaving = false;
+    }
+  }
 
   function formatDate(ts) {
     if (!ts) return '';
@@ -144,123 +193,175 @@
       </div>
 
       <div class="section-nav-label">Cowork</div>
-      <button class="section-btn active">
+      <button class="section-btn" class:active={$activeSection === 'skills'} on:click={() => handleSwitchSection('skills')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
         Skills
         {#if $skills.length > 0}<span class="section-count">{$skills.length}</span>{/if}
       </button>
+      <button class="section-btn" class:active={$activeSection === 'prompt'} on:click={() => handleSwitchSection('prompt')}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Master Prompt
+      </button>
     </div>
 
-    <div class="item-list">
-      <div class="item-list-header">
-        <span class="item-list-title">Skills</span>
-        <button class="btn-add-item" on:click={handleStartAdd} title="Add skill">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        </button>
-      </div>
-      <div class="item-search">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        <input type="text" placeholder="Search skills..." bind:value={searchQuery} />
-      </div>
-      <div class="item-entries">
-        {#if filteredItems.length === 0}
-          <div class="empty-items"><p>No skills yet</p><span>Click + to add one.</span></div>
-        {:else}
-          {#each filteredItems as item (item.id)}
-            <button
-              class="item-entry"
-              class:active={item.id === $activeItemId && !adding}
-              on:click={() => handleSelectItem(item.id)}
-              on:mouseenter={() => hoveredItemId = item.id}
-              on:mouseleave={() => hoveredItemId = null}
-            >
-              <span class="item-entry-name">{item.name}</span>
-              <button
-                class="item-delete-btn"
-                class:visible={hoveredItemId === item.id}
-                on:click|stopPropagation={() => handleDelete(item.id)}
-                title="Delete skill"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-              </button>
-            </button>
-          {/each}
-        {/if}
-      </div>
-    </div>
-
-    <div class="detail-panel">
-      {#if adding}
-        <div class="detail-header"><h2 class="detail-title">New Skill</h2></div>
-        <div class="edit-form">
-          <div class="edit-field">
-            <label for="skill-add-name">Name</label>
-            <input id="skill-add-name" type="text" bind:value={addName} placeholder="e.g. code-review" disabled={addSaving} />
-            <span class="field-hint">No spaces. Use hyphens or underscores.</span>
-          </div>
-          <div class="edit-field">
-            <label for="skill-add-desc">Description</label>
-            <input id="skill-add-desc" type="text" bind:value={addDescription} placeholder="When Cowork should use this skill..." disabled={addSaving} />
-          </div>
-          <div class="edit-field edit-field-body">
-            <label for="skill-add-body">Content (Markdown)</label>
-            <textarea id="skill-add-body" bind:value={addBody} placeholder="# Instructions..." disabled={addSaving}></textarea>
-          </div>
-          {#if addError}<div class="edit-error">{addError}</div>{/if}
-          <div class="edit-actions">
-            <button class="btn-cancel" on:click={handleCancelAdd}>Cancel</button>
-            <button class="btn-save" on:click={handleSaveAdd} disabled={addSaving || !addName.trim()}>{addSaving ? 'Saving...' : 'Create'}</button>
-          </div>
+    {#if $activeSection === 'skills'}
+      <div class="item-list">
+        <div class="item-list-header">
+          <span class="item-list-title">Skills</span>
+          <button class="btn-add-item" on:click={handleStartAdd} title="Add skill">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
         </div>
-      {:else if $detailLoading}
-        <div class="detail-loading"><div class="spinner"></div></div>
-      {:else if detail}
-        <div class="detail-header">
-          <div class="detail-header-top">
-            <h2 class="detail-title">{detail.name}</h2>
-            {#if !editing}<button class="btn-edit" on:click={handleStartEdit}>Edit</button>{/if}
-          </div>
-          {#if !editing}
-            <div class="detail-meta">
-              <span class="meta-item"><span class="meta-label">Added</span><span class="meta-value">{formatDate(detail.createdAt)}</span></span>
-              {#if detail.updatedAt !== detail.createdAt}
-                <span class="meta-item"><span class="meta-label">Updated</span><span class="meta-value">{formatDate(detail.updatedAt)}</span></span>
-              {/if}
-            </div>
-            {#if detail.description}<p class="detail-description">{detail.description}</p>{/if}
+        <div class="item-search">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input type="text" placeholder="Search skills..." bind:value={searchQuery} />
+        </div>
+        <div class="item-entries">
+          {#if filteredItems.length === 0}
+            <div class="empty-items"><p>No skills yet</p><span>Click + to add one.</span></div>
+          {:else}
+            {#each filteredItems as item (item.id)}
+              <button
+                class="item-entry"
+                class:active={item.id === $activeItemId && !adding}
+                on:click={() => handleSelectItem(item.id)}
+                on:mouseenter={() => hoveredItemId = item.id}
+                on:mouseleave={() => hoveredItemId = null}
+              >
+                <span class="item-entry-name">{item.name}</span>
+                <button
+                  class="item-delete-btn"
+                  class:visible={hoveredItemId === item.id}
+                  on:click|stopPropagation={() => handleDelete(item.id)}
+                  title="Delete skill"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+                </button>
+              </button>
+            {/each}
           {/if}
         </div>
+      </div>
+    {/if}
 
-        {#if editing}
+    <div class="detail-panel">
+      {#if $activeSection === 'prompt'}
+        <div class="detail-header">
+          <div class="detail-header-top">
+            <h2 class="detail-title">Master Prompt</h2>
+            <div class="prompt-badge">System Prompt</div>
+          </div>
+          <p class="detail-description">
+            The global instructions that define Flow's core personality, capabilities, rules, and task planning strategies. Changes here directly affect all subsequent turns and agent interactions.
+          </p>
+        </div>
+
+        {#if $masterPromptLoading}
+          <div class="detail-loading"><div class="spinner"></div></div>
+        {:else}
+          <div class="edit-form prompt-editor-form">
+            <div class="edit-field edit-field-body">
+              <label for="master-prompt-textarea">System Prompt (Markdown)</label>
+              <textarea
+                id="master-prompt-textarea"
+                bind:value={editPromptBody}
+                placeholder="# System Instructions..."
+                disabled={promptSaving}
+              ></textarea>
+            </div>
+            {#if promptError}<div class="edit-error">{promptError}</div>{/if}
+            {#if promptSuccess}<div class="edit-success">Master prompt saved successfully!</div>{/if}
+            <div class="edit-actions">
+              <button
+                class="btn-cancel"
+                on:click={() => { editPromptBody = $masterPrompt; promptError = ''; promptSuccess = false; }}
+                disabled={promptSaving || editPromptBody === $masterPrompt}
+              >
+                Reset
+              </button>
+              <button
+                class="btn-save"
+                on:click={handleSavePrompt}
+                disabled={promptSaving || editPromptBody === $masterPrompt}
+              >
+                {promptSaving ? 'Saving...' : 'Save Prompt'}
+              </button>
+            </div>
+          </div>
+        {/if}
+      {:else}
+        {#if adding}
+          <div class="detail-header"><h2 class="detail-title">New Skill</h2></div>
           <div class="edit-form">
             <div class="edit-field">
-              <label for="skill-edit-name">Name</label>
-              <input id="skill-edit-name" type="text" bind:value={editName} disabled={saving} />
+              <label for="skill-add-name">Name</label>
+              <input id="skill-add-name" type="text" bind:value={addName} placeholder="e.g. code-review" disabled={addSaving} />
               <span class="field-hint">No spaces. Use hyphens or underscores.</span>
             </div>
             <div class="edit-field">
-              <label for="skill-edit-desc">Description</label>
-              <input id="skill-edit-desc" type="text" bind:value={editDescription} disabled={saving} />
+              <label for="skill-add-desc">Description</label>
+              <input id="skill-add-desc" type="text" bind:value={addDescription} placeholder="When Cowork should use this skill..." disabled={addSaving} />
             </div>
             <div class="edit-field edit-field-body">
-              <label for="skill-edit-body">Content (Markdown)</label>
-              <textarea id="skill-edit-body" bind:value={editBody} disabled={saving}></textarea>
+              <label for="skill-add-body">Content (Markdown)</label>
+              <textarea id="skill-add-body" bind:value={addBody} placeholder="# Instructions..." disabled={addSaving}></textarea>
             </div>
-            {#if editError}<div class="edit-error">{editError}</div>{/if}
+            {#if addError}<div class="edit-error">{addError}</div>{/if}
             <div class="edit-actions">
-              <button class="btn-cancel" on:click={handleCancelEdit}>Cancel</button>
-              <button class="btn-save" on:click={handleSaveEdit} disabled={saving || !editName.trim()}>{saving ? 'Saving...' : 'Save'}</button>
+              <button class="btn-cancel" on:click={handleCancelAdd}>Cancel</button>
+              <button class="btn-save" on:click={handleSaveAdd} disabled={addSaving || !addName.trim()}>{addSaving ? 'Saving...' : 'Create'}</button>
             </div>
           </div>
+        {:else if $detailLoading}
+          <div class="detail-loading"><div class="spinner"></div></div>
+        {:else if detail}
+          <div class="detail-header">
+            <div class="detail-header-top">
+              <h2 class="detail-title">{detail.name}</h2>
+              {#if !editing}<button class="btn-edit" on:click={handleStartEdit}>Edit</button>{/if}
+            </div>
+            {#if !editing}
+              <div class="detail-meta">
+                <span class="meta-item"><span class="meta-label">Added</span><span class="meta-value">{formatDate(detail.createdAt)}</span></span>
+                {#if detail.updatedAt !== detail.createdAt}
+                  <span class="meta-item"><span class="meta-label">Updated</span><span class="meta-value">{formatDate(detail.updatedAt)}</span></span>
+                {/if}
+              </div>
+              {#if detail.description}<p class="detail-description">{detail.description}</p>{/if}
+            {/if}
+          </div>
+
+          {#if editing}
+            <div class="edit-form">
+              <div class="edit-field">
+                <label for="skill-edit-name">Name</label>
+                <input id="skill-edit-name" type="text" bind:value={editName} disabled={saving} />
+                <span class="field-hint">No spaces. Use hyphens or underscores.</span>
+              </div>
+              <div class="edit-field">
+                <label for="skill-edit-desc">Description</label>
+                <input id="skill-edit-desc" type="text" bind:value={editDescription} disabled={saving} />
+              </div>
+              <div class="edit-field edit-field-body">
+                <label for="skill-edit-body">Content (Markdown)</label>
+                <textarea id="skill-edit-body" bind:value={editBody} disabled={saving}></textarea>
+              </div>
+              {#if editError}<div class="edit-error">{editError}</div>{/if}
+              <div class="edit-actions">
+                <button class="btn-cancel" on:click={handleCancelEdit}>Cancel</button>
+                <button class="btn-save" on:click={handleSaveEdit} disabled={saving || !editName.trim()}>{saving ? 'Saving...' : 'Save'}</button>
+              </div>
+            </div>
+          {:else}
+            <div class="detail-body"><pre class="detail-body-content">{detail.body || '(empty)'}</pre></div>
+          {/if}
         {:else}
-          <div class="detail-body"><pre class="detail-body-content">{detail.body || '(empty)'}</pre></div>
+          <div class="detail-empty">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.22"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+            <p>Select a skill to view details</p>
+            <span>or click + to create a new one</span>
+          </div>
         {/if}
-      {:else}
-        <div class="detail-empty">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.22"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-          <p>Select a skill to view details</p>
-          <span>or click + to create a new one</span>
-        </div>
       {/if}
     </div>
   </div>
@@ -335,4 +436,25 @@
   .detail-loading { flex: 1; display: flex; align-items: center; justify-content: center; }
   .spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── Master Prompt Editor Styling ─── */
+  .prompt-badge {
+    padding: 3px 8px;
+    background: var(--accent-bg);
+    color: var(--accent);
+    border: 1px solid rgba(45, 212, 191, 0.2);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .edit-success {
+    font-size: 12.5px;
+    color: #34d399;
+    background: rgba(52, 211, 153, 0.1);
+    border: 1px solid rgba(52, 211, 153, 0.2);
+    padding: 8px 12px;
+    border-radius: var(--radius-md);
+  }
 </style>

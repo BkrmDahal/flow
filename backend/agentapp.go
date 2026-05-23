@@ -461,6 +461,39 @@ func (a *App) DeleteCoworkSession(sessionID string) error {
 	return mgr.DeleteSession(sessionID)
 }
 
+// RenameCoworkSession updates the title of a cowork session in session_titles.json.
+func (a *App) RenameCoworkSession(sessionID string, newTitle string) error {
+	dir, err := config.FlowDir()
+	if err != nil {
+		return fmt.Errorf("resolve flow dir: %w", err)
+	}
+	coworkDir := filepath.Join(dir, "cowork")
+	if err := os.MkdirAll(coworkDir, 0755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	titlesPath := filepath.Join(coworkDir, "session_titles.json")
+	titles := make(map[string]string)
+
+	if data, err := os.ReadFile(titlesPath); err == nil {
+		_ = json.Unmarshal(data, &titles)
+	}
+
+	titles[sessionID] = newTitle
+
+	newData, err := json.MarshalIndent(titles, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+
+	if err := os.WriteFile(titlesPath, newData, 0644); err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+
+	return nil
+}
+
+
 // --- Work directory & files ---
 
 // GetTaskWorkDir returns the working directory path for an agent task.
