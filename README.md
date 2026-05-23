@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  Built with Go + Svelte via Wails, <strong>Flow</strong> is a native desktop command center that seamlessly fuses a multi-turn agentic AI chat workspace (<strong>Cowork</strong>) and instantaneous, push-to-talk disfluency-free dictation refinement (<strong>Flow</strong>) directly into your daily macOS workflow. Designed with a strict <strong>privacy-first philosophy</strong>, Flow is engineered to run <strong>100% locally on-device</strong> using local voice transcription (Whisper.cpp) and local LLMs (managed llama.cpp, LM Studio, Ollama)—keeping all your voice logs, transcripts, workspace files, and code strictly on your machine.
+  Built with Go + Svelte via Wails, <strong>Flow</strong> is a native desktop command center that seamlessly fuses a multi-turn agentic AI chat workspace (<strong>Cowork</strong>) and instantaneous, push-to-talk disfluency-free dictation refinement (<strong>Flow</strong>) directly into your daily macOS workflow. Designed with a strict <strong>privacy-first philosophy</strong>, Flow is engineered to run <strong>100% locally on-device</strong> using local voice transcription (Whisper.cpp) and local LLMs (managed llama.cpp, LM Studio, Ollama)—keeping all your voice logs, transcripts, workspace files, and code strictly on your machine, while giving you the full flexibility to connect cloud LLMs and remote transcription APIs as you wish.
 </p>
 
 ---
