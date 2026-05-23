@@ -530,7 +530,6 @@
   }
 
   // --- Clarification Options ---
-  let showInlineOther = false;
   let otherInputValue = '';
 
   function parseOptions(content) {
@@ -555,7 +554,6 @@
     input = opt;
     tick().then(() => {
       handleSend();
-      showInlineOther = false;
       otherInputValue = '';
     });
   }
@@ -566,7 +564,6 @@
     input = val;
     tick().then(() => {
       handleSend();
-      showInlineOther = false;
       otherInputValue = '';
     });
   }
@@ -580,7 +577,6 @@
 
   // Reset other options state whenever a new stream starts or messages load
   $: if (isStreaming || messages.length) {
-    showInlineOther = false;
     otherInputValue = '';
   }
 </script>
@@ -759,26 +755,20 @@
                     </button>
                   {/each}
 
-                  {#if showInlineOther}
-                    <div class="other-input-wrapper">
-                      <input
-                        type="text"
-                        bind:value={otherInputValue}
-                        placeholder="Type custom response..."
-                        on:keydown={handleOtherKeydown}
-                        class="other-input-field"
-                      />
-                      <button class="other-submit-btn" on:click={submitOtherInput} disabled={!otherInputValue.trim()}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                          <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                      </button>
-                    </div>
-                  {:else}
-                    <button class="agent-option-pill other-pill" on:click={() => showInlineOther = true}>
-                      Other...
+                  <div class="other-input-wrapper">
+                    <input
+                      type="text"
+                      bind:value={otherInputValue}
+                      placeholder="Type custom response..."
+                      on:keydown={handleOtherKeydown}
+                      class="other-input-field"
+                    />
+                    <button class="other-submit-btn" on:click={submitOtherInput} disabled={!otherInputValue.trim()}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
                     </button>
-                  {/if}
+                  </div>
                 </div>
               {/if}
 
