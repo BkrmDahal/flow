@@ -11,7 +11,7 @@
   let settingsOpen = false;
 
   async function openLogs() {
-    try { await OpenFileInApp('~/.flow/logs/') } catch (e) { console.warn(e) }
+    try { await OpenFileInApp('~/.flow/flow.log') } catch (e) { console.warn(e) }
   }
 
   function openToolkit() {

@@ -640,7 +640,7 @@
               class="btn-toggle-parse"
               class:active={parseDocuments}
               on:click={() => parseDocuments = !parseDocuments}
-              title={parseDocuments ? "Document parsing enabled" : "Document parsing disabled"}
+              title={parseDocuments ? "Extract and send document text" : "Send native document file directly"}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/>
@@ -1179,7 +1179,7 @@
   .workspace-input-bottom-left {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 4px;
   }
 
   .input-divider {

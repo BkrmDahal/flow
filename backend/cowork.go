@@ -174,14 +174,28 @@ func (a *App) SendCoworkTaskStreamWithFiles(input string, files []CoworkFileAtta
 				} else {
 					textContent = fmt.Sprintf("[Attached file %s content:]\n%s", f.Name, extracted)
 				}
+				blocks = append(blocks, contentBlock{
+					Type: "text",
+					Text: textContent,
+				})
 			} else {
-				textContent = fmt.Sprintf("[Attached file %s saved to workspace at %s. Context not extracted.]", f.Name, destPath)
+				if strings.HasSuffix(strings.ToLower(f.Name), ".pdf") {
+					blocks = append(blocks, contentBlock{
+						Type: "document",
+						Source: map[string]interface{}{
+							"type":       "base64",
+							"media_type": f.MimeType,
+							"data":       f.Data,
+						},
+					})
+				} else {
+					textContent = fmt.Sprintf("[Attached file %s saved to workspace at %s. Context not extracted.]", f.Name, destPath)
+					blocks = append(blocks, contentBlock{
+						Type: "text",
+						Text: textContent,
+					})
+				}
 			}
-
-			blocks = append(blocks, contentBlock{
-				Type: "text",
-				Text: textContent,
-			})
 		}
 	}
 

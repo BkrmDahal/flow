@@ -61,7 +61,7 @@
   }
 
   // ── Tab state ──
-  let activeTab = 'general' // 'general' | 'voice' | 'hotkeys'
+  let activeTab = 'general' // 'general' | 'voice'
 
   const CLOUD_PROVIDERS = [
     { id: 'openai',     label: 'OpenAI',     keyPlaceholder: 'sk-...',     modelPlaceholder: 'gpt-4o-mini' },
@@ -481,7 +481,6 @@
       <div class="tab-bar">
         <button class="tab-btn" class:tab-active={activeTab === 'general'} on:click={() => activeTab = 'general'} type="button">General</button>
         <button class="tab-btn" class:tab-active={activeTab === 'voice'}   on:click={() => activeTab = 'voice'}   type="button">Voice / STT</button>
-        <button class="tab-btn" class:tab-active={activeTab === 'hotkeys'} on:click={() => activeTab = 'hotkeys'} type="button">Hotkeys</button>
       </div>
 
       <div class="modal-body">
@@ -705,25 +704,6 @@
           </section>
           {/if}
 
-          <section>
-            <label class="row-label" for="autoRefine">Auto-refine on stop</label>
-            <select id="autoRefine" bind:value={autoRefineAction}>
-              {#each REFINE_OPTIONS as o}
-                <option value={o.value}>{o.label}</option>
-              {/each}
-            </select>
-            {#if autoRefineAction !== 'off'}
-              <label class="row-label prompt-label" for="autoRefinePrompt">Prompt</label>
-              <textarea
-                id="autoRefinePrompt"
-                class="custom-prompt-input"
-                bind:value={autoRefineCustomPrompt}
-                placeholder="Tell the LLM how to transform each recording after stop."
-              ></textarea>
-            {/if}
-            <p class="hint">When set, every recording is automatically piped through the LLM for cleanup.</p>
-          </section>
-
         <!-- ── Voice / STT Tab ── -->
         {:else if activeTab === 'voice'}
           <section>
@@ -765,8 +745,10 @@
             </section>
           {/if}
 
-        <!-- ── Hotkeys Tab ── -->
-        {:else if activeTab === 'hotkeys'}
+          <!-- Divider line to separate Transcription from Dictation -->
+          <div style="height: 1px; background: var(--border-subtle); margin: 20px 0;"></div>
+
+          <!-- ── Push-to-Talk Dictation Section ── -->
           <div class="hotkeys-section">
             <h3 class="section-title">Push-to-Talk Dictation</h3>
             <p class="section-desc">
@@ -830,6 +812,30 @@
               </div>
             {/if}
           </div>
+
+          <!-- Divider line to separate Dictation from Auto-Refine -->
+          <div style="height: 1px; background: var(--border-subtle); margin: 20px 0;"></div>
+
+          <!-- ── Auto-Refine Section ── -->
+          <section>
+            <label class="row-label" for="autoRefine">Auto-refine on stop</label>
+            <select id="autoRefine" bind:value={autoRefineAction}>
+              {#each REFINE_OPTIONS as o}
+                <option value={o.value}>{o.label}</option>
+              {/each}
+            </select>
+            {#if autoRefineAction !== 'off'}
+              <label class="row-label prompt-label" for="autoRefinePrompt">Prompt</label>
+              <textarea
+                id="autoRefinePrompt"
+                class="custom-prompt-input"
+                bind:value={autoRefineCustomPrompt}
+                placeholder="Tell the LLM how to transform each recording after stop."
+              ></textarea>
+            {/if}
+            <p class="hint">When set, every recording is automatically piped through the LLM for cleanup.</p>
+          </section>
+
         {/if}
 
       </div>
