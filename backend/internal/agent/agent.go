@@ -310,8 +310,16 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 			emit(StreamEvent{Type: "error", Content: err.Error()})
 			return nil, fmt.Errorf("llm: %w", err)
 		}
-		log.Printf("[agent] ── LLM RESP ── session=%s iter=%d elapsed=%s content_blocks=%d has_tool_use=%v",
-			sessionID, i+1, llmDuration, len(resp.Content), resp.HasToolUse())
+		var toolNames []string
+		for _, tb := range resp.ToolUseBlocks() {
+			toolNames = append(toolNames, tb.Name)
+		}
+		toolsLog := ""
+		if len(toolNames) > 0 {
+			toolsLog = " tools=" + strings.Join(toolNames, ",")
+		}
+		log.Printf("[agent] ── LLM RESP ── session=%s iter=%d elapsed=%s content_blocks=%d has_tool_use=%v%s",
+			sessionID, i+1, llmDuration, len(resp.Content), resp.HasToolUse(), toolsLog)
 		if len(resp.Content) == 0 {
 			log.Printf("[agent] streaming response was empty for %s; retrying without stream", sessionID)
 			resp, err = deps.LLMClient.SendMessages(ctx, systemPrompt, history, toolDefs, agentCfg.EnableThinking)
