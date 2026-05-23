@@ -14,12 +14,13 @@ usage() {
     echo "Usage: ./flow.sh <command>"
     echo ""
     echo "Commands:"
-    echo "  dev        Start dev mode (hot-reload frontend + live Go recompilation)"
-    echo "  build      Build production Mac app (Apple Silicon)"
-    echo "  universal  Build universal binary (Intel + Apple Silicon)"
-    echo "  dmg        Build app and create DMG installer"
-    echo "  open       Launch the built .app"
-    echo "  doctor     Check if your system is ready for Wails development"
+    echo "  dev          Start dev mode (hot-reload frontend + live Go recompilation)"
+    echo "  build        Build production Mac app (Apple Silicon)"
+    echo "  universal    Build universal binary (Intel + Apple Silicon)"
+    echo "  dmg          Build app and create DMG installer"
+    echo "  open         Launch the built .app"
+    echo "  doctor       Check if your system is ready for Wails development"
+    echo "  dequarantine Remove Gatekeeper quarantine flag from built/installed app"
     echo ""
 }
 
@@ -120,6 +121,9 @@ EOF
         ;;
     doctor)
         wails doctor
+        ;;
+    dequarantine)
+        ./dequarantine.sh "${2:-}"
         ;;
     *)
         usage

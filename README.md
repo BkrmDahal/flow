@@ -26,6 +26,36 @@ To build a redistributable, production-ready macOS application package:
 wails build
 ```
 
+## macOS Gatekeeper & "Damaged App" Fix
+
+When you first install the built Flow app (e.g. from a ZIP or DMG downloaded from the internet), macOS might show a warning message saying:
+> **"Flow" is damaged and can't be opened. You should move it to the Trash.**
+
+This is standard macOS Gatekeeper behavior for self-signed or unsigned applications downloaded from the web (which receive the `com.apple.quarantine` extended attribute).
+
+To resolve this issue, we have provided an automated de-quarantine script:
+
+```bash
+./dequarantine.sh
+```
+
+Or run it via `flow.sh`:
+
+```bash
+./flow.sh dequarantine
+```
+
+*Note: The script automatically searches `/Applications/Flow.app`, `~/Applications/Flow.app`, and `./build/bin/Flow.app`. You can also pass a custom path as an argument:*
+
+```bash
+./dequarantine.sh /path/to/Flow.app
+```
+
+Alternatively, you can manually run this command in your terminal to remove the quarantine flag recursively:
+```bash
+sudo xattr -r -d com.apple.quarantine /Applications/Flow.app
+```
+
 ## Structure
 
 - `frontend/` - Contains the Svelte/Vite frontend code, including the `CoworkWorkspace` and `FlowPanel` components.
