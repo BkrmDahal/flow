@@ -265,10 +265,11 @@ function handleStreamEvent(data) {
             if (files.find(f => f.path === data.path)) return files;
             return [...files, { name: fName, path: data.path }];
           });
-          msg.filesCreated = [
-            ...(msg.filesCreated || []),
-            { name: fName, path: data.path }
-          ];
+          // Deduplicate inline file cards.
+          const existing = msg.filesCreated || [];
+          if (!existing.find(f => f.path === data.path)) {
+            msg.filesCreated = [...existing, { name: fName, path: data.path }];
+          }
         }
         break;
 

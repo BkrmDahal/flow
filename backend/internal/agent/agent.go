@@ -120,8 +120,8 @@ func buildToolGuidance(disabledSet map[string]bool) string {
 	sb.WriteString("\n## Tool Usage Tips\n\n")
 	sb.WriteString("- **Use your knowledge FIRST.** You already know common facts like tax brackets, programming languages, math formulas, geography, history, science, etc. Do NOT search for things you already know. Only search when you genuinely need very recent data, specific URLs, or niche information you are unsure about.\n")
 	sb.WriteString("- **Limit tool calls.** Prefer fewer, targeted tool calls over many speculative ones. If a search returns no results, do NOT keep searching — use your training knowledge instead.\n")
-	sb.WriteString("- **run_bash**: Prefer single-line commands. Chain with && for multi-step. Check exit codes. For Python, prefer 'python3 -c \"...\"' for one-liners. Commands run in a macOS sandbox with restricted write access and are killed after 60s.\n")
-	sb.WriteString("- **write_file**: Use relative paths from the session workspace. Parent directories are created automatically. For edits, read the file first, then write the full updated content back.\n")
+	sb.WriteString("- **run_bash**: Prefer single-line commands. Chain with && for multi-step. Check exit codes. For Python, prefer 'python3 -c \"...\"' for one-liners. Commands run in a macOS sandbox with restricted write access and are killed after 60s. When writing output files, save them in the current working directory (the session workspace root).\n")
+	sb.WriteString("- **write_file**: Save **final deliverables** (reports, documents, outputs the user asked for — any format: .md, .html, .xlsx, .pdf, .csv, .txt, .py, .js, etc.) directly in the workspace root (e.g. 'report.md', 'script.py', 'app.js'). Save **intermediate/scratch files** (helper scripts, temp data, build scripts) under '.scratch/' (e.g. '.scratch/build.py'). Parent directories are created automatically. For edits, read first then write back.\n")
 	sb.WriteString("- **read_file**: Always read a file before attempting to overwrite it. Relative paths resolve within the workspace; absolute paths also work for reading external files.\n")
 
 	if !disabledSet["web_search"] && !disabledSet["fetch_url"] {
@@ -345,6 +345,14 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 
 		if !resp.HasToolUse() {
 			result.FinalText = resp.TextContent()
+
+			// Scan workspace for deliverable files and emit file_created events.
+			// This catches output files created by bash scripts (xlsx, pdf, csv, etc.)
+			// that aren't tracked by write_file's file_created event.
+			if workDir != "" {
+				emitDeliverableFiles(workDir, emit)
+			}
+
 			log.Printf("[agent] ── TURN END ── session=%s iterations=%d tool_calls=%d final_len=%d elapsed=%s",
 				sessionID, i+1, totalToolCalls, len(result.FinalText), time.Since(turnStart))
 			return result, nil
@@ -453,7 +461,7 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 				})
 			}
 
-			// Auto-save execute_code results.
+			// Auto-save scripts to .scratch/ subdirectory (not visible in Working Folder).
 			if tb.Name == "run_bash" && workDir != "" &&
 				!strings.HasPrefix(toolOutput, "Exit code") &&
 				!strings.HasPrefix(toolOutput, "Error") {
@@ -476,14 +484,11 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 						}
 						filename = fmt.Sprintf("script_%d%s", time.Now().Unix(), ext)
 					}
-					savePath := filepath.Join(workDir, filepath.Clean(filename))
-					if err := os.WriteFile(savePath, []byte(codeInput.Code), 0o644); err == nil {
-						emit(StreamEvent{
-							Type:    "file_created",
-							Content: savePath,
-							Path:    savePath,
-							Name:    filepath.Base(savePath),
-						})
+					scratchDir := filepath.Join(workDir, ".scratch")
+					os.MkdirAll(scratchDir, 0o755)
+					savePath := filepath.Join(scratchDir, filepath.Clean(filename))
+					if err := os.WriteFile(savePath, []byte(codeInput.Code), 0o644); err != nil {
+						log.Printf("[agent] scratch save failed: %v", err)
 					}
 				}
 			}
@@ -564,6 +569,28 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max] + "\n... [truncated]"
+}
+
+// emitDeliverableFiles scans the workspace directory for user-visible output
+// files (excluding .scratch/, hidden files, and .jsonl session logs) and emits
+// file_created events so they appear in the Working Folder panel and chat.
+func emitDeliverableFiles(workDir string, emit func(StreamEvent)) {
+	entries, err := os.ReadDir(workDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") || strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		filePath := filepath.Join(workDir, e.Name())
+		emit(StreamEvent{
+			Type:    "file_created",
+			Content: filePath,
+			Path:    filePath,
+			Name:    e.Name(),
+		})
+	}
 }
 
 func extractWritePath(input json.RawMessage, workDir string) string {
