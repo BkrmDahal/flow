@@ -592,222 +592,232 @@
 
         <!-- ── LLM Settings Tab (Local/Cloud LLM Setup) ── -->
         {#if activeTab === 'llm'}
-          <section>
-            <span class="row-label">Provider Mode</span>
-            <div class="segmented" role="tablist" aria-label="Provider mode">
-              <button
-                class="segment"
-                class:segment-active={providerMode === 'local'}
-                on:click={() => providerMode = 'local'}
-                type="button" role="tab" aria-selected={providerMode === 'local'}
-              >Local</button>
-              <button
-                class="segment"
-                class:segment-active={providerMode === 'cloud'}
-                on:click={() => providerMode = 'cloud'}
-                type="button" role="tab" aria-selected={providerMode === 'cloud'}
-              >Cloud</button>
-            </div>
-          </section>
-
-          {#if providerMode === 'local'}
-          <section>
-            <div class="managed-toggle-row">
-              <div class="managed-toggle-text">
-                <span class="managed-toggle-title">Run llama.cpp locally (managed)</span>
-                <p class="hint">Flow downloads and starts llama-server for you.</p>
-              </div>
-              <button
-                class="toggle-switch"
-                class:toggle-active={llamaManagedEnabled}
-                on:click={() => setManagedLlama(!llamaManagedEnabled)}
-                type="button"
-                role="switch"
-                aria-checked={llamaManagedEnabled}
-                aria-label="Run llama.cpp locally (managed)"
-              >
-                <span class="toggle-knob"></span>
-              </button>
-            </div>
-          </section>
-
-          <section>
-            <label class="row-label" for="baseUrl">Base URL</label>
-            <input id="baseUrl" type="text" bind:value={baseUrl} placeholder="http://localhost:1234/v1" readonly={llamaManagedEnabled} />
-          </section>
-
-          {#if llamaManagedEnabled}
-            <section class="llama-panel">
-              <div class="llama-panel-header">
-                <div>
-                  <span class="row-label">Managed llama.cpp</span>
-                  <p class="hint panel-hint">Flow starts llama-server locally with your GGUF model.</p>
+          <div class="config-sections-wrapper" style="margin-top: 8px;">
+            <!-- Local Endpoint Configuration Card -->
+            <div class="config-card" class:active-card={providerMode === 'local'} class:inactive-card={providerMode !== 'local'}>
+              <!-- svelte-ignore a11y-click-events-have-key-events -->
+              <!-- svelte-ignore a11y-no-static-element-interactions -->
+              <div class="card-header clickable-header" on:click={() => providerMode = 'local'} role="button" tabindex="0">
+                <div class="header-left">
+                  <span class="radio-indicator"></span>
+                  <span class="card-title">Local Endpoint</span>
                 </div>
-                <span class="status-pill" class:status-running={llamaStatus?.running} class:status-error={llamaStatus?.state === 'error'}>
-                  {llamaStatus?.state || 'stopped'}
-                </span>
+                {#if providerMode === 'local'}
+                  <span class="active-badge">Active</span>
+                {/if}
               </div>
 
-              <label class="row-label" for="llamaModelPath">Model file</label>
-              <div class="row">
-                <input id="llamaModelPath" type="text" bind:value={llamaModelPath} placeholder="/path/to/model.gguf" />
-                <button class="secondary" on:click={chooseLlamaModel} disabled={llamaBusy || llamaDownloading}>Choose model</button>
-              </div>
-
-              <label class="row-label download-label" for="llamaDownloadURL">Or download from Hugging Face</label>
-              <div class="row">
-                <input
-                  id="llamaDownloadURL"
-                  type="text"
-                  bind:value={llamaDownloadURL}
-                  placeholder="https://huggingface.co/.../model.gguf"
-                  disabled={llamaDownloading}
-                />
-                <button class="secondary" on:click={downloadLlamaModel} disabled={llamaDownloading || !llamaDownloadURL.trim()}>
-                  {llamaDownloading ? 'Downloading…' : 'Download'}
-                </button>
-              </div>
-              {#if llamaDownloading || (llamaDownloadFilename && llamaDownloadDownloaded > 0)}
-                <div class="download-progress">
-                  <div class="download-bar">
-                    <div class="download-bar-fill" style="width: {llamaDownloadPercent}%"></div>
+              <section>
+                <div class="managed-toggle-row">
+                  <div class="managed-toggle-text">
+                    <span class="managed-toggle-title">Run llama.cpp locally (managed)</span>
+                    <p class="hint">Flow downloads and starts llama-server for you.</p>
                   </div>
-                  <div class="download-meta">
-                    <span>{llamaDownloadFilename || 'model.gguf'}</span>
-                    <span>
-                      {formatBytes(llamaDownloadDownloaded)}{llamaDownloadTotal > 0 ? ` / ${formatBytes(llamaDownloadTotal)}` : ''}
-                      {llamaDownloadTotal > 0 ? ` (${llamaDownloadPercent}%)` : ''}
+                  <button
+                    class="toggle-switch"
+                    class:toggle-active={llamaManagedEnabled}
+                    on:click={() => setManagedLlama(!llamaManagedEnabled)}
+                    type="button"
+                    role="switch"
+                    aria-checked={llamaManagedEnabled}
+                    aria-label="Run llama.cpp locally (managed)"
+                  >
+                    <span class="toggle-knob"></span>
+                  </button>
+                </div>
+              </section>
+
+              <section>
+                <label class="row-label" for="baseUrl">Base URL</label>
+                <input id="baseUrl" type="text" bind:value={baseUrl} placeholder="http://localhost:1234/v1" readonly={llamaManagedEnabled} />
+              </section>
+
+              {#if llamaManagedEnabled}
+                <section class="llama-panel">
+                  <div class="llama-panel-header">
+                    <div>
+                      <span class="row-label">Managed llama.cpp</span>
+                      <p class="hint panel-hint">Flow starts llama-server locally with your GGUF model.</p>
+                    </div>
+                    <span class="status-pill" class:status-running={llamaStatus?.running} class:status-error={llamaStatus?.state === 'error'}>
+                      {llamaStatus?.state || 'stopped'}
                     </span>
                   </div>
-                </div>
+
+                  <label class="row-label" for="llamaModelPath">Model file</label>
+                  <div class="row">
+                    <input id="llamaModelPath" type="text" bind:value={llamaModelPath} placeholder="/path/to/model.gguf" />
+                    <button class="secondary" on:click={chooseLlamaModel} disabled={llamaBusy || llamaDownloading}>Choose model</button>
+                  </div>
+
+                  <label class="row-label download-label" for="llamaDownloadURL">Or download from Hugging Face</label>
+                  <div class="row">
+                    <input
+                      id="llamaDownloadURL"
+                      type="text"
+                      bind:value={llamaDownloadURL}
+                      placeholder="https://huggingface.co/.../model.gguf"
+                      disabled={llamaDownloading}
+                    />
+                    <button class="secondary" on:click={downloadLlamaModel} disabled={llamaDownloading || !llamaDownloadURL.trim()}>
+                      {llamaDownloading ? 'Downloading…' : 'Download'}
+                    </button>
+                  </div>
+                  {#if llamaDownloading || (llamaDownloadFilename && llamaDownloadDownloaded > 0)}
+                    <div class="download-progress">
+                      <div class="download-bar">
+                        <div class="download-bar-fill" style="width: {llamaDownloadPercent}%"></div>
+                      </div>
+                      <div class="download-meta">
+                        <span>{llamaDownloadFilename || 'model.gguf'}</span>
+                        <span>
+                          {formatBytes(llamaDownloadDownloaded)}{llamaDownloadTotal > 0 ? ` / ${formatBytes(llamaDownloadTotal)}` : ''}
+                          {llamaDownloadTotal > 0 ? ` (${llamaDownloadPercent}%)` : ''}
+                        </span>
+                      </div>
+                    </div>
+                  {/if}
+                  <p class="hint">Replaces any previously-downloaded model in Flow's managed folder.</p>
+
+                  <div class="llama-grid">
+                    <label>
+                      <span class="row-label">Port</span>
+                      <input type="number" min="1024" max="65535" bind:value={llamaPort} />
+                    </label>
+                    <label>
+                      <span class="row-label">Context</span>
+                      <input type="number" min="512" step="512" bind:value={llamaContextSize} />
+                    </label>
+                  </div>
+
+                  <div class="row llama-actions">
+                    {#if llamaStatus?.running}
+                      <button class="secondary" on:click={stopLlamaServer} disabled={llamaBusy}>Stop</button>
+                    {:else}
+                      <button class="secondary" on:click={startLlamaServer} disabled={llamaBusy || llamaDownloading || !llamaModelPath}>
+                        {llamaBusy ? 'Starting...' : 'Start'}
+                      </button>
+                    {/if}
+                    <button class="secondary" on:click={testConnection} disabled={testStatus === 'testing'}>
+                      {testStatus === 'testing' ? 'Testing...' : 'Test connection'}
+                    </button>
+                  </div>
+                  {#if llamaMessage}
+                    <div class="feedback ok">{llamaMessage}</div>
+                  {/if}
+                  {#if llamaError}
+                    <div class="feedback err">{llamaError}</div>
+                  {/if}
+                  {#if llamaStatus?.logExcerpt}
+                    <pre class="llama-log">{llamaStatus.logExcerpt}</pre>
+                  {/if}
+                </section>
               {/if}
-              <p class="hint">Replaces any previously-downloaded model in Flow's managed folder.</p>
 
-              <div class="llama-grid">
-                <label>
-                  <span class="row-label">Port</span>
-                  <input type="number" min="1024" max="65535" bind:value={llamaPort} />
-                </label>
-                <label>
-                  <span class="row-label">Context</span>
-                  <input type="number" min="512" step="512" bind:value={llamaContextSize} />
-                </label>
-              </div>
-
-              <div class="row llama-actions">
-                {#if llamaStatus?.running}
-                  <button class="secondary" on:click={stopLlamaServer} disabled={llamaBusy}>Stop</button>
-                {:else}
-                  <button class="secondary" on:click={startLlamaServer} disabled={llamaBusy || llamaDownloading || !llamaModelPath}>
-                    {llamaBusy ? 'Starting...' : 'Start'}
-                  </button>
+              <section>
+                <label class="row-label" for="apiKey">API key (optional)</label>
+                <input id="apiKey" type="password" bind:value={apiKey} placeholder="lm-studio" disabled={llamaManagedEnabled} />
+                {#if llamaManagedEnabled}
+                  <p class="hint">Not used in managed mode.</p>
                 {/if}
-                <button class="secondary" on:click={testConnection} disabled={testStatus === 'testing'}>
-                  {testStatus === 'testing' ? 'Testing...' : 'Test connection'}
-                </button>
+              </section>
+
+              <section>
+                <label class="row-label" for="modelSelect">Model</label>
+                <div class="row">
+                  {#if availableModels.length > 0}
+                    <select id="modelSelect" bind:value={model}>
+                      {#each availableModels as m}
+                        <option value={m.id}>{m.id}</option>
+                      {/each}
+                    </select>
+                  {:else}
+                    <input id="modelSelect" type="text" bind:value={model} placeholder="qwen2.5-coder-7b-instruct" />
+                  {/if}
+                  {#if !llamaManagedEnabled}
+                    <button class="secondary" on:click={testConnection} disabled={testStatus === 'testing'}>
+                      {testStatus === 'testing' ? 'Testing…' : 'Test connection'}
+                    </button>
+                  {/if}
+                </div>
+                {#if testStatus === 'ok'}
+                  <div class="feedback ok">✓ {testMessage}</div>
+                {:else if testStatus === 'err'}
+                  <div class="feedback err">✗ {testMessage}</div>
+                {/if}
+              </section>
+            </div>
+
+            <!-- Cloud Endpoint Configuration Card -->
+            <div class="config-card" class:active-card={providerMode === 'cloud'} class:inactive-card={providerMode !== 'cloud'}>
+              <!-- svelte-ignore a11y-click-events-have-key-events -->
+              <!-- svelte-ignore a11y-no-static-element-interactions -->
+              <div class="card-header clickable-header" on:click={() => providerMode = 'cloud'} role="button" tabindex="0">
+                <div class="header-left">
+                  <span class="radio-indicator"></span>
+                  <span class="card-title">Cloud Endpoint</span>
+                </div>
+                {#if providerMode === 'cloud'}
+                  <span class="active-badge">Active</span>
+                {/if}
               </div>
-              {#if llamaMessage}
-                <div class="feedback ok">{llamaMessage}</div>
-              {/if}
-              {#if llamaError}
-                <div class="feedback err">{llamaError}</div>
-              {/if}
-              {#if llamaStatus?.logExcerpt}
-                <pre class="llama-log">{llamaStatus.logExcerpt}</pre>
-              {/if}
-            </section>
-          {/if}
 
-          <section>
-            <label class="row-label" for="apiKey">API key (optional)</label>
-            <input id="apiKey" type="password" bind:value={apiKey} placeholder="lm-studio" disabled={llamaManagedEnabled} />
-            {#if llamaManagedEnabled}
-              <p class="hint">Not used in managed mode.</p>
-            {/if}
-          </section>
-
-          <section>
-            <label class="row-label" for="modelSelect">Model</label>
-            <div class="row">
-              {#if availableModels.length > 0}
-                <select id="modelSelect" bind:value={model}>
-                  {#each availableModels as m}
-                    <option value={m.id}>{m.id}</option>
+              <section>
+                <label class="row-label" for="cloudProvider">Cloud Provider</label>
+                <select id="cloudProvider" bind:value={cloudProvider}>
+                  {#each CLOUD_PROVIDERS as p}
+                    <option value={p.id}>{p.label}</option>
                   {/each}
                 </select>
-              {:else}
-                <input id="modelSelect" type="text" bind:value={model} placeholder="qwen2.5-coder-7b-instruct" />
+              </section>
+
+              {#if cloudProvider === 'openai'}
+                <section>
+                  <label class="row-label" for="cloudOpenAIKey">OpenAI API Key</label>
+                  <input id="cloudOpenAIKey" type="password" bind:value={openaiKey} placeholder="sk-..." />
+                </section>
+              {:else if cloudProvider === 'anthropic'}
+                <section>
+                  <label class="row-label" for="cloudAnthropicKey">Anthropic API Key</label>
+                  <input id="cloudAnthropicKey" type="password" bind:value={anthropicKey} placeholder="sk-ant-..." />
+                </section>
+              {:else if cloudProvider === 'openrouter'}
+                <section>
+                  <label class="row-label" for="cloudOpenRouterKey">OpenRouter API Key</label>
+                  <input id="cloudOpenRouterKey" type="password" bind:value={openRouterKey} placeholder="sk-or-..." />
+                </section>
+              {:else if cloudProvider === 'custom'}
+                <section>
+                  <label class="row-label" for="cloudCustomURL">Base URL</label>
+                  <input id="cloudCustomURL" type="text" bind:value={customCloudURL} placeholder="https://example.com/v1" />
+                </section>
+                <section>
+                  <label class="row-label" for="cloudCustomKey">API Key</label>
+                  <input id="cloudCustomKey" type="password" bind:value={customCloudKey} placeholder="optional" />
+                </section>
               {/if}
-              {#if !llamaManagedEnabled}
-                <button class="secondary" on:click={testConnection} disabled={testStatus === 'testing'}>
-                  {testStatus === 'testing' ? 'Testing…' : 'Test connection'}
-                </button>
-              {/if}
+
+              <section>
+                <label class="row-label" for="cloudModel">Model</label>
+                <div class="row">
+                  <input
+                    id="cloudModel"
+                    type="text"
+                    bind:value={cloudModel}
+                    placeholder={(CLOUD_PROVIDERS.find(p => p.id === cloudProvider) || {}).modelPlaceholder || ''}
+                  />
+                  <button class="secondary" on:click={testCloudConnection} disabled={cloudTestStatus === 'testing'}>
+                    {cloudTestStatus === 'testing' ? 'Testing…' : 'Test connection'}
+                  </button>
+                </div>
+                {#if cloudTestStatus === 'ok'}
+                  <div class="feedback ok">✓ {cloudTestMessage}</div>
+                  {:else if cloudTestStatus === 'err'}
+                  <div class="feedback err">✗ {cloudTestMessage}</div>
+                {/if}
+              </section>
             </div>
-            {#if testStatus === 'ok'}
-              <div class="feedback ok">✓ {testMessage}</div>
-            {:else if testStatus === 'err'}
-              <div class="feedback err">✗ {testMessage}</div>
-            {/if}
-          </section>
-          {/if}
-
-          {#if providerMode === 'cloud'}
-          <section>
-            <label class="row-label" for="cloudProvider">Cloud Provider</label>
-            <select id="cloudProvider" bind:value={cloudProvider}>
-              {#each CLOUD_PROVIDERS as p}
-                <option value={p.id}>{p.label}</option>
-              {/each}
-            </select>
-          </section>
-
-          {#if cloudProvider === 'openai'}
-            <section>
-              <label class="row-label" for="cloudOpenAIKey">OpenAI API Key</label>
-              <input id="cloudOpenAIKey" type="password" bind:value={openaiKey} placeholder="sk-..." />
-            </section>
-          {:else if cloudProvider === 'anthropic'}
-            <section>
-              <label class="row-label" for="cloudAnthropicKey">Anthropic API Key</label>
-              <input id="cloudAnthropicKey" type="password" bind:value={anthropicKey} placeholder="sk-ant-..." />
-            </section>
-          {:else if cloudProvider === 'openrouter'}
-            <section>
-              <label class="row-label" for="cloudOpenRouterKey">OpenRouter API Key</label>
-              <input id="cloudOpenRouterKey" type="password" bind:value={openRouterKey} placeholder="sk-or-..." />
-            </section>
-          {:else if cloudProvider === 'custom'}
-            <section>
-              <label class="row-label" for="cloudCustomURL">Base URL</label>
-              <input id="cloudCustomURL" type="text" bind:value={customCloudURL} placeholder="https://example.com/v1" />
-            </section>
-            <section>
-              <label class="row-label" for="cloudCustomKey">API Key</label>
-              <input id="cloudCustomKey" type="password" bind:value={customCloudKey} placeholder="optional" />
-            </section>
-          {/if}
-
-          <section>
-            <label class="row-label" for="cloudModel">Model</label>
-            <div class="row">
-              <input
-                id="cloudModel"
-                type="text"
-                bind:value={cloudModel}
-                placeholder={(CLOUD_PROVIDERS.find(p => p.id === cloudProvider) || {}).modelPlaceholder || ''}
-              />
-              <button class="secondary" on:click={testCloudConnection} disabled={cloudTestStatus === 'testing'}>
-                {cloudTestStatus === 'testing' ? 'Testing…' : 'Test connection'}
-              </button>
-            </div>
-            {#if cloudTestStatus === 'ok'}
-              <div class="feedback ok">✓ {cloudTestMessage}</div>
-            {:else if cloudTestStatus === 'err'}
-              <div class="feedback err">✗ {cloudTestMessage}</div>
-            {/if}
-          </section>
-          {/if}
+          </div>
         {/if}
 
         <!-- ── Voice / STT Tab ── -->
@@ -1358,5 +1368,126 @@
   .command-remove-btn:hover {
     color: #f87171;
     background: rgba(248, 113, 113, 0.1);
+  }
+
+  /* ─── Premium Decoupled LLM Settings Layout ─── */
+  .config-sections-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 16px;
+  }
+  
+  .config-card {
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md, 10px);
+    padding: 16px;
+    position: relative;
+    transition: all 0.22s ease-in-out;
+  }
+  
+  .config-card.active-card {
+    background: rgba(45, 212, 191, 0.012);
+    border-color: rgba(45, 212, 191, 0.45);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15), 0 0 14px rgba(45, 212, 191, 0.04);
+  }
+  
+  .config-card.inactive-card {
+    opacity: 0.65;
+  }
+  
+  .config-card.inactive-card:hover,
+  .config-card.inactive-card:focus-within {
+    opacity: 0.95;
+    background: rgba(255, 255, 255, 0.03);
+    border-color: var(--border);
+  }
+  
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .card-header.clickable-header {
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s ease;
+    border-radius: 8px 8px 0 0;
+    margin: -16px -16px 14px;
+    padding: 12px 16px;
+  }
+
+  .card-header.clickable-header:hover {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .config-card.active-card .card-header.clickable-header:hover {
+    background: rgba(45, 212, 191, 0.02);
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .radio-indicator {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1.5px solid var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    flex-shrink: 0;
+  }
+
+  .config-card.active-card .radio-indicator {
+    border-color: var(--accent);
+  }
+
+  .radio-indicator::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    transform: scale(0);
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .config-card.active-card .radio-indicator::after {
+    transform: scale(1);
+  }
+  
+  .card-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .config-card.active-card .card-title {
+    color: var(--accent);
+  }
+  
+  .active-badge {
+    background: rgba(45, 212, 191, 0.12);
+    color: var(--accent);
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 1px solid rgba(45, 212, 191, 0.2);
+    box-shadow: 0 1px 4px rgba(45, 212, 191, 0.05);
   }
 </style>
