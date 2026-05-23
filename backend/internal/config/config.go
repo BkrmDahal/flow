@@ -39,6 +39,7 @@ type Config struct {
 	GeminiKey     string `json:"gemini_key"`     // Google Gemini API key
 	OpenRouterKey string `json:"openrouter_key"` // OpenRouter API key
 	DeepgramKey   string `json:"deepgram_key"`   // Deepgram STT API key
+	TavilyKey     string `json:"tavily_key"`     // Tavily Search API key
 
 	// ── Cloud provider (Settings → General → Cloud) ──────────────────────────
 	ProviderMode   string `json:"provider_mode"`    // "local" (default) | "cloud"

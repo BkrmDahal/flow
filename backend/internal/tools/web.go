@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/user/flow/backend/internal/config"
 )
 
 // WebSearchTool queries DuckDuckGo HTML search to return lightweight, zero-config web results.
@@ -39,12 +41,85 @@ type webSearchInput struct {
 	Query string `json:"query"`
 }
 
+type tavilySearchRequest struct {
+	APIKey     string `json:"api_key"`
+	Query      string `json:"query"`
+	MaxResults int    `json:"max_results"`
+}
+
+type tavilySearchResult struct {
+	Title   string  `json:"title"`
+	URL     string  `json:"url"`
+	Content string  `json:"content"`
+	Score   float64 `json:"score"`
+}
+
+type tavilySearchResponse struct {
+	Results []tavilySearchResult `json:"results"`
+}
+
 func (t *WebSearchTool) Execute(ctx context.Context, input json.RawMessage) (string, error) {
 	var in webSearchInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", fmt.Errorf("parse input: %w", err)
 	}
 
+	// 1. Try to load config and check for Tavily Key
+	var tavilyKey string
+	if baseDir, err := config.FlowDir(); err == nil {
+		if cfg, err := config.Load(baseDir); err == nil {
+			tavilyKey = cfg.TavilyKey
+		}
+	}
+
+	if tavilyKey != "" {
+		tavilyURL := "https://api.tavily.com/search"
+		reqBody := tavilySearchRequest{
+			APIKey:     tavilyKey,
+			Query:      in.Query,
+			MaxResults: 8,
+		}
+		jsonBytes, err := json.Marshal(reqBody)
+		if err != nil {
+			return fmt.Sprintf("Error encoding Tavily request: %v", err), nil
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", tavilyURL, strings.NewReader(string(jsonBytes)))
+		if err != nil {
+			return fmt.Sprintf("Error creating Tavily request: %v", err), nil
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{Timeout: 15 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Sprintf("Error executing Tavily search: %v", err), nil
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return fmt.Sprintf("Tavily search provider returned error status (%s): %s", resp.Status, string(bodyBytes)), nil
+		}
+
+		var res tavilySearchResponse
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			return fmt.Sprintf("Error decoding Tavily response: %v", err), nil
+		}
+
+		if len(res.Results) == 0 {
+			return "No search results found via Tavily. Proceed using your own training knowledge.", nil
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Search results for %q (via Tavily):\n\n", in.Query))
+		for i, r := range res.Results {
+			sb.WriteString(fmt.Sprintf("[%d] %s\n    URL: %s\n    Snippet: %s\n\n", i+1, r.Title, r.URL, r.Content))
+		}
+		return sb.String(), nil
+	}
+
+	// 2. Fallback to DuckDuckGo HTML search
 	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(in.Query))
 	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {

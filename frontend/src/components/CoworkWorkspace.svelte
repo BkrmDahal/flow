@@ -37,6 +37,47 @@
   let integrationsMenuEl;
   let integrationsBtnEl;
 
+  // Tavily API key settings state
+  let tavilyKey = '';
+  let tavilyKeySaved = false;
+  let showWebSearchSettings = false;
+
+  function autofocus(node) {
+    node.focus();
+  }
+
+  async function loadTavilyKey() {
+    try {
+      const s = await Backend.GetSettings();
+      if (s) {
+        tavilyKey = s.tavilyKey || '';
+      }
+    } catch (err) {
+      console.error("Failed to load Tavily key:", err);
+    }
+  }
+
+  async function saveTavilyKey() {
+    try {
+      const s = await Backend.GetSettings();
+      if (s) {
+        s.tavilyKey = tavilyKey;
+        await Backend.SaveSettings(s);
+        tavilyKeySaved = true;
+        setTimeout(() => { tavilyKeySaved = false; }, 2000);
+      }
+    } catch (err) {
+      console.error("Failed to save Tavily key:", err);
+    }
+  }
+
+  function handleTavilyKeyKeydown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.target.blur();
+    }
+  }
+
   let integrations = [
     {
       id: 'parse-document',
@@ -142,17 +183,23 @@
     }
   }
 
+  function handleSettingsSaved() {
+    loadActiveModelForPlan();
+    loadTavilyKey();
+  }
+
   onMount(() => {
     refreshCoworkHistory();
     refreshSkills();
     loadActiveModelForPlan();
+    loadTavilyKey();
     window.addEventListener('click', handleGlobalClick);
-    window.addEventListener('flow:settings-saved', loadActiveModelForPlan);
+    window.addEventListener('flow:settings-saved', handleSettingsSaved);
   });
 
   onDestroy(() => {
     window.removeEventListener('click', handleGlobalClick);
-    window.removeEventListener('flow:settings-saved', loadActiveModelForPlan);
+    window.removeEventListener('flow:settings-saved', handleSettingsSaved);
   });
 
   // ─── Welcome input ───
@@ -415,33 +462,73 @@
                   <div class="integrations-empty">No matching integrations</div>
                 {:else}
                   {#each filteredIntegrations as item (item.id)}
-                    <div class="integration-item">
-                      <div class="integration-info">
-                        <span class="integration-icon {item.iconClass}">
-                          {@html item.iconSvg}
-                        </span>
-                        <span class="integration-name">{item.name}</span>
+                    <div class="integration-item-wrap">
+                      <div class="integration-item">
+                        <div class="integration-info">
+                          <span class="integration-icon {item.iconClass}">
+                            {@html item.iconSvg}
+                          </span>
+                          <span class="integration-name">{item.name}</span>
+                        </div>
+                        <div class="integration-actions">
+                          {#if item.id === 'web-search'}
+                            <button
+                              class="btn-integration-settings"
+                              class:active={showWebSearchSettings}
+                              on:click|stopPropagation={() => showWebSearchSettings = !showWebSearchSettings}
+                              title="Configure search key"
+                              type="button"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                              </svg>
+                            </button>
+                          {/if}
+                          <label class="toggle-switch">
+                            <input
+                              type="checkbox"
+                              checked={item.id === 'parse-document' ? $coworkParseDocuments : item.id === 'web-search' ? $coworkWebSearchEnabled : item.id === 'screencapture' ? $coworkScreenCaptureEnabled : item.id === 'memory' ? $coworkMemoryEnabled : false}
+                              on:change={(e) => {
+                                if (item.id === 'parse-document') {
+                                  $coworkParseDocuments = e.target.checked;
+                                } else if (item.id === 'web-search') {
+                                  $coworkWebSearchEnabled = e.target.checked;
+                                } else if (item.id === 'screencapture') {
+                                  $coworkScreenCaptureEnabled = e.target.checked;
+                                } else if (item.id === 'memory') {
+                                  $coworkMemoryEnabled = e.target.checked;
+                                }
+                              }}
+                            />
+                            <span class="toggle-slider"></span>
+                          </label>
+                        </div>
                       </div>
-                      <div class="integration-actions">
-                        <label class="toggle-switch">
-                          <input
-                            type="checkbox"
-                            checked={item.id === 'parse-document' ? $coworkParseDocuments : item.id === 'web-search' ? $coworkWebSearchEnabled : item.id === 'screencapture' ? $coworkScreenCaptureEnabled : item.id === 'memory' ? $coworkMemoryEnabled : false}
-                            on:change={(e) => {
-                              if (item.id === 'parse-document') {
-                                $coworkParseDocuments = e.target.checked;
-                              } else if (item.id === 'web-search') {
-                                $coworkWebSearchEnabled = e.target.checked;
-                              } else if (item.id === 'screencapture') {
-                                $coworkScreenCaptureEnabled = e.target.checked;
-                              } else if (item.id === 'memory') {
-                                $coworkMemoryEnabled = e.target.checked;
-                              }
-                            }}
-                          />
-                          <span class="toggle-slider"></span>
-                        </label>
-                      </div>
+
+                      {#if item.id === 'web-search' && showWebSearchSettings}
+                        <div class="integration-details-panel">
+                          <div class="tavily-settings">
+                            <div class="tavily-header">
+                              <span class="tavily-title">Tavily Search API Key</span>
+                              <a href="https://tavily.com" target="_blank" class="tavily-link" title="Get free key">Get Key</a>
+                            </div>
+                            <div class="tavily-input-wrap">
+                              <input
+                                type="password"
+                                class="tavily-input"
+                                placeholder="tvly-..."
+                                bind:value={tavilyKey}
+                                on:blur={saveTavilyKey}
+                                on:keydown={handleTavilyKeyKeydown}
+                                use:autofocus
+                              />
+                              {#if tavilyKeySaved}
+                                <span class="tavily-saved-tick" title="Saved">✓</span>
+                              {/if}
+                            </div>
+                          </div>
+                        </div>
+                      {/if}
                     </div>
                   {/each}
                 {/if}
@@ -960,6 +1047,114 @@
 
   .toggle-switch input:checked + .toggle-slider:before {
     transform: translateX(12px);
+  }
+
+  .tavily-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .tavily-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10.5px;
+    font-weight: 500;
+  }
+
+  .tavily-title {
+    color: var(--text-muted);
+  }
+
+  .tavily-link {
+    color: var(--accent);
+    text-decoration: none;
+    transition: opacity 0.15s ease;
+  }
+
+  .tavily-link:hover {
+    opacity: 0.8;
+  }
+
+  .tavily-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .tavily-input {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 6px 28px 6px 10px;
+    color: var(--text-primary, #ffffff);
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    outline: none;
+    transition: all 0.15s ease;
+  }
+
+  .tavily-input:focus {
+    border-color: rgba(59, 130, 246, 0.4);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  }
+
+  .tavily-saved-tick {
+    position: absolute;
+    right: 8px;
+    color: #10b981;
+    font-size: 12px;
+    font-weight: bold;
+    pointer-events: none;
+  }
+
+  .btn-integration-settings {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn-integration-settings:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+  }
+
+  .btn-integration-settings.active {
+    color: var(--accent);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .integration-item-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border-radius: 8px;
+  }
+
+  .integration-details-panel {
+    padding: 2px 6px 8px;
+    animation: integrationsSlideDown 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @keyframes integrationsSlideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .btn-attach {
