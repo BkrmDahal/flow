@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/user/flow/backend/internal/plugins"
 )
 
 // ─── Master Prompt ───
@@ -138,7 +140,7 @@ func (a *App) DeleteMemoryFile(name string) error {
 
 // AddMemoryFile creates a new memory file with the given name and body.
 func (a *App) AddMemoryFile(name string, body string) (MemoryFileInfo, error) {
-	name = sanitizeName(name)
+	name = plugins.SanitizeName(name)
 	if name == "" {
 		return MemoryFileInfo{}, fmt.Errorf("memory name cannot be empty")
 	}
