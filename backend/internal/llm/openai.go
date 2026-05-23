@@ -46,10 +46,11 @@ func (c *OpenAIClient) GetModel() string {
 // --- OpenAI-specific types ---
 
 type oaiMessage struct {
-	Role       string        `json:"role"`
-	Content    interface{}   `json:"content,omitempty"` // string or []oaiContentPart
-	ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string        `json:"tool_call_id,omitempty"`
+	Role             string        `json:"role"`
+	Content          interface{}   `json:"content,omitempty"` // string or []oaiContentPart
+	ReasoningContent string        `json:"reasoning_content,omitempty"`
+	ToolCalls        []oaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string        `json:"tool_call_id,omitempty"`
 }
 
 type oaiContentPart struct {
@@ -224,6 +225,7 @@ func (c *OpenAIClient) convertUserMessage(msg session.Message) []oaiMessage {
 	return []oaiMessage{{Role: "user", Content: string(msg.Content)}}
 }
 
+
 func (c *OpenAIClient) convertAssistantMessage(msg session.Message) []oaiMessage {
 	var blocks []map[string]interface{}
 	if json.Unmarshal(msg.Content, &blocks) != nil || len(blocks) == 0 {
@@ -233,6 +235,7 @@ func (c *OpenAIClient) convertAssistantMessage(msg session.Message) []oaiMessage
 	}
 
 	var textContent string
+	var reasoningContent string
 	var toolCalls []oaiToolCall
 
 	for _, block := range blocks {
@@ -241,6 +244,9 @@ func (c *OpenAIClient) convertAssistantMessage(msg session.Message) []oaiMessage
 		case "text":
 			t, _ := block["text"].(string)
 			textContent += t
+		case "thinking":
+			t, _ := block["thinking"].(string)
+			reasoningContent += t
 		case "tool_use":
 			id, _ := block["id"].(string)
 			name, _ := block["name"].(string)
@@ -259,11 +265,18 @@ func (c *OpenAIClient) convertAssistantMessage(msg session.Message) []oaiMessage
 				tc.Google = &oaiGoogleExt{ThoughtSignature: thoughtSig}
 			}
 			toolCalls = append(toolCalls, tc)
-			// "thinking" blocks are skipped — OpenAI doesn't have an equivalent.
 		}
 	}
 
 	m := oaiMessage{Role: "assistant"}
+	if reasoningContent != "" {
+		if c.supportsReasoning() {
+			m.ReasoningContent = reasoningContent
+		} else {
+			textContent = fmt.Sprintf("<think>\n%s\n</think>\n%s", reasoningContent, textContent)
+		}
+	}
+
 	if textContent != "" {
 		m.Content = textContent
 	}
@@ -272,6 +285,13 @@ func (c *OpenAIClient) convertAssistantMessage(msg session.Message) []oaiMessage
 	}
 
 	return []oaiMessage{m}
+}
+
+// supportsReasoning returns true if the current model or provider natively supports
+// reasoning/thinking history input (e.g. DeepSeek R1).
+func (c *OpenAIClient) supportsReasoning() bool {
+	modelLower := strings.ToLower(c.Model)
+	return strings.Contains(modelLower, "r1") || strings.Contains(modelLower, "reasoning")
 }
 
 // --- API Calls ---
@@ -327,7 +347,7 @@ func (c *OpenAIClient) SendMessages(ctx context.Context, system string, messages
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s API error (status %d): %s", label, resp.StatusCode, string(body))
+		return nil, c.formatFriendlyError(fmt.Errorf("%s API error (status %d): %s", label, resp.StatusCode, string(body)))
 	}
 
 	return c.parseResponse(body)
@@ -435,7 +455,7 @@ func (c *OpenAIClient) SendMessagesStream(ctx context.Context, system string, me
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("%s API error (status %d): %s", label, resp.StatusCode, string(body))
+		return nil, c.formatFriendlyError(fmt.Errorf("%s API error (status %d): %s", label, resp.StatusCode, string(body)))
 	}
 
 	return c.parseStreamResponse(resp.Body, onDelta)
@@ -449,6 +469,8 @@ func (c *OpenAIClient) parseStreamResponse(body io.Reader, onDelta func(StreamDe
 	result.Role = "assistant"
 
 	var textContent string
+	var reasoningContent string
+	var reasoningStarted bool
 	var toolCalls []oaiToolCall
 	toolArgBuilders := map[int]string{}
 	thoughtSigBuilders := map[int]string{}
@@ -469,9 +491,10 @@ func (c *OpenAIClient) parseStreamResponse(body io.Reader, onDelta func(StreamDe
 			ID      string `json:"id"`
 			Choices []struct {
 				Delta struct {
-					Role      string  `json:"role"`
-					Content   *string `json:"content"`
-					ToolCalls []struct {
+					Role             string  `json:"role"`
+					Content          *string `json:"content"`
+					ReasoningContent *string `json:"reasoning_content"`
+					ToolCalls        []struct {
 						Index    int    `json:"index"`
 						ID       string `json:"id,omitempty"`
 						Type     string `json:"type,omitempty"`
@@ -510,6 +533,16 @@ func (c *OpenAIClient) parseStreamResponse(body io.Reader, onDelta func(StreamDe
 		}
 
 		choice := chunk.Choices[0]
+
+		// Reasoning/thinking content delta.
+		if choice.Delta.ReasoningContent != nil && *choice.Delta.ReasoningContent != "" {
+			if !reasoningStarted {
+				reasoningStarted = true
+				onDelta(StreamDelta{Type: "thinking_start"})
+			}
+			reasoningContent += *choice.Delta.ReasoningContent
+			onDelta(StreamDelta{Type: "thinking", Content: *choice.Delta.ReasoningContent})
+		}
 
 		// Text content delta.
 		if choice.Delta.Content != nil && *choice.Delta.Content != "" {
@@ -557,6 +590,13 @@ func (c *OpenAIClient) parseStreamResponse(body io.Reader, onDelta func(StreamDe
 	}
 
 	// Assemble final content blocks.
+	if reasoningContent != "" {
+		result.Content = append(result.Content, ContentBlock{
+			Type:     "thinking",
+			Thinking: reasoningContent,
+		})
+	}
+
 	if textContent != "" {
 		result.Content = append(result.Content, ContentBlock{
 			Type: "text",
@@ -609,3 +649,25 @@ func oaiConvertFinishReason(reason string) string {
 		return reason
 	}
 }
+
+// formatFriendlyError intercepts common API error messages and enriches them
+// with friendly, actionable recommendations for the user.
+func (c *OpenAIClient) formatFriendlyError(err error) error {
+	if err == nil {
+		return nil
+	}
+	errMsg := err.Error()
+
+	// Intercept OpenRouter 404 vision-endpoint missing error
+	if strings.Contains(errMsg, "No endpoints found that support image input") {
+		return fmt.Errorf("the selected OpenRouter model (%s) does not support image analysis. Please go to Settings (gear icon) and switch to a model that supports images (such as Claude 4.5 Sonnet or Gemini 2.0/3.5 Flash)", c.Model)
+	}
+
+	// Intercept local managed llama.cpp vision-missing error
+	if strings.Contains(errMsg, "image input is not supported") {
+		return fmt.Errorf("the local GGUF model does not support image analysis without an mmproj (multimodal projector) file loaded. Please go to Settings and switch to a model that supports images to analyze this file")
+	}
+
+	return err
+}
+

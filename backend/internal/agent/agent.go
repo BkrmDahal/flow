@@ -114,6 +114,16 @@ const sectionSafety = `
 - NEVER read from ~/.ssh, ~/.aws, ~/.kube, ~/.gnupg, or similar sensitive directories.
 `
 
+const sectionMultimodal = `
+## Multimodal & Vision Capabilities (CRITICAL)
+
+You have native multimodal and vision capabilities, allowing you to directly see, describe, and transcribe any image, screenshot, or document attached to the chat history.
+
+### Rules:
+1. **Use native vision directly.** When a user asks you to describe, OCR, or transcribe an attached image or screenshot, always perform the task directly using your native vision capabilities.
+2. **Do NOT use workspace files or write code/scripts** (like Tesseract, EasyOCR, or Pillow scripts) to read or OCR an image when it is already visible in the chat itself. Doing so is extremely redundant, slow, and unnecessary. Only use local OCR scripts if specifically requested by the user to build/test a local script for their own use outside this chat.
+`
+
 // buildToolGuidance returns the tool usage tips section, omitting entries
 // for any tools in the disabled set so the LLM doesn't even know they exist.
 func buildToolGuidance(disabledSet map[string]bool) string {
@@ -684,6 +694,9 @@ func buildFullSystemPrompt(supplied string, deps Deps) string {
 
 	// 4. Safety guardrails.
 	sections = append(sections, sectionSafety)
+
+	// Multimodal & Vision instructions.
+	sections = append(sections, sectionMultimodal)
 
 	// 5. Mode-specific sections.
 	if deps.ChatMode {

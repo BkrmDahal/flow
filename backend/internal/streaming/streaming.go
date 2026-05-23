@@ -128,6 +128,18 @@ func BuildContent(text string, files []FileAttachment, opts ContentOptions) (jso
 					"data":       f.Data,
 				},
 			})
+			// Save the image to the workspace if available, so that coding agents
+			// looking for the file on disk can find and process it.
+			if opts.WorkDir != "" {
+				if rawBytes, err := base64.StdEncoding.DecodeString(f.Data); err == nil {
+					destPath := filepath.Join(opts.WorkDir, f.Name)
+					if err := os.WriteFile(destPath, rawBytes, 0o644); err != nil {
+						log.Printf("failed to save image file %s to workspace: %v", f.Name, err)
+					}
+				} else {
+					log.Printf("failed to decode base64 for image %s: %v", f.Name, err)
+				}
+			}
 			continue
 		}
 
