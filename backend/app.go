@@ -10,8 +10,11 @@ import (
 	"github.com/user/flow/backend/internal/config"
 	"github.com/user/flow/backend/internal/llamacpp"
 	"github.com/user/flow/backend/internal/llm"
+	"github.com/user/flow/backend/internal/plugins"
 	"github.com/user/flow/backend/internal/session"
+	"github.com/user/flow/backend/internal/snippets"
 	"github.com/user/flow/backend/internal/speech"
+	"github.com/user/flow/backend/internal/streaming"
 	"github.com/user/flow/backend/internal/tools"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -29,6 +32,14 @@ type App struct {
 	// Agent / session infrastructure
 	sessionMgr *session.Manager
 	tools      *tools.Registry
+
+	// Stream management (shared by agent and cowork)
+	streams *streaming.StreamManager
+	seq     streaming.SeqCounter
+
+	// Plugins & Snippets
+	plugins  *plugins.Store
+	snippets *snippets.Store
 
 	voiceMu            sync.Mutex
 	voiceRecordingPath string
@@ -65,6 +76,13 @@ func (a *App) Startup(ctx context.Context) {
 	// Initialise tool registry with full standard tools (memory, todo, skill, etc.)
 	a.tools = tools.NewRegistry()
 	tools.RegisterStandardTools(a.tools, base)
+
+	// Initialise stream manager (shared by agent + cowork).
+	a.streams = streaming.NewStreamManager()
+
+	// Initialise plugins & snippets stores.
+	a.plugins = plugins.NewStore(base)
+	a.snippets = snippets.NewStore(base)
 
 	if err := a.rebuildLLMClient(); err != nil {
 		// Expected on first run before the user has configured a model.
