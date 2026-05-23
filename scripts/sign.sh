@@ -111,7 +111,11 @@ find "$APP_BUNDLE" -depth \( -name "*.dylib" -o -name "*.so" -o -name "*.framewo
     fi
 done
 
-# Sign the main executable and bundle
+# Sign the main executable first explicitly
+echo "Signing main executable: ${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+codesign --force --timestamp --options=runtime --entitlements "$ENTITLEMENTS" --sign "$DEVELOPER_ID" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+
+# Sign the main app bundle
 echo "Signing app bundle: ${APP_BUNDLE}"
 codesign --force --timestamp --options=runtime --entitlements "$ENTITLEMENTS" --sign "$DEVELOPER_ID" "$APP_BUNDLE"
 
