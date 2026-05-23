@@ -1,5 +1,5 @@
 <script>
-  import { onMount, tick } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import AgentSidebar from './AgentSidebar.svelte';
   import AgentWelcome from './AgentWelcome.svelte';
   import AgentWorkspace from './AgentWorkspace.svelte';
@@ -29,6 +29,46 @@
   let skillMenuEl;
   let selectedSkill = null;
 
+  // Integrations state
+  let showIntegrationsMenu = false;
+  let integrationFilter = '';
+  let integrationsMenuEl;
+  let integrationsBtnEl;
+
+  let integrations = [
+    {
+      id: 'parse-document',
+      name: 'parse-document',
+      iconClass: 'doc-icon',
+      iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 2v6h6"/></svg>`,
+      description: 'Extract and send document text',
+    }
+  ];
+
+  $: filteredIntegrations = integrationFilter
+    ? integrations.filter(i =>
+        i.name.toLowerCase().includes(integrationFilter.toLowerCase()) ||
+        (i.description || '').toLowerCase().includes(integrationFilter.toLowerCase())
+      )
+    : integrations;
+
+  function toggleIntegrationsMenu() {
+    showIntegrationsMenu = !showIntegrationsMenu;
+    if (showIntegrationsMenu) {
+      integrationFilter = '';
+    }
+  }
+
+  function handleGlobalClick(e) {
+    if (showIntegrationsMenu &&
+        integrationsMenuEl &&
+        !integrationsMenuEl.contains(e.target) &&
+        integrationsBtnEl &&
+        !integrationsBtnEl.contains(e.target)) {
+      showIntegrationsMenu = false;
+    }
+  }
+
   $: filteredSkills = skillQuery
     ? $skills.filter(skill =>
         skill.name.toLowerCase().includes(skillQuery.toLowerCase()) ||
@@ -39,13 +79,18 @@
     skillHighlightIdx = filteredSkills.length - 1;
   }
 
-  const ACCEPTED_TYPES = ['image/png','image/jpeg','image/gif','image/webp','application/pdf','text/plain','text/csv','text/markdown','text/html','application/json'].join(',');
+  const ACCEPTED_TYPES = ['image/png','image/jpeg','image/gif','image/webp','application/pdf','text/plain','text/csv','text/markdown','text/html','application/json','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.openxmlformats-officedocument.presentationml.presentation'].join(',');
   const IMAGE_TYPES = new Set(['image/png','image/jpeg','image/gif','image/webp']);
   const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
   onMount(() => {
     refreshCoworkHistory();
     refreshSkills();
+    window.addEventListener('click', handleGlobalClick);
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('click', handleGlobalClick);
   });
 
   // ─── Welcome input ───
@@ -207,6 +252,8 @@
     if (ext === 'md' || ext === 'markdown') return 'text/markdown';
     if (ext === 'html' || ext === 'htm') return 'text/html';
     if (ext === 'json') return 'application/json';
+    if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if (ext === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
     return 'text/plain';
   }
 
@@ -288,6 +335,52 @@
             </div>
           {/if}
 
+          {#if showIntegrationsMenu}
+            <!-- svelte-ignore a11y-click-events-have-key-events -->
+            <!-- svelte-ignore a11y-no-static-element-interactions -->
+            <div class="integrations-menu" bind:this={integrationsMenuEl} on:click|stopPropagation>
+              <div class="integrations-header">
+                <div class="integrations-title-wrap">
+                  <svg class="integrations-header-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                  </svg>
+                  <span>Tools</span>
+                </div>
+              </div>
+
+              <div class="integrations-list">
+                {#if filteredIntegrations.length === 0}
+                  <div class="integrations-empty">No matching integrations</div>
+                {:else}
+                  {#each filteredIntegrations as item (item.id)}
+                    <div class="integration-item">
+                      <div class="integration-info">
+                        <span class="integration-icon {item.iconClass}">
+                          {@html item.iconSvg}
+                        </span>
+                        <span class="integration-name">{item.name}</span>
+                      </div>
+                      <div class="integration-actions">
+                        <label class="toggle-switch">
+                          <input
+                            type="checkbox"
+                            checked={item.id === 'parse-document' ? $coworkParseDocuments : false}
+                            on:change={(e) => {
+                              if (item.id === 'parse-document') {
+                                $coworkParseDocuments = e.target.checked;
+                              }
+                            }}
+                          />
+                          <span class="toggle-slider"></span>
+                        </label>
+                      </div>
+                    </div>
+                  {/each}
+                {/if}
+              </div>
+            </div>
+          {/if}
+
           {#if agentFiles.length > 0}
             <div class="file-preview-row">
               {#each agentFiles as file, i}
@@ -356,17 +449,16 @@
               </button>
               <span class="input-divider"></span>
               <button
-                class="btn-toggle-parse"
-                class:active={$coworkParseDocuments}
-                on:click={() => $coworkParseDocuments = !$coworkParseDocuments}
-                title={$coworkParseDocuments ? "Extract and send document text" : "Send native document file directly"}
+                bind:this={integrationsBtnEl}
+                class="btn-integrations-toggle"
+                class:active={showIntegrationsMenu}
+                on:click|stopPropagation={toggleIntegrationsMenu}
+                disabled={$coworkLoading}
+                title="Tools"
+                type="button"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/>
-                  <path d="M14 2v6h6"/>
-                  {#if !$coworkParseDocuments}
-                    <line x1="4" y1="4" x2="20" y2="20" stroke="currentColor" stroke-width="2" />
-                  {/if}
+                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
                 </svg>
               </button>
             </div>
@@ -522,25 +614,265 @@
     flex-shrink: 0;
   }
 
-  .btn-toggle-parse {
+  .btn-integrations-toggle {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 32px;
     height: 32px;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 50%;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .btn-integrations-toggle:hover {
+    background: var(--accent, #007aff);
+    color: #ffffff;
+    border-color: var(--accent, #007aff);
+    transform: translateY(-1px) scale(1.08);
+    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+  }
+  .btn-integrations-toggle.active {
+    background: var(--accent, #007aff);
+    color: #ffffff;
+    border-color: var(--accent, #007aff);
+    transform: scale(0.95);
+    box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
+  }
+
+  /* Integrations Menu Popover */
+  .integrations-menu {
+    position: absolute;
+    left: 10px;
+    bottom: calc(100% + 8px);
+    width: 320px;
+    background: rgba(24, 24, 27, 0.88);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+    padding: 14px;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    animation: integrationsMenuFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @keyframes integrationsMenuFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .integrations-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 2px;
+  }
+
+  .integrations-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary, #ffffff);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+  }
+
+  .integrations-header-icon {
+    color: #10b981;
+  }
+
+  .btn-add-integration {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
     border: none;
-    border-radius: 8px;
     color: var(--text-muted);
     cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    transition: all 0.12s ease;
+  }
+
+  .btn-add-integration:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  /* Integrations Search */
+  .integrations-search-wrap {
+    position: relative;
+  }
+
+  .integrations-search-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 7px 10px;
+    color: var(--text-primary, #ffffff);
+    font-family: inherit;
+    font-size: 13px;
     transition: all 0.15s ease;
   }
-  .btn-toggle-parse:hover {
-    color: var(--text-secondary);
-    background: var(--bg-hover);
+
+  .integrations-search-input:focus {
+    outline: none;
+    border-color: rgba(59, 130, 246, 0.4);
+    background: rgba(0, 0, 0, 0.2);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
   }
-  .btn-toggle-parse.active {
+
+  .integrations-search-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.8;
+  }
+
+  /* Integrations List */
+  .integrations-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+
+  .integrations-empty {
+    padding: 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12.5px;
+  }
+
+  .integration-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-radius: 8px;
+    transition: background 0.12s ease;
+  }
+
+  .integration-item:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .integration-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .integration-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: rgba(59, 130, 246, 0.12);
     color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .integration-icon.doc-icon {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10b981;
+  }
+
+  .integration-name {
+    font-family: var(--font-mono, monospace);
+    font-size: 13px;
+    color: var(--text-secondary, #e5e7eb);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .integration-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn-integration-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    transition: all 0.12s ease;
+  }
+
+  .btn-integration-more:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  /* iOS Style Premium Toggle Switch */
+  .toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+
+  .toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.15);
+    transition: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    border-radius: 34px;
+  }
+
+  .toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 2px;
+    bottom: 2px;
+    background-color: white;
+    transition: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+
+  .toggle-switch input:checked + .toggle-slider {
+    background-color: var(--accent, #3b82f6);
+  }
+
+  .toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(16px);
   }
 
   .btn-attach {
