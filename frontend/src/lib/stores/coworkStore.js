@@ -8,6 +8,7 @@
 import { writable, get } from 'svelte/store';
 import { formatToolLabel, formatToolName } from '../utils/formatters.js';
 import { Backend, Events } from '../wails.js';
+import { refreshSkills } from './pluginsStore.js';
 
 // ─── Cowork state stores ───
 export const coworkPhase = writable('welcome');        // 'welcome' | 'workspace'
@@ -619,6 +620,12 @@ function getDisabledTools() {
 }
 
 export async function startCoworkTask(text, files = [], selectedSkillName = '') {
+  try {
+    await refreshSkills();
+  } catch (e) {
+    console.error('Failed to refresh skills before starting task:', e);
+  }
+
   if ((!text?.trim() && files.length === 0 && !selectedSkillName) || get(coworkLoading)) return;
 
   const newId = await requireBackendMethod('NewCoworkSession')();
@@ -669,6 +676,12 @@ export async function startCoworkTask(text, files = [], selectedSkillName = '') 
 }
 
 export async function sendCoworkFollowUp(text, files = [], selectedSkillName = '') {
+  try {
+    await refreshSkills();
+  } catch (e) {
+    console.error('Failed to refresh skills before follow-up:', e);
+  }
+
   if ((!text?.trim() && files.length === 0 && !selectedSkillName) || get(coworkLoading)) return;
 
   coworkMessages.update(msgs => [
@@ -736,9 +749,21 @@ export function newCoworkTask() {
   coworkLoading.set(false);
   coworkIsStreaming.set(false);
   activeCoworkTaskId.set(null);
+
+  try {
+    refreshSkills();
+  } catch (e) {
+    console.error('Failed to refresh skills for new task:', e);
+  }
 }
 
 export async function selectCoworkTask(sessionId) {
+  try {
+    await refreshSkills();
+  } catch (e) {
+    console.error('Failed to refresh skills before selecting task:', e);
+  }
+
   if (sessionId === get(activeCoworkTaskId) && get(coworkPhase) === 'workspace') return;
 
   saveCurrentCoworkToBackground();

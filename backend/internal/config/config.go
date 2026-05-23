@@ -106,7 +106,8 @@ func Bootstrap() (string, error) {
 			ProviderLabel:    "LM Studio",
 			BaseURL:          "http://localhost:1234/v1",
 			APIKey:           "lm-studio",
-			Model:            "",
+			Model:            "gemma-4-E2B-it-Q4_K_M.gguf",
+			LlamaDownloadURL: "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf?download=true",
 			LlamaPort:        8080,
 			LlamaContextSize: 4096,
 			HotkeyEnabled:    false,
@@ -195,6 +196,12 @@ func Load(base string) (*Config, error) {
 
 	if cfg.ProviderType == "" {
 		cfg.ProviderType = "local-openai"
+	}
+	if cfg.Model == "" {
+		cfg.Model = "gemma-4-E2B-it-Q4_K_M.gguf"
+	}
+	if cfg.LlamaDownloadURL == "" {
+		cfg.LlamaDownloadURL = "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf?download=true"
 	}
 	if cfg.LlamaPort == 0 {
 		cfg.LlamaPort = 8080
