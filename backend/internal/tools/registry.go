@@ -79,5 +79,6 @@ func RegisterStandardTools(r *Registry, baseDir string) {
 	r.Register(NewDeleteMemoryTool(memoryDir))
 
 	r.Register(NewTodoWriteTool())
+	r.Register(NewUseSkillTool(baseDir))
 }
 
