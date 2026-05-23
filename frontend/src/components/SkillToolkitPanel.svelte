@@ -27,6 +27,16 @@
     coworkPromptLoading,
     loadCoworkPrompt,
     saveCoworkPrompt,
+    memoryFiles,
+    activeMemoryName,
+    activeMemoryDetail,
+    memoryDetailLoading,
+    refreshMemoryFiles,
+    selectMemoryFile,
+    addMemoryFile,
+    saveMemoryFile,
+    deleteMemoryFile,
+    clearMemorySelection,
   } from '../lib/stores/pluginsStore.js';
 
   const dispatch = createEventDispatcher();
@@ -67,6 +77,8 @@
       await handleSwitchSection('cowork_prompt');
     } else if ($activeSection === 'snippets') {
       await handleSwitchSection('snippets');
+    } else if ($activeSection === 'memory') {
+      await handleSwitchSection('memory');
     } else {
       await handleSwitchSection('skills');
     }
@@ -78,13 +90,24 @@
             i.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             (i.description || '').toLowerCase().includes(searchQuery.toLowerCase()))
         : $skills)
-    : (searchQuery
-        ? $snippets.filter(i =>
-            i.trigger.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            i.expansion.toLowerCase().includes(searchQuery.toLowerCase()))
-        : $snippets);
+    : ($activeSection === 'snippets'
+        ? (searchQuery
+            ? $snippets.filter(i =>
+                i.trigger.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                i.expansion.toLowerCase().includes(searchQuery.toLowerCase()))
+            : $snippets)
+        : ($activeSection === 'memory'
+            ? (searchQuery
+                ? $memoryFiles.filter(i =>
+                    i.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                : $memoryFiles)
+            : []));
 
-  $: detail = ($activeSection === 'skills' || $activeSection === 'snippets') ? $activeItemDetail : null;
+  $: detail = ($activeSection === 'skills' || $activeSection === 'snippets')
+    ? $activeItemDetail
+    : ($activeSection === 'memory' ? $activeMemoryDetail : null);
+
+  $: isLoading = $activeSection === 'memory' ? $memoryDetailLoading : $detailLoading;
 
   // Sync editPromptBody when prompts update in store
   $: if ($masterPrompt !== undefined && !promptSaving && $activeSection === 'prompt') {
@@ -104,6 +127,8 @@
       await refreshSkills();
     } else if (section === 'snippets') {
       await refreshSnippets();
+    } else if (section === 'memory') {
+      await refreshMemoryFiles();
     } else if (section === 'prompt') {
       await loadMasterPrompt();
       editPromptBody = $masterPrompt || '';
@@ -146,11 +171,14 @@
       selectSkill(id);
     } else if ($activeSection === 'snippets') {
       selectSnippet(id);
+    } else if ($activeSection === 'memory') {
+      selectMemoryFile(id);
     }
   }
 
   function handleStartAdd() {
     clearPluginSelection();
+    clearMemorySelection();
     addError = '';
     adding = true;
     editing = false;
@@ -162,6 +190,9 @@
     } else if ($activeSection === 'snippets') {
       addSnippetTrigger = '';
       addSnippetExpansion = '';
+    } else if ($activeSection === 'memory') {
+      addName = '';
+      addBody = '# Memory\n\nDescribe the facts or info to remember.\n';
     }
   }
 
@@ -209,6 +240,21 @@
       } finally {
         addSaving = false;
       }
+    } else if ($activeSection === 'memory') {
+      if (!addName.trim()) {
+        addError = 'Name is required.';
+        addSaving = false;
+        return;
+      }
+      try {
+        const result = await addMemoryFile(addName, addBody);
+        adding = false;
+        if (result?.name) handleSelectItem(result.name);
+      } catch (e) {
+        addError = e?.message || 'Failed to create memory.';
+      } finally {
+        addSaving = false;
+      }
     }
   }
 
@@ -225,6 +271,9 @@
     } else if ($activeSection === 'snippets') {
       editSnippetTrigger = detail.trigger || '';
       editSnippetExpansion = detail.expansion || '';
+    } else if ($activeSection === 'memory') {
+      editName = detail.name || '';
+      editBody = detail.body || '';
     }
   }
 
@@ -270,6 +319,15 @@
       } finally {
         saving = false;
       }
+    } else if ($activeSection === 'memory') {
+      try {
+        await saveMemoryFile($activeMemoryName, editBody);
+        editing = false;
+      } catch (e) {
+        editError = e?.message || 'Failed to save memory.';
+      } finally {
+        saving = false;
+      }
     }
   }
 
@@ -280,6 +338,8 @@
       await deleteSkill(id);
     } else if ($activeSection === 'snippets') {
       await deleteSnippet(id);
+    } else if ($activeSection === 'memory') {
+      await deleteMemoryFile(id);
     }
   }
 </script>
@@ -325,48 +385,67 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
         Master Prompt
       </button>
+      <button class="section-btn" class:active={$activeSection === 'memory'} on:click={() => handleSwitchSection('memory')}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+          <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path>
+        </svg>
+        Memory
+        {#if $memoryFiles.length > 0}<span class="section-count">{$memoryFiles.length}</span>{/if}
+      </button>
     </div>
 
-    {#if $activeSection === 'skills' || $activeSection === 'snippets'}
+    {#if $activeSection === 'skills' || $activeSection === 'snippets' || $activeSection === 'memory'}
       <div class="item-list">
         <div class="item-list-header">
-          <span class="item-list-title">{$activeSection === 'skills' ? 'Skills' : 'Snippets'}</span>
-          <button class="btn-add-item" on:click={handleStartAdd} title={$activeSection === 'skills' ? 'Add skill' : 'Add snippet'}>
+          <span class="item-list-title">
+            {#if $activeSection === 'skills'}
+              Skills
+            {:else if $activeSection === 'snippets'}
+              Snippets
+            {:else}
+              Memory
+            {/if}
+          </span>
+          <button class="btn-add-item" on:click={handleStartAdd} title={$activeSection === 'skills' ? 'Add skill' : ($activeSection === 'snippets' ? 'Add snippet' : 'Add memory')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
           </button>
         </div>
         <div class="item-search">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input type="text" placeholder={$activeSection === 'skills' ? 'Search skills...' : 'Search triggers...'} bind:value={searchQuery} />
+          <input type="text" placeholder={$activeSection === 'skills' ? 'Search skills...' : ($activeSection === 'snippets' ? 'Search triggers...' : 'Search memory...')} bind:value={searchQuery} />
         </div>
         <div class="item-entries">
           {#if filteredItems.length === 0}
             <div class="empty-items">
-              <p>No {$activeSection === 'skills' ? 'skills' : 'snippets'} yet</p>
+              <p>No {$activeSection === 'skills' ? 'skills' : ($activeSection === 'snippets' ? 'snippets' : 'memories')} yet</p>
               <span>Click + to add one.</span>
             </div>
           {:else}
-            {#each filteredItems as item (item.id)}
+            {#each filteredItems as item (item.id || item.name)}
               <button
                 class="item-entry"
-                class:active={item.id === $activeItemId && !adding}
-                on:click={() => handleSelectItem(item.id)}
-                on:mouseenter={() => hoveredItemId = item.id}
+                class:active={(item.id === $activeItemId || item.name === $activeMemoryName) && !adding}
+                on:click={() => handleSelectItem(item.id || item.name)}
+                on:mouseenter={() => hoveredItemId = item.id || item.name}
                 on:mouseleave={() => hoveredItemId = null}
               >
                 <span class="item-entry-name">
                   {#if $activeSection === 'skills'}
                     {item.name}
-                  {:else}
+                  {:else if $activeSection === 'snippets'}
                     <code style="background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono); margin-right: 4px;">{item.trigger}</code>
                     <span style="opacity: 0.5; font-size: 11px;">&rarr; {item.expansion}</span>
+                  {:else}
+                    {item.name}
                   {/if}
                 </span>
                 <button
                   class="item-delete-btn"
-                  class:visible={hoveredItemId === item.id}
-                  on:click|stopPropagation={() => handleDelete(item.id)}
-                  title={$activeSection === 'skills' ? 'Delete skill' : 'Delete snippet'}
+                  class:visible={hoveredItemId === (item.id || item.name)}
+                  on:click|stopPropagation={() => handleDelete(item.id || item.name)}
+                  title={$activeSection === 'skills' ? 'Delete skill' : ($activeSection === 'snippets' ? 'Delete snippet' : 'Delete memory')}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
                 </button>
@@ -454,6 +533,28 @@
                 <button class="btn-save" on:click={handleSaveAdd} disabled={addSaving || !addName.trim()}>{addSaving ? 'Saving...' : 'Create'}</button>
               </div>
             </div>
+          {:else if $activeSection === 'memory'}
+            <div class="detail-header">
+              <div class="detail-header-top">
+                <h2 class="detail-title">New Memory</h2>
+              </div>
+            </div>
+            <div class="edit-form">
+              <div class="edit-field">
+                <label for="memory-add-name">Name</label>
+                <input id="memory-add-name" type="text" bind:value={addName} placeholder="e.g. user_preferences" disabled={addSaving} />
+                <span class="field-hint">No spaces. Use hyphens or underscores. Stored as markdown.</span>
+              </div>
+              <div class="edit-field edit-field-body">
+                <label for="memory-add-body">Content (Markdown)</label>
+                <textarea id="memory-add-body" bind:value={addBody} placeholder="# Memory Content..." disabled={addSaving}></textarea>
+              </div>
+              {#if addError}<div class="edit-error">{addError}</div>{/if}
+              <div class="edit-actions">
+                <button class="btn-cancel" on:click={handleCancelAdd}>Cancel</button>
+                <button class="btn-save" on:click={handleSaveAdd} disabled={addSaving || !addName.trim()}>{addSaving ? 'Saving...' : 'Create'}</button>
+              </div>
+            </div>
           {:else}
             <div class="detail-header">
               <div class="detail-header-top">
@@ -477,17 +578,25 @@
               </div>
             </div>
           {/if}
-        {:else if $detailLoading}
+        {:else if isLoading}
           <div class="detail-loading"><div class="spinner"></div></div>
         {:else if detail}
           <div class="detail-header">
             <div class="detail-header-top">
-              <h2 class="detail-title">{$activeSection === 'skills' ? detail.name : `Snippet: ${detail.trigger}`}</h2>
+              <h2 class="detail-title">
+                {#if $activeSection === 'skills'}
+                  {detail.name}
+                {:else if $activeSection === 'memory'}
+                  {detail.name}
+                {:else}
+                  Snippet: {detail.trigger}
+                {/if}
+              </h2>
               {#if !editing}<button class="btn-edit" on:click={handleStartEdit}>Edit</button>{/if}
             </div>
             {#if !editing}
               <div class="detail-meta">
-                <span class="meta-item"><span class="meta-label">Created</span><span class="meta-value">{formatDate(detail.createdAt)}</span></span>
+                <span class="meta-item"><span class="meta-label">Created</span><span class="meta-value">{formatDate(detail.createdAt || detail.updatedAt)}</span></span>
               </div>
               {#if $activeSection === 'skills' && detail.description}
                 <p class="detail-description">{detail.description}</p>
@@ -517,6 +626,23 @@
                   <button class="btn-save" on:click={handleSaveEdit} disabled={saving || !editName.trim()}>{saving ? 'Saving...' : 'Save'}</button>
                 </div>
               </div>
+            {:else if $activeSection === 'memory'}
+              <div class="edit-form">
+                <div class="edit-field">
+                  <label for="memory-edit-name">Name</label>
+                  <input id="memory-edit-name" type="text" bind:value={editName} disabled />
+                  <span class="field-hint">Memory name cannot be changed once created.</span>
+                </div>
+                <div class="edit-field edit-field-body">
+                  <label for="memory-edit-body">Content (Markdown)</label>
+                  <textarea id="memory-edit-body" bind:value={editBody} disabled={saving}></textarea>
+                </div>
+                {#if editError}<div class="edit-error">{editError}</div>{/if}
+                <div class="edit-actions">
+                  <button class="btn-cancel" on:click={handleCancelEdit}>Cancel</button>
+                  <button class="btn-save" on:click={handleSaveEdit} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+                </div>
+              </div>
             {:else}
               <div class="edit-form">
                 <div class="edit-field">
@@ -536,7 +662,7 @@
               </div>
             {/if}
           {:else}
-            {#if $activeSection === 'skills'}
+            {#if $activeSection === 'skills' || $activeSection === 'memory'}
               <div class="detail-body"><pre class="detail-body-content">{detail.body || '(empty)'}</pre></div>
             {:else}
               <div class="detail-body" style="display: flex; flex-direction: column; gap: 14px;">
@@ -557,9 +683,17 @@
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.22"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
               <p>Select a skill to view details</p>
               <span>or click + to create a new one</span>
-            {:else}
+            {:else if $activeSection === 'snippets'}
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.22"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m18-6H8m12 4H8m-2-8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
               <p>Select a snippet to view details</p>
+              <span>or click + to create a new one</span>
+            {:else if $activeSection === 'memory'}
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.22">
+                <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path>
+              </svg>
+              <p>Select a memory to view details</p>
               <span>or click + to create a new one</span>
             {/if}
           </div>

@@ -604,6 +604,7 @@
         <textarea
           class="transcript-textarea"
           bind:value={liveText}
+          on:blur={saveTypedText}
           placeholder="Click the microphone to start speaking, or start typing here..."
         ></textarea>
       {/if}
@@ -611,56 +612,39 @@
 
     <!-- Bottom actions -->
     <footer class="bottom-bar">
-      <div class="bottom-actions">
+      <div class="bottom-left">
         <button class="action-btn" on:click={clearText} disabled={viewing ? !viewingText : !liveText} title="Clear transcript">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-          Clear
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
         </button>
         <button class="action-btn" on:click={() => copyText(viewing ? viewingText : liveText)} disabled={viewing ? !viewingText.trim() : !liveText.trim()} title="Copy to clipboard">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-          Copy
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
         </button>
-        {#if isRecording}
-          <button class="action-btn" on:click={stopRecording} title="Stop recording and save">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
-            Save
-          </button>
-        {:else if viewing}
-          <button class="action-btn" on:click={saveViewingEdits} disabled={viewingText === originalViewingText} title="Save changes">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
-            Save
-          </button>
-        {:else}
-          <button class="action-btn" on:click={saveTypedText} disabled={!liveText.trim()} title="Save typed transcript">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
-            Save
-          </button>
-        {/if}
       </div>
 
+      <div class="bottom-center">
+        <!-- Big microphone button -->
+        <button
+          class="mic-btn"
+          class:recording={isRecording}
+          on:click={() => isRecording ? stopRecording() : startRecording()}
+          title={isRecording ? "Stop recording" : "Start recording"}
+        >
+          {#if isRecording}
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+          {:else}
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          {/if}
+        </button>
+      </div>
 
-      <!-- Big microphone button -->
-      <button
-        class="mic-btn"
-        class:recording={isRecording}
-        on:click={() => isRecording ? stopRecording() : startRecording()}
-        title={isRecording ? "Stop recording" : "Start recording"}
-      >
+      <div class="bottom-right">
         {#if isRecording}
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-        {:else}
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-        {/if}
-      </button>
-
-      <div class="status-text">
-        {#if isRecording}
-          <span class="status-recording">
-            <span class="rec-dot"></span>
-            Recording · {formatTime(elapsedSec)}
-          </span>
-        {:else}
-          Ready
+          <div class="status-text">
+            <span class="status-recording">
+              <span class="rec-dot"></span>
+              Recording · {formatTime(elapsedSec)}
+            </span>
+          </div>
         {/if}
       </div>
     </footer>
@@ -924,8 +908,13 @@
     color: var(--text-muted); cursor: pointer;
     transition: all 0.15s ease;
     opacity: 0;
+    pointer-events: none;
+    z-index: 10;
   }
-  .transcript-item:hover .transcript-delete { opacity: 1; }
+  .transcript-item:hover .transcript-delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
   .transcript-delete:hover { color: #f87171; background: rgba(248,113,113,0.1); }
 
   .sidebar-empty {
@@ -1168,34 +1157,56 @@
 
   /* ─── Bottom bar ─── */
   .bottom-bar {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    gap: 16px;
+    width: 100%;
     flex-shrink: 0;
   }
-  .bottom-actions {
+  .bottom-left {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+  .bottom-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .bottom-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: flex-end;
   }
   .action-btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    background: transparent;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: rgba(255, 255, 255, 0.03);
     border: 1px solid var(--border-subtle);
     color: var(--text-secondary);
-    padding: 7px 14px;
-    border-radius: var(--radius-full);
-    font-size: 12px;
-    font-weight: 500;
-    transition: all 0.12s;
+    border-radius: 50%;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    padding: 0;
   }
   .action-btn:hover:not(:disabled) {
     color: var(--text-primary);
-    border-color: var(--border);
+    border-color: var(--accent);
     background: var(--bg-hover);
+    transform: translateY(-1px);
   }
-  .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .action-btn:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  .action-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
 
   /* Mic button */
   .mic-btn {
@@ -1208,7 +1219,6 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto;
     box-shadow: 0 4px 16px rgba(45, 212, 191, 0.25);
     transition: all 0.2s ease;
   }
