@@ -163,12 +163,13 @@ func (a *App) runCoworkStream(sessionID string, content json.RawMessage, workDir
 	systemPrompt := a.loadCoworkSystemPrompt()
 
 	deps := agent.Deps{
-		SessionMgr:    sessMgr,
-		LLMClient:     a.llm,
-		ToolRegistry:  toolReg,
-		WorkDir:       workDir,
-		BaseDir:       sessionDir,
-		DisabledTools: disabledTools,
+		SessionMgr:          sessMgr,
+		LLMClient:           a.llm,
+		ToolRegistry:        toolReg,
+		WorkDir:             workDir,
+		BaseDir:             sessionDir,
+		DisabledTools:       disabledTools,
+		DisableSystemPrompt: a.cfg != nil && a.cfg.DisableSystemPrompt,
 	}
 
 	result, err := agent.RunTurnStreamWithContent(ctx, sessionID, systemPrompt, content, deps, emit)

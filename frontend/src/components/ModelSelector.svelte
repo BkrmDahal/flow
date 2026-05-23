@@ -197,6 +197,19 @@
     }
   }
 
+  async function togglePromptSetting() {
+    if (!settings) return;
+    try {
+      const current = await Backend.GetSettings();
+      current.disableSystemPrompt = !current.disableSystemPrompt;
+      await Backend.SaveSettings(current);
+      settings = current;
+      window.dispatchEvent(new CustomEvent('flow:settings-saved'));
+    } catch (err) {
+      console.error('Failed to toggle prompt setting:', err);
+    }
+  }
+
   // Reactive options filtering
   $: filteredFetchedModels = searchQuery.trim()
     ? fetchedModels.filter(m => m.id.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -293,6 +306,23 @@
       </div>
 
       <div class="dropdown-divider"></div>
+
+      <div class="toggle-option-item">
+        <div class="option-meta">
+          <span class="option-label">System Prompt</span>
+          <span class="option-desc">Send guidelines in chat</span>
+        </div>
+        <button
+          class="toggle-switch compact-toggle"
+          class:toggle-active={!settings.disableSystemPrompt}
+          on:click|stopPropagation={togglePromptSetting}
+          type="button"
+          role="switch"
+          aria-checked={!settings.disableSystemPrompt}
+        >
+          <span class="toggle-knob"></span>
+        </button>
+      </div>
 
       <!-- Footer More Models Link -->
       <button class="more-models-btn" class:active-more={showSubMenu} on:click|stopPropagation={() => showSubMenu = !showSubMenu} type="button">
@@ -721,5 +751,58 @@
   }
   .settings-link:hover {
     color: var(--text-secondary, #d4d4d8);
+  }
+
+  /* Toggle Option Row in Dropdown */
+  .toggle-option-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    margin: 0 4px;
+    border-radius: 8px;
+    background: none;
+    color: var(--text-secondary, #d4d4d8);
+    transition: background 0.15s ease;
+  }
+
+  .toggle-option-item:hover {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  /* Compact Toggle Switch */
+  .compact-toggle {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    padding: 0;
+    flex-shrink: 0;
+    outline: none;
+  }
+
+  .compact-toggle.toggle-active {
+    background: var(--accent, #10b981);
+    border-color: var(--accent, #10b981);
+  }
+
+  .toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-muted, #71717a);
+    transition: all 0.2s ease;
+  }
+
+  .compact-toggle.toggle-active .toggle-knob {
+    left: 18px;
+    background: white;
   }
 </style>

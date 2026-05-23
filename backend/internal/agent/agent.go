@@ -170,8 +170,9 @@ type Deps struct {
 	WorkDir       string   // per-session working directory
 	BaseDir       string   // ~/.flow/
 	ChatMode      bool     // true for chat sessions (concise), false for agent tasks (detailed)
-	CommandBody   string   // optional plugin command context
-	DisabledTools []string // tool names that are toggled off (e.g. "web_search", "fetch_url")
+	CommandBody         string   // optional plugin command context
+	DisabledTools       []string // tool names that are toggled off (e.g. "web_search", "fetch_url")
+	DisableSystemPrompt bool     // completely suppress sending any system prompt in ChatMode
 }
 
 // StreamEvent is emitted during a streaming turn.
@@ -219,7 +220,11 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 	}
 
 	// Build system prompt using the structured builder.
-	systemPrompt = buildFullSystemPrompt(systemPrompt, deps)
+	if deps.DisableSystemPrompt && deps.ChatMode {
+		systemPrompt = ""
+	} else {
+		systemPrompt = buildFullSystemPrompt(systemPrompt, deps)
+	}
 
 	// Wire up todo_write callback for real-time progress updates.
 	ctx = tools.WithTodoCallback(ctx, func(items []tools.TodoItem) {
