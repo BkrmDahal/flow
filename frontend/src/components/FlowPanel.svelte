@@ -217,17 +217,7 @@
     return s.length > 60 ? s.slice(0, 60) + '…' : s
   }
 
-  // M6: Cmd+Shift+R keyboard shortcut toggles recording.
-  function handleKeydown(e) {
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'r') {
-      e.preventDefault()
-      if (isRecording) {
-        stopRecording()
-      } else {
-        startRecording()
-      }
-    }
-  }
+
 
   onMount(() => {
     refreshList()
@@ -254,7 +244,6 @@
         total: payload?.total ?? 0,
       }
     })
-    window.addEventListener('keydown', handleKeydown)
   })
 
   onDestroy(() => {
@@ -262,7 +251,6 @@
     Events.off('flow:error')
     Events.off('flow:hotkey:toggle')
     Events.off('flow:model:download:progress')
-    window.removeEventListener('keydown', handleKeydown)
     window.removeEventListener('flow:settings-saved', onSettingsSaved)
     stopTimer()
   })

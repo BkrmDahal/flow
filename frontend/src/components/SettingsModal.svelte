@@ -912,8 +912,8 @@
                   <span class="shortcut-desc">Hold to record, release to transcribe &amp; paste</span>
                 </div>
                 <div class="hotkey-shortcut-row">
-                  <kbd class="kbd">⌘ Shift R</kbd>
-                  <span class="shortcut-desc">Toggle recording in Flow window</span>
+                  <kbd class="kbd">Double-tap {getModifierLabel(hotkeyModifier)}</kbd>
+                  <span class="shortcut-desc">Fix grammar of selected text</span>
                 </div>
               </div>
             {/if}
