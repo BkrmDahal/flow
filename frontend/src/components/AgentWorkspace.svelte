@@ -397,6 +397,13 @@
         <!-- Messages -->
         {#each messages as message, msgIdx}
           {#if message.role === 'user'}
+            {#if msgIdx > 0}
+              <div class="chat-divider">
+                <span class="divider-line"></span>
+                <span class="divider-dot"></span>
+                <span class="divider-line"></span>
+              </div>
+            {/if}
             <div class="user-pill">
               {#if message.selectedSkill}
                 <div class="user-pill-skill-chip">
@@ -1502,5 +1509,30 @@
   }
   .btn-toggle-parse.active {
     color: var(--accent);
+  }
+
+  /* Chat Separation / Divider */
+  .chat-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin: 28px 0 20px;
+    width: 100%;
+  }
+
+  .divider-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border) 20%, var(--border) 80%, transparent);
+    opacity: 0.45;
+  }
+
+  .divider-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    opacity: 0.35;
   }
 </style>
