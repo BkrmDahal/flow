@@ -52,7 +52,6 @@ type ChatFile struct {
 // coworkDefaultSystemPrompt is bootstrapped to ~/.flow/cowork_prompt.md on first run.
 const coworkDefaultSystemPrompt = `You are Cowork, a helpful coding assistant.
 You have tools for planning work, reading and writing files, running shell commands, managing memory, and loading skills.
-Use todo_write to create a visible plan before multi-step work, then update that plan as you complete each step.
 Keep responses concise. When creating files, use relative paths.`
 
 // coworkSystemPromptSuffix is appended after the user-editable prompt.
@@ -60,9 +59,12 @@ const coworkSystemPromptSuffix = `
 
 ## Cowork Tooling
 
-You have access to the full standard tool set, including todo_write. For any
-task with more than one step, call todo_write before other tools so the side
-panel can show the plan, then update it as the work progresses.`
+You have access to the full standard tool set, including todo_write.
+
+### Planning Rules
+- Only create a plan (via todo_write) when the task requires multiple distinct steps. For simple, single-step tasks, skip planning and act directly.
+- Each plan item must be a concise description of WHAT to do, not HOW. Write steps as plain-language goals (e.g. "Add error handling to the upload function"), never as code snippets or shell commands to run.
+- Update the plan as you progress, marking items in_progress or completed.`
 
 // --- Wails-bound Agent Methods ---
 
