@@ -53,6 +53,15 @@ case "${1:-}" in
 
         echo "==> Creating DMG installer..."
 
+        # 1. Proactively clean up any stale mounts of the same app volume to avoid conflict or "Resource temporarily unavailable"
+        echo "Cleaning up any existing DMG mounts..."
+        hdiutil info | grep -E "/Volumes/${APP_NAME}( [0-9]+)?" | awk '{print $1}' | while read -r dev; do
+            if [ -n "$dev" ]; then
+                echo "Detaching stale mount: $dev"
+                hdiutil detach "$dev" -force 2>/dev/null || true
+            fi
+        done
+
         rm -f "${PWD}"/build/*.dmg
         rm -rf "${DMG_DIR}"
         mkdir -p "${DMG_DIR}"
@@ -73,8 +82,9 @@ case "${1:-}" in
             -size "${DMG_SIZE_KB}k" \
             "${TMP_DMG}"
 
+        # 2. Extract full mount path preserving spaces (using sed instead of awk to avoid truncating at spaces)
         MOUNT_DIR=$(hdiutil attach -readwrite -noverify "${TMP_DMG}" | \
-            grep -E '^\S+\s+Apple_HFS' | awk '{print $3}')
+            grep -E '^\S+\s+Apple_HFS' | sed 's/.*Apple_HFS[[:space:]]*//')
 
         if [ -z "${MOUNT_DIR}" ]; then
             echo "Error: Failed to mount DMG"
@@ -105,7 +115,24 @@ end tell
 EOF
 
         sync
-        hdiutil detach "${MOUNT_DIR}" -quiet
+        
+        # 3. Detach DMG with a retry loop to give Finder and system services time to release resources
+        echo "==> Detaching DMG mount..."
+        DETACH_SUCCESS=false
+        for i in {1..5}; do
+            if hdiutil detach "${MOUNT_DIR}" -quiet 2>/dev/null; then
+                DETACH_SUCCESS=true
+                break
+            fi
+            echo "Mount is busy, retrying in 2 seconds... ($i/5)"
+            sleep 2
+        done
+
+        if [ "$DETACH_SUCCESS" = false ]; then
+            echo "Warning: Mount is still busy, forcing detach..."
+            hdiutil detach "${MOUNT_DIR}" -force -quiet || true
+            sleep 1
+        fi
 
         hdiutil convert "${TMP_DMG}" \
             -format UDZO \
