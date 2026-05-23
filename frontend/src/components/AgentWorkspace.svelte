@@ -518,11 +518,19 @@
                 <TypingIndicator />
               </div>
             {/if}
+            <!-- Created File Cards inline under the turn that generated them -->
+            {#if message.filesCreated && message.filesCreated.length > 0}
+              <div class="file-cards" style="margin-top: 10px; margin-bottom: 10px;">
+                {#each message.filesCreated as file}
+                  <AgentFileCard {file} on:openFile={handleOpenFile} on:openFolder={handleRevealFile} />
+                {/each}
+              </div>
+            {/if}
           {/if}
         {/each}
 
-        <!-- Created File Cards (shown when not streaming) -->
-        {#if createdFiles.length > 0}
+        <!-- Created File Cards (shown at bottom only as fallback if not present inline in messages) -->
+        {#if createdFiles.length > 0 && !messages.some(m => m.filesCreated && m.filesCreated.length > 0)}
           <div class="file-cards">
             {#each createdFiles as file}
               <AgentFileCard {file} on:openFile={handleOpenFile} on:openFolder={handleRevealFile} />

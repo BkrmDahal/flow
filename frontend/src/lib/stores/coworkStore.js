@@ -263,8 +263,12 @@ function handleStreamEvent(data) {
             if (files.find(f => f.path === data.path)) return files;
             return [...files, { name: fName, path: data.path }];
           });
+          msg.filesCreated = [
+            ...(msg.filesCreated || []),
+            { name: fName, path: data.path }
+          ];
         }
-        return msgs;
+        break;
 
       case 'done':
         msg.role = 'assistant';
@@ -400,6 +404,11 @@ function handleBgCoworkStreamEvent(sessionId, data) {
         if (!state.createdFiles.find(f => f.path === data.path)) {
           state.createdFiles = [...state.createdFiles, { name: fName, path: data.path }];
         }
+        msg.filesCreated = [
+          ...(msg.filesCreated || []),
+          { name: fName, path: data.path }
+        ];
+        state.messages[idx] = msg;
       }
       return;
 
