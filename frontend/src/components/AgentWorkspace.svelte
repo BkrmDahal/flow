@@ -54,6 +54,27 @@
       iconClass: 'doc-icon',
       iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 2v6h6"/></svg>`,
       description: 'Extract and send document text',
+    },
+    {
+      id: 'web-search',
+      name: 'web-search',
+      iconClass: 'web-icon',
+      iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+      description: 'Search & Retrieve web resources',
+    },
+    {
+      id: 'clipboard-sync',
+      name: 'clipboard-sync',
+      iconClass: 'clip-icon',
+      iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>`,
+      description: 'Read & write system clipboard',
+    },
+    {
+      id: 'screencapture',
+      name: 'screencapture',
+      iconClass: 'screen-icon',
+      iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
+      description: 'Take screenshots for visual context',
     }
   ];
 
@@ -2022,6 +2043,21 @@
   .integration-icon.doc-icon {
     background: rgba(16, 185, 129, 0.12);
     color: #10b981;
+  }
+
+  .integration-icon.web-icon {
+    background: rgba(59, 130, 246, 0.12);
+    color: #3b82f6;
+  }
+
+  .integration-icon.clip-icon {
+    background: rgba(245, 158, 11, 0.12);
+    color: #f59e0b;
+  }
+
+  .integration-icon.screen-icon {
+    background: rgba(139, 92, 246, 0.12);
+    color: #8b5cf6;
   }
 
   .integration-name {
