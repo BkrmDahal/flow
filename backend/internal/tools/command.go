@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -91,21 +92,40 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 
 	// Enforce Allowed command list from exec-approvals.json
 	if t.baseDir != "" {
-		approvals, err := config.LoadExecApprovals(t.baseDir)
-		if err == nil && approvals != nil && len(approvals.Allowed) > 0 {
-			allowed := false
-			trimmedCmd := strings.TrimSpace(in.Command)
-			parts := strings.Fields(trimmedCmd)
-			if len(parts) > 0 {
-				exe := parts[0]
-				for _, allowedCmd := range approvals.Allowed {
-					if exe == allowedCmd || strings.HasPrefix(trimmedCmd, allowedCmd) {
-						allowed = true
-						break
+		allowed := false
+		trimmedCmd := strings.TrimSpace(in.Command)
+		parts := strings.Fields(trimmedCmd)
+		if len(parts) > 0 {
+			exe := parts[0]
+
+			// Dynamic Python Path Whitelisting
+			cfg, err := config.Load(t.baseDir)
+			if err == nil && cfg != nil && cfg.PythonPath != "" {
+				cleanExe := filepath.Clean(exe)
+				cleanPy := filepath.Clean(cfg.PythonPath)
+				basePy := filepath.Base(cfg.PythonPath)
+				if exe == cfg.PythonPath || cleanExe == cleanPy || exe == basePy || exe == "python" || exe == "python3" {
+					allowed = true
+				}
+			}
+
+			if !allowed {
+				approvals, err := config.LoadExecApprovals(t.baseDir)
+				if err == nil && approvals != nil && len(approvals.Allowed) > 0 {
+					for _, allowedCmd := range approvals.Allowed {
+						if exe == allowedCmd || strings.HasPrefix(trimmedCmd, allowedCmd) {
+							allowed = true
+							break
+						}
 					}
 				}
 			}
-			if !allowed {
+		}
+
+		if !allowed {
+			// Double check if there's any approval list at all
+			approvals, err := config.LoadExecApprovals(t.baseDir)
+			if err == nil && approvals != nil && len(approvals.Allowed) > 0 {
 				return fmt.Sprintf("Error: command %q is not in the allowed commands list. You can allow it in Settings -> General.", in.Command), nil
 			}
 		}
@@ -113,6 +133,13 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 
 	execCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
+
+	actualCommand := in.Command
+	if t.baseDir != "" {
+		if cfg, err := config.Load(t.baseDir); err == nil && cfg != nil && cfg.PythonPath != "" {
+			actualCommand = rewritePythonCommand(in.Command, cfg.PythonPath)
+		}
+	}
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "darwin" {
@@ -214,9 +241,9 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 		}
 
 		// Wrap with sandbox-exec
-		cmd = exec.CommandContext(execCtx, "sandbox-exec", "-p", profile, "sh", "-c", in.Command)
+		cmd = exec.CommandContext(execCtx, "sandbox-exec", "-p", profile, "sh", "-c", actualCommand)
 	} else {
-		cmd = exec.CommandContext(execCtx, "sh", "-c", in.Command)
+		cmd = exec.CommandContext(execCtx, "sh", "-c", actualCommand)
 	}
 
 	if dir := SessionDirFromContext(ctx); dir != "" {
@@ -299,4 +326,20 @@ func AskSandboxApproval(ctx context.Context, path string) bool {
 	case <-ctx.Done():
 		return false
 	}
+}
+
+// rewritePythonCommand dynamically swaps standard "python" or "python3" calls with the user's custom path
+func rewritePythonCommand(cmdStr string, pythonPath string) string {
+	if pythonPath == "" || pythonPath == "python" || pythonPath == "python3" {
+		return cmdStr
+	}
+
+	// Match "python3" or "python" only when they act as command names (preceded by spaces, operators, or start of string)
+	rePy3 := regexp.MustCompile(`(^|[|&;(\s])python3\b`)
+	rePy := regexp.MustCompile(`(^|[|&;(\s])python\b`)
+
+	cmdStr = rePy3.ReplaceAllString(cmdStr, `${1}`+pythonPath)
+	cmdStr = rePy.ReplaceAllString(cmdStr, `${1}`+pythonPath)
+
+	return cmdStr
 }

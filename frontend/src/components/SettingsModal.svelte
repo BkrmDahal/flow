@@ -128,6 +128,7 @@
   let allowedCommands = []
   let blockedCommands = []
   let newAllowedCommand = ''
+  let pythonPath = 'python3'
 
   async function loadApprovals() {
     try {
@@ -242,6 +243,7 @@
       customCloudURL    = s.customCloudURL    || ''
       customCloudKey    = s.customCloudKey    || ''
       if (llamaManagedEnabled) baseUrl = `http://127.0.0.1:${llamaPort}/v1`
+      pythonPath        = s.pythonPath        || 'python3'
       await refreshLlamaStatus()
     } catch (e) {
       console.warn('GetSettings failed:', e)
@@ -449,6 +451,7 @@
         openRouterKey,
         customCloudURL,
         customCloudKey,
+        pythonPath,
       })
       // Save approvals
       await Backend.SaveExecApprovals(allowedCommands, blockedCommands);
@@ -550,6 +553,24 @@
                 on:keydown={(e) => e.key === 'Enter' && (e.preventDefault(), addAllowedCommand())}
               />
               <button type="button" class="secondary" on:click={addAllowedCommand}>Add</button>
+            </div>
+          </section>
+
+          <!-- Divider line to separate Allowed Bash Commands from Python Config -->
+          <div style="height: 1px; background: var(--border-subtle); margin: 20px 0;"></div>
+
+          <section>
+            <label class="row-label" for="pythonPath">Python Executable Path</label>
+            <p class="hint" style="margin-bottom: 8px;">
+              Specify the path to the Python executable Flow should use (e.g. python3, venv/bin/python, or absolute path).
+            </p>
+            <div class="row">
+              <input
+                id="pythonPath"
+                type="text"
+                bind:value={pythonPath}
+                placeholder="e.g., python3, /usr/bin/python3, or venv path"
+              />
             </div>
           </section>
 

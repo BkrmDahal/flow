@@ -63,6 +63,9 @@ type Config struct {
 	// ── Auto-refine transcript ────────────────────────────────────────────────
 	AutoRefineAction       string `json:"auto_refine_action"`        // "off" | "clean" | "summarize" | "bullets" | "custom"
 	AutoRefineCustomPrompt string `json:"auto_refine_custom_prompt"` // custom prompt if action is "custom"
+
+	// ── Python Executable ────────────────────────────────────────────────────
+	PythonPath string `json:"python_path"`
 }
 
 // FlowDir returns the resolved path to ~/.flow/.
@@ -113,6 +116,7 @@ func Bootstrap() (string, error) {
 			SpeechModel:      "base.en",
 			SpeechLanguage:   "en",
 			AutoRefineAction: "off",
+			PythonPath:       "python3",
 			Agents: map[string]AgentConfig{
 				"main": {
 					Name:           "Flow",
@@ -222,6 +226,9 @@ func Load(base string) (*Config, error) {
 	}
 	if cfg.AutoRefineAction == "" {
 		cfg.AutoRefineAction = "off"
+	}
+	if cfg.PythonPath == "" {
+		cfg.PythonPath = "python3"
 	}
 	return &cfg, nil
 }
