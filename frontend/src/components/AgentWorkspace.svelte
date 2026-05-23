@@ -1885,18 +1885,18 @@
     position: absolute;
     left: 10px;
     bottom: calc(100% + 8px);
-    width: 320px;
+    width: 240px;
     background: rgba(24, 24, 27, 0.88);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
-    padding: 10px 12px;
+    padding: 8px 10px;
     z-index: 100;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     animation: integrationsMenuFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
@@ -1921,9 +1921,9 @@
   .integrations-title-wrap {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     color: var(--text-primary, #ffffff);
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 600;
     letter-spacing: -0.2px;
   }
@@ -1999,7 +1999,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 8px;
+    padding: 4px 6px;
     border-radius: 8px;
     transition: background 0.12s ease;
   }
@@ -2011,7 +2011,7 @@
   .integration-info {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
     min-width: 0;
   }
 
@@ -2019,9 +2019,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 6px;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
     background: rgba(59, 130, 246, 0.12);
     color: var(--accent);
     flex-shrink: 0;
@@ -2044,7 +2044,7 @@
 
   .integration-name {
     font-family: var(--font-mono, monospace);
-    font-size: 13px;
+    font-size: 11.5px;
     color: var(--text-secondary, #e5e7eb);
     white-space: nowrap;
     overflow: hidden;
@@ -2079,8 +2079,8 @@
   .toggle-switch {
     position: relative;
     display: inline-block;
-    width: 36px;
-    height: 20px;
+    width: 28px;
+    height: 16px;
     flex-shrink: 0;
   }
 
@@ -2105,8 +2105,8 @@
   .toggle-slider:before {
     position: absolute;
     content: "";
-    height: 16px;
-    width: 16px;
+    height: 12px;
+    width: 12px;
     left: 2px;
     bottom: 2px;
     background-color: white;
@@ -2120,7 +2120,7 @@
   }
 
   .toggle-switch input:checked + .toggle-slider:before {
-    transform: translateX(16px);
+    transform: translateX(12px);
   }
 
   /* Chat Separation / Divider */
