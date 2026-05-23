@@ -148,6 +148,12 @@
   const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
   let activeModel = '';
+  let isLoadingLocalModel = false;
+  let loadingModelName = '';
+
+  $: displayActiveModel = isLoadingLocalModel 
+    ? `Loading ${loadingModelName}...`
+    : activeModel;
 
   async function loadActiveModelForPlan() {
     try {
@@ -188,6 +194,11 @@
     loadTavilyKey();
   }
 
+  function handleLocalLlmLoading(e) {
+    isLoadingLocalModel = e.detail.loading;
+    loadingModelName = e.detail.modelName || '';
+  }
+
   onMount(() => {
     refreshCoworkHistory();
     refreshSkills();
@@ -195,11 +206,13 @@
     loadTavilyKey();
     window.addEventListener('click', handleGlobalClick);
     window.addEventListener('flow:settings-saved', handleSettingsSaved);
+    window.addEventListener('flow:local-llm-loading', handleLocalLlmLoading);
   });
 
   onDestroy(() => {
     window.removeEventListener('click', handleGlobalClick);
     window.removeEventListener('flow:settings-saved', handleSettingsSaved);
+    window.removeEventListener('flow:local-llm-loading', handleLocalLlmLoading);
   });
 
   // ─── Welcome input ───
@@ -650,7 +663,7 @@
         createdFiles={$coworkCreatedFiles}
         contextTools={$coworkContextTools}
         skillsUsed={$coworkSkillsUsed}
-        {activeModel}
+        activeModel={displayActiveModel}
         bind:parseDocuments={$coworkParseDocuments}
         on:openFile={handleOpenFile}
         on:openFolder={handleOpenFolder}

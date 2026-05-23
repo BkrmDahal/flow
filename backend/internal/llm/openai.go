@@ -211,10 +211,29 @@ func (c *OpenAIClient) convertUserMessage(msg session.Message) []oaiMessage {
 				})
 			}
 		case "document":
-			parts = append(parts, oaiContentPart{
-				Type: "text",
-				Text: "[PDF document attached — content not directly available in this format]",
-			})
+			source, _ := block["source"].(map[string]interface{})
+			if source != nil {
+				mediaType, _ := source["media_type"].(string)
+				data, _ := source["data"].(string)
+				if c.supportsMediaType(mediaType) {
+					parts = append(parts, oaiContentPart{
+						Type: "image_url",
+						ImageURL: &oaiImageURL{
+							URL: fmt.Sprintf("data:%s;base64,%s", mediaType, data),
+						},
+					})
+				} else {
+					parts = append(parts, oaiContentPart{
+						Type: "text",
+						Text: fmt.Sprintf("[%s document attached — content not directly available in this format]", friendlyDocName(mediaType)),
+					})
+				}
+			} else {
+				parts = append(parts, oaiContentPart{
+					Type: "text",
+					Text: "[Document attached — content not directly available in this format]",
+				})
+			}
 		}
 	}
 
@@ -224,6 +243,47 @@ func (c *OpenAIClient) convertUserMessage(msg session.Message) []oaiMessage {
 
 	return []oaiMessage{{Role: "user", Content: string(msg.Content)}}
 }
+
+func (c *OpenAIClient) supportsMediaType(mediaType string) bool {
+	modelLower := strings.ToLower(c.Model)
+
+	// Gemini models (or via Gemini provider) support PDFs, audio, video
+	isGemini := strings.Contains(modelLower, "gemini") || c.ProviderLabel == "Gemini"
+
+	if isGemini {
+		// Gemini supports PDF, audio, video natively in its OpenAI-compatible endpoint
+		if mediaType == "application/pdf" {
+			return true
+		}
+		if strings.HasPrefix(mediaType, "audio/") {
+			return true
+		}
+		if strings.HasPrefix(mediaType, "video/") {
+			return true
+		}
+	}
+
+	// OpenAI specific audio models
+	if strings.Contains(modelLower, "gpt-4o-audio") && strings.HasPrefix(mediaType, "audio/") {
+		return true
+	}
+
+	return false
+}
+
+func friendlyDocName(mediaType string) string {
+	if mediaType == "application/pdf" {
+		return "PDF"
+	}
+	if strings.HasPrefix(mediaType, "audio/") {
+		return "Audio"
+	}
+	if strings.HasPrefix(mediaType, "video/") {
+		return "Video"
+	}
+	return "Document"
+}
+
 
 
 func (c *OpenAIClient) convertAssistantMessage(msg session.Message) []oaiMessage {

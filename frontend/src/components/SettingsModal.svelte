@@ -320,6 +320,10 @@
     llamaError = ''
     llamaMessage = 'Starting llama.cpp...'
     try {
+      const modelName = llamaModelPath.split('/').pop() || 'Local Model'
+      window.dispatchEvent(new CustomEvent('flow:local-llm-loading', {
+        detail: { loading: true, modelName }
+      }))
       const result = await Backend.StartLlamaServer(llamaModelPath, Number(llamaPort) || 8080, Number(llamaContextSize) || 4096)
       llamaStatus = result?.status || llamaStatus
       availableModels = result?.models ?? []
@@ -338,6 +342,9 @@
       await refreshLlamaStatus()
     } finally {
       llamaBusy = false
+      window.dispatchEvent(new CustomEvent('flow:local-llm-loading', {
+        detail: { loading: false }
+      }))
     }
   }
 

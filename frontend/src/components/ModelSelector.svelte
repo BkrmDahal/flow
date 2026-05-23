@@ -7,6 +7,8 @@
   let settings = null;
   let isOpen = false;
   let activeModel = '';
+  let isLoadingLocalModel = false;
+  let loadingModelName = '';
   let dropdownEl;
   let triggerBtnEl;
 
@@ -21,9 +23,16 @@
     window.addEventListener('click', handleOutsideClick);
     window.addEventListener('flow:settings-saved', loadSettings);
 
+    const handleLocalLlmLoading = (e) => {
+      isLoadingLocalModel = e.detail.loading;
+      loadingModelName = e.detail.modelName || '';
+    };
+    window.addEventListener('flow:local-llm-loading', handleLocalLlmLoading);
+
     return () => {
       window.removeEventListener('click', handleOutsideClick);
       window.removeEventListener('flow:settings-saved', loadSettings);
+      window.removeEventListener('flow:local-llm-loading', handleLocalLlmLoading);
     };
   });
 
@@ -62,6 +71,7 @@
   }
 
   function toggleDropdown() {
+    if (isLoadingLocalModel) return;
     isOpen = !isOpen;
     showSubMenu = false;
     if (isOpen) {
@@ -141,12 +151,19 @@
       activeModel = getActiveModelName(current);
       isOpen = false;
 
+      // Dispatch settings-saved immediately so other components are notified of the switch
+      window.dispatchEvent(new CustomEvent('flow:settings-saved'));
+
       // Handle managed llama.cpp server lifecycle
       if (provider === 'local') {
         if (current.llamaManagedEnabled && current.llamaModelPath) {
           try {
             const status = await Backend.GetLlamaServerStatus();
             if (!status || !status.running) {
+              const modelName = current.llamaModelPath.split('/').pop() || 'Local Model';
+              window.dispatchEvent(new CustomEvent('flow:local-llm-loading', {
+                detail: { loading: true, modelName }
+              }));
               await Backend.StartLlamaServer(
                 current.llamaModelPath,
                 Number(current.llamaPort) || 8080,
@@ -155,6 +172,12 @@
             }
           } catch (serverErr) {
             console.error('Failed to start llama-server on selection:', serverErr);
+          } finally {
+            window.dispatchEvent(new CustomEvent('flow:local-llm-loading', {
+              detail: { loading: false }
+            }));
+            // Dispatch it again post-loading to trigger clean final states
+            window.dispatchEvent(new CustomEvent('flow:settings-saved'));
           }
         }
       } else {
@@ -169,9 +192,6 @@
           }
         }
       }
-      
-      // Notify other components
-      window.dispatchEvent(new CustomEvent('flow:settings-saved'));
     } catch (err) {
       console.error('Failed to switch model:', err);
     }
@@ -188,12 +208,24 @@
     bind:this={triggerBtnEl}
     class="selector-trigger"
     class:active={isOpen}
+    class:loading={isLoadingLocalModel}
     on:click={toggleDropdown}
     type="button"
     title="Change LLM model"
+    disabled={isLoadingLocalModel}
   >
-    <span class="pill-dot"></span>
-    <span class="active-label">{activeModel}</span>
+    {#if isLoadingLocalModel}
+      <span class="spinner mini-spinner"></span>
+    {:else}
+      <span class="pill-dot"></span>
+    {/if}
+    <span class="active-label">
+      {#if isLoadingLocalModel}
+        Loading {loadingModelName}...
+      {:else}
+        {activeModel}
+      {/if}
+    </span>
     <svg class="chevron" class:open={isOpen} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
       <polyline points="6 9 12 15 18 9"></polyline>
     </svg>
@@ -215,6 +247,7 @@
             on:click={() => selectModel('local', settings.model)}
             type="button"
             role="menuitem"
+            disabled={isLoadingLocalModel}
           >
             <div class="option-meta">
               <div class="option-title-row">
@@ -224,9 +257,13 @@
               <span class="option-desc">On-device managed llama.cpp</span>
             </div>
             {#if settings.providerMode === 'local'}
-              <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 5 12"></polyline>
-              </svg>
+              {#if isLoadingLocalModel}
+                <span class="spinner dropdown-spinner"></span>
+              {:else}
+                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 5 12"></polyline>
+                </svg>
+              {/if}
             {/if}
           </button>
 
@@ -614,6 +651,26 @@
     border-top-color: var(--accent, #10b981);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
+    box-sizing: border-box;
+  }
+
+  .mini-spinner {
+    width: 10px;
+    height: 10px;
+    border-width: 1.5px;
+  }
+
+  .dropdown-spinner {
+    width: 14px;
+    height: 14px;
+    border-width: 2px;
+  }
+
+  .selector-trigger.loading {
+    opacity: 0.8;
+    cursor: default;
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 255, 255, 0.04);
   }
 
   @keyframes spin {
