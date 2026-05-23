@@ -235,7 +235,7 @@ func (a *App) StopFlow() (string, error) {
 	}
 
 	log.Printf("[flow] transcription complete: %d chars", len(result.Text))
-	return result.Text, nil
+	return a.ApplySnippets(result.Text), nil
 }
 
 // loadSpeechConfig builds a TranscribeConfig from the app's persisted settings.

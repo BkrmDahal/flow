@@ -2,16 +2,22 @@
   import { onMount, createEventDispatcher } from 'svelte';
   import {
     skills,
+    snippets,
     activeSection,
     activeItemId,
     activeItemDetail,
     detailLoading,
     refreshSkills,
+    refreshSnippets,
     switchSection,
     selectSkill,
+    selectSnippet,
     addSkill,
+    addSnippet,
     updateSkill,
+    updateSnippet,
     deleteSkill,
+    deleteSnippet,
     clearPluginSelection,
     masterPrompt,
     masterPromptLoading,
@@ -42,6 +48,12 @@
   let searchQuery = '';
   let hoveredItemId = null;
 
+  // Snippets Edit/Add State
+  let addSnippetTrigger = '';
+  let addSnippetExpansion = '';
+  let editSnippetTrigger = '';
+  let editSnippetExpansion = '';
+
   // Master Prompt Edit State
   let editPromptBody = '';
   let promptSaving = false;
@@ -53,17 +65,26 @@
       await handleSwitchSection('prompt');
     } else if ($activeSection === 'cowork_prompt') {
       await handleSwitchSection('cowork_prompt');
+    } else if ($activeSection === 'snippets') {
+      await handleSwitchSection('snippets');
     } else {
       await handleSwitchSection('skills');
     }
   });
 
-  $: filteredItems = searchQuery
-    ? $skills.filter(i =>
-        i.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (i.description || '').toLowerCase().includes(searchQuery.toLowerCase()))
-    : $skills;
-  $: detail = $activeSection === 'skills' ? $activeItemDetail : null;
+  $: filteredItems = $activeSection === 'skills'
+    ? (searchQuery
+        ? $skills.filter(i =>
+            i.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (i.description || '').toLowerCase().includes(searchQuery.toLowerCase()))
+        : $skills)
+    : (searchQuery
+        ? $snippets.filter(i =>
+            i.trigger.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            i.expansion.toLowerCase().includes(searchQuery.toLowerCase()))
+        : $snippets);
+
+  $: detail = ($activeSection === 'skills' || $activeSection === 'snippets') ? $activeItemDetail : null;
 
   // Sync editPromptBody when prompts update in store
   $: if ($masterPrompt !== undefined && !promptSaving && $activeSection === 'prompt') {
@@ -81,6 +102,8 @@
     switchSection(section);
     if (section === 'skills') {
       await refreshSkills();
+    } else if (section === 'snippets') {
+      await refreshSnippets();
     } else if (section === 'prompt') {
       await loadMasterPrompt();
       editPromptBody = $masterPrompt || '';
@@ -119,17 +142,27 @@
   function handleSelectItem(id) {
     adding = false;
     editing = false;
-    selectSkill(id);
+    if ($activeSection === 'skills') {
+      selectSkill(id);
+    } else if ($activeSection === 'snippets') {
+      selectSnippet(id);
+    }
   }
 
   function handleStartAdd() {
     clearPluginSelection();
-    addName = '';
-    addDescription = '';
-    addBody = '# New Skill\n\nDescribe when Cowork should use this skill and the instructions it should follow.\n';
     addError = '';
     adding = true;
     editing = false;
+
+    if ($activeSection === 'skills') {
+      addName = '';
+      addDescription = '';
+      addBody = '# New Skill\n\nDescribe when Cowork should use this skill and the instructions it should follow.\n';
+    } else if ($activeSection === 'snippets') {
+      addSnippetTrigger = '';
+      addSnippetExpansion = '';
+    }
   }
 
   function handleCancelAdd() {
@@ -138,31 +171,61 @@
   }
 
   async function handleSaveAdd() {
-    if (!addName.trim()) {
-      addError = 'Name is required.';
-      return;
-    }
-
     addError = '';
     addSaving = true;
-    try {
-      const result = await addSkill(addName, addDescription, addBody);
-      adding = false;
-      if (result?.id) handleSelectItem(result.id);
-    } catch (e) {
-      addError = e?.message || 'Failed to create skill.';
-    } finally {
-      addSaving = false;
+
+    if ($activeSection === 'skills') {
+      if (!addName.trim()) {
+        addError = 'Name is required.';
+        addSaving = false;
+        return;
+      }
+      try {
+        const result = await addSkill(addName, addDescription, addBody);
+        adding = false;
+        if (result?.id) handleSelectItem(result.id);
+      } catch (e) {
+        addError = e?.message || 'Failed to create skill.';
+      } finally {
+        addSaving = false;
+      }
+    } else if ($activeSection === 'snippets') {
+      if (!addSnippetTrigger.trim()) {
+        addError = 'Trigger is required.';
+        addSaving = false;
+        return;
+      }
+      if (!addSnippetExpansion.trim()) {
+        addError = 'Expansion is required.';
+        addSaving = false;
+        return;
+      }
+      try {
+        const result = await addSnippet(addSnippetTrigger, addSnippetExpansion);
+        adding = false;
+        if (result?.id) handleSelectItem(result.id);
+      } catch (e) {
+        addError = e?.message || 'Failed to create snippet.';
+      } finally {
+        addSaving = false;
+      }
     }
   }
 
   function handleStartEdit() {
     if (!detail) return;
-    editName = detail.name || '';
-    editDescription = detail.description || '';
-    editBody = detail.body || '';
+    addError = '';
     editError = '';
     editing = true;
+
+    if ($activeSection === 'skills') {
+      editName = detail.name || '';
+      editDescription = detail.description || '';
+      editBody = detail.body || '';
+    } else if ($activeSection === 'snippets') {
+      editSnippetTrigger = detail.trigger || '';
+      editSnippetExpansion = detail.expansion || '';
+    }
   }
 
   function handleCancelEdit() {
@@ -171,27 +234,53 @@
   }
 
   async function handleSaveEdit() {
-    if (!editName.trim()) {
-      editError = 'Name is required.';
-      return;
-    }
-
     editError = '';
     saving = true;
-    try {
-      await updateSkill($activeItemId, editName, editDescription, editBody);
-      editing = false;
-    } catch (e) {
-      editError = e?.message || 'Failed to save skill.';
-    } finally {
-      saving = false;
+
+    if ($activeSection === 'skills') {
+      if (!editName.trim()) {
+        editError = 'Name is required.';
+        saving = false;
+        return;
+      }
+      try {
+        await updateSkill($activeItemId, editName, editDescription, editBody);
+        editing = false;
+      } catch (e) {
+        editError = e?.message || 'Failed to save skill.';
+      } finally {
+        saving = false;
+      }
+    } else if ($activeSection === 'snippets') {
+      if (!editSnippetTrigger.trim()) {
+        editError = 'Trigger is required.';
+        saving = false;
+        return;
+      }
+      if (!editSnippetExpansion.trim()) {
+        editError = 'Expansion is required.';
+        saving = false;
+        return;
+      }
+      try {
+        await updateSnippet($activeItemId, editSnippetTrigger, editSnippetExpansion);
+        editing = false;
+      } catch (e) {
+        editError = e?.message || 'Failed to save snippet.';
+      } finally {
+        saving = false;
+      }
     }
   }
 
   async function handleDelete(id) {
-    await deleteSkill(id);
     adding = false;
     editing = false;
+    if ($activeSection === 'skills') {
+      await deleteSkill(id);
+    } else if ($activeSection === 'snippets') {
+      await deleteSnippet(id);
+    }
   }
 </script>
 
@@ -214,6 +303,11 @@
         Skills
         {#if $skills.length > 0}<span class="section-count">{$skills.length}</span>{/if}
       </button>
+      <button class="section-btn" class:active={$activeSection === 'snippets'} on:click={() => handleSwitchSection('snippets')}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m18-6H8m12 4H8m-2-8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
+        Snippets
+        {#if $snippets.length > 0}<span class="section-count">{$snippets.length}</span>{/if}
+      </button>
       <button class="section-btn" class:active={$activeSection === 'cowork_prompt'} on:click={() => handleSwitchSection('cowork_prompt')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
         Cowork Prompt
@@ -224,21 +318,24 @@
       </button>
     </div>
 
-    {#if $activeSection === 'skills'}
+    {#if $activeSection === 'skills' || $activeSection === 'snippets'}
       <div class="item-list">
         <div class="item-list-header">
-          <span class="item-list-title">Skills</span>
-          <button class="btn-add-item" on:click={handleStartAdd} title="Add skill">
+          <span class="item-list-title">{$activeSection === 'skills' ? 'Skills' : 'Snippets'}</span>
+          <button class="btn-add-item" on:click={handleStartAdd} title={$activeSection === 'skills' ? 'Add skill' : 'Add snippet'}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
           </button>
         </div>
         <div class="item-search">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input type="text" placeholder="Search skills..." bind:value={searchQuery} />
+          <input type="text" placeholder={$activeSection === 'skills' ? 'Search skills...' : 'Search triggers...'} bind:value={searchQuery} />
         </div>
         <div class="item-entries">
           {#if filteredItems.length === 0}
-            <div class="empty-items"><p>No skills yet</p><span>Click + to add one.</span></div>
+            <div class="empty-items">
+              <p>No {$activeSection === 'skills' ? 'skills' : 'snippets'} yet</p>
+              <span>Click + to add one.</span>
+            </div>
           {:else}
             {#each filteredItems as item (item.id)}
               <button
@@ -248,12 +345,19 @@
                 on:mouseenter={() => hoveredItemId = item.id}
                 on:mouseleave={() => hoveredItemId = null}
               >
-                <span class="item-entry-name">{item.name}</span>
+                <span class="item-entry-name">
+                  {#if $activeSection === 'skills'}
+                    {item.name}
+                  {:else}
+                    <code style="background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono); margin-right: 4px;">{item.trigger}</code>
+                    <span style="opacity: 0.5; font-size: 11px;">&rarr; {item.expansion}</span>
+                  {/if}
+                </span>
                 <button
                   class="item-delete-btn"
                   class:visible={hoveredItemId === item.id}
                   on:click|stopPropagation={() => handleDelete(item.id)}
-                  title="Delete skill"
+                  title={$activeSection === 'skills' ? 'Delete skill' : 'Delete snippet'}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
                 </button>
@@ -315,75 +419,132 @@
         {/if}
       {:else}
         {#if adding}
-          <div class="detail-header"><h2 class="detail-title">New Skill</h2></div>
-          <div class="edit-form">
-            <div class="edit-field">
-              <label for="skill-add-name">Name</label>
-              <input id="skill-add-name" type="text" bind:value={addName} placeholder="e.g. code-review" disabled={addSaving} />
-              <span class="field-hint">No spaces. Use hyphens or underscores.</span>
+          {#if $activeSection === 'skills'}
+            <div class="detail-header"><h2 class="detail-title">New Skill</h2></div>
+            <div class="edit-form">
+              <div class="edit-field">
+                <label for="skill-add-name">Name</label>
+                <input id="skill-add-name" type="text" bind:value={addName} placeholder="e.g. code-review" disabled={addSaving} />
+                <span class="field-hint">No spaces. Use hyphens or underscores.</span>
+              </div>
+              <div class="edit-field">
+                <label for="skill-add-desc">Description</label>
+                <input id="skill-add-desc" type="text" bind:value={addDescription} placeholder="When Cowork should use this skill..." disabled={addSaving} />
+              </div>
+              <div class="edit-field edit-field-body">
+                <label for="skill-add-body">Content (Markdown)</label>
+                <textarea id="skill-add-body" bind:value={addBody} placeholder="# Instructions..." disabled={addSaving}></textarea>
+              </div>
+              {#if addError}<div class="edit-error">{addError}</div>{/if}
+              <div class="edit-actions">
+                <button class="btn-cancel" on:click={handleCancelAdd}>Cancel</button>
+                <button class="btn-save" on:click={handleSaveAdd} disabled={addSaving || !addName.trim()}>{addSaving ? 'Saving...' : 'Create'}</button>
+              </div>
             </div>
-            <div class="edit-field">
-              <label for="skill-add-desc">Description</label>
-              <input id="skill-add-desc" type="text" bind:value={addDescription} placeholder="When Cowork should use this skill..." disabled={addSaving} />
+          {:else}
+            <div class="detail-header"><h2 class="detail-title">New Snippet</h2></div>
+            <div class="edit-form">
+              <div class="edit-field">
+                <label for="snippet-add-trigger">Trigger abbreviation</label>
+                <input id="snippet-add-trigger" type="text" bind:value={addSnippetTrigger} placeholder="e.g. btw" disabled={addSaving} />
+                <span class="field-hint">The text to look for in your transcript (case-insensitive).</span>
+              </div>
+              <div class="edit-field edit-field-body">
+                <label for="snippet-add-expansion">Expanded text replacement</label>
+                <textarea id="snippet-add-expansion" bind:value={addSnippetExpansion} placeholder="e.g. by the way" disabled={addSaving} style="min-height: 120px; flex: initial; height: 120px;"></textarea>
+              </div>
+              {#if addError}<div class="edit-error">{addError}</div>{/if}
+              <div class="edit-actions">
+                <button class="btn-cancel" on:click={handleCancelAdd}>Cancel</button>
+                <button class="btn-save" on:click={handleSaveAdd} disabled={addSaving || !addSnippetTrigger.trim()}>{addSaving ? 'Saving...' : 'Create'}</button>
+              </div>
             </div>
-            <div class="edit-field edit-field-body">
-              <label for="skill-add-body">Content (Markdown)</label>
-              <textarea id="skill-add-body" bind:value={addBody} placeholder="# Instructions..." disabled={addSaving}></textarea>
-            </div>
-            {#if addError}<div class="edit-error">{addError}</div>{/if}
-            <div class="edit-actions">
-              <button class="btn-cancel" on:click={handleCancelAdd}>Cancel</button>
-              <button class="btn-save" on:click={handleSaveAdd} disabled={addSaving || !addName.trim()}>{addSaving ? 'Saving...' : 'Create'}</button>
-            </div>
-          </div>
+          {/if}
         {:else if $detailLoading}
           <div class="detail-loading"><div class="spinner"></div></div>
         {:else if detail}
           <div class="detail-header">
             <div class="detail-header-top">
-              <h2 class="detail-title">{detail.name}</h2>
+              <h2 class="detail-title">{$activeSection === 'skills' ? detail.name : `Snippet: ${detail.trigger}`}</h2>
               {#if !editing}<button class="btn-edit" on:click={handleStartEdit}>Edit</button>{/if}
             </div>
             {#if !editing}
               <div class="detail-meta">
-                <span class="meta-item"><span class="meta-label">Added</span><span class="meta-value">{formatDate(detail.createdAt)}</span></span>
-                {#if detail.updatedAt !== detail.createdAt}
-                  <span class="meta-item"><span class="meta-label">Updated</span><span class="meta-value">{formatDate(detail.updatedAt)}</span></span>
-                {/if}
+                <span class="meta-item"><span class="meta-label">Created</span><span class="meta-value">{formatDate(detail.createdAt)}</span></span>
               </div>
-              {#if detail.description}<p class="detail-description">{detail.description}</p>{/if}
+              {#if $activeSection === 'skills' && detail.description}
+                <p class="detail-description">{detail.description}</p>
+              {/if}
             {/if}
           </div>
 
           {#if editing}
-            <div class="edit-form">
-              <div class="edit-field">
-                <label for="skill-edit-name">Name</label>
-                <input id="skill-edit-name" type="text" bind:value={editName} disabled={saving} />
-                <span class="field-hint">No spaces. Use hyphens or underscores.</span>
+            {#if $activeSection === 'skills'}
+              <div class="edit-form">
+                <div class="edit-field">
+                  <label for="skill-edit-name">Name</label>
+                  <input id="skill-edit-name" type="text" bind:value={editName} disabled={saving} />
+                  <span class="field-hint">No spaces. Use hyphens or underscores.</span>
+                </div>
+                <div class="edit-field">
+                  <label for="skill-edit-desc">Description</label>
+                  <input id="skill-edit-desc" type="text" bind:value={editDescription} disabled={saving} />
+                </div>
+                <div class="edit-field edit-field-body">
+                  <label for="skill-edit-body">Content (Markdown)</label>
+                  <textarea id="skill-edit-body" bind:value={editBody} disabled={saving}></textarea>
+                </div>
+                {#if editError}<div class="edit-error">{editError}</div>{/if}
+                <div class="edit-actions">
+                  <button class="btn-cancel" on:click={handleCancelEdit}>Cancel</button>
+                  <button class="btn-save" on:click={handleSaveEdit} disabled={saving || !editName.trim()}>{saving ? 'Saving...' : 'Save'}</button>
+                </div>
               </div>
-              <div class="edit-field">
-                <label for="skill-edit-desc">Description</label>
-                <input id="skill-edit-desc" type="text" bind:value={editDescription} disabled={saving} />
+            {:else}
+              <div class="edit-form">
+                <div class="edit-field">
+                  <label for="snippet-edit-trigger">Trigger abbreviation</label>
+                  <input id="snippet-edit-trigger" type="text" bind:value={editSnippetTrigger} disabled={saving} />
+                  <span class="field-hint">Trigger shortcut text.</span>
+                </div>
+                <div class="edit-field edit-field-body">
+                  <label for="snippet-edit-expansion">Expanded text replacement</label>
+                  <textarea id="snippet-edit-expansion" bind:value={editSnippetExpansion} disabled={saving} style="min-height: 120px; flex: initial; height: 120px;"></textarea>
+                </div>
+                {#if editError}<div class="edit-error">{editError}</div>{/if}
+                <div class="edit-actions">
+                  <button class="btn-cancel" on:click={handleCancelEdit}>Cancel</button>
+                  <button class="btn-save" on:click={handleSaveEdit} disabled={saving || !editSnippetTrigger.trim()}>{saving ? 'Saving...' : 'Save'}</button>
+                </div>
               </div>
-              <div class="edit-field edit-field-body">
-                <label for="skill-edit-body">Content (Markdown)</label>
-                <textarea id="skill-edit-body" bind:value={editBody} disabled={saving}></textarea>
-              </div>
-              {#if editError}<div class="edit-error">{editError}</div>{/if}
-              <div class="edit-actions">
-                <button class="btn-cancel" on:click={handleCancelEdit}>Cancel</button>
-                <button class="btn-save" on:click={handleSaveEdit} disabled={saving || !editName.trim()}>{saving ? 'Saving...' : 'Save'}</button>
-              </div>
-            </div>
+            {/if}
           {:else}
-            <div class="detail-body"><pre class="detail-body-content">{detail.body || '(empty)'}</pre></div>
+            {#if $activeSection === 'skills'}
+              <div class="detail-body"><pre class="detail-body-content">{detail.body || '(empty)'}</pre></div>
+            {:else}
+              <div class="detail-body" style="display: flex; flex-direction: column; gap: 14px;">
+                <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px;">
+                  <span style="font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Trigger Shortcut</span>
+                  <code style="font-size: 16px; font-family: var(--font-mono); color: var(--accent); font-weight: bold; background: rgba(0,0,0,0.2); padding: 2px 8px; border-radius: 4px;">{detail.trigger}</code>
+                </div>
+                <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; flex: 1; display: flex; flex-direction: column;">
+                  <span style="font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">Expanded Text</span>
+                  <div style="font-size: 13.5px; color: var(--text-secondary); line-height: 1.65; white-space: pre-wrap; font-family: var(--font-sans); flex: 1;">{detail.expansion}</div>
+                </div>
+              </div>
+            {/if}
           {/if}
         {:else}
           <div class="detail-empty">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.22"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-            <p>Select a skill to view details</p>
-            <span>or click + to create a new one</span>
+            {#if $activeSection === 'skills'}
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.22"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+              <p>Select a skill to view details</p>
+              <span>or click + to create a new one</span>
+            {:else}
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.22"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m18-6H8m12 4H8m-2-8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
+              <p>Select a snippet to view details</p>
+              <span>or click + to create a new one</span>
+            {/if}
           </div>
         {/if}
       {/if}

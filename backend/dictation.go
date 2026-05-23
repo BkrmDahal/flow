@@ -76,18 +76,20 @@ func (a *App) setupDictationIfEnabled() {
 		}
 	}
 
-	// Text transformer — automatically refines the transcribed text if enabled.
-	var textTransform speech.TextTransformer
-	if a.llm != nil && a.cfg != nil && a.cfg.AutoRefineAction != "" && a.cfg.AutoRefineAction != "off" {
-		textTransform = func(rawText string) string {
+	// Text transformer — applies snippets trigger-expansion first, then optionally auto-refine
+	textTransform := func(rawText string) string {
+		processed := a.ApplySnippets(rawText)
+
+		if a.llm != nil && a.cfg != nil && a.cfg.AutoRefineAction != "" && a.cfg.AutoRefineAction != "off" {
 			log.Printf("[dictation] auto-refining transcription with action %q...", a.cfg.AutoRefineAction)
-			refined, err := a.RefineTextDirect(rawText, a.cfg.AutoRefineAction, a.cfg.AutoRefineCustomPrompt)
+			refined, err := a.RefineTextDirect(processed, a.cfg.AutoRefineAction, a.cfg.AutoRefineCustomPrompt)
 			if err != nil {
-				log.Printf("[dictation] auto-refine failed: %v — falling back to raw transcription", err)
-				return rawText
+				log.Printf("[dictation] auto-refine failed: %v — falling back to snippet-processed text", err)
+				return processed
 			}
 			return refined
 		}
+		return processed
 	}
 
 	speech.SetupDictation(modifier, cfgLoader, onStatus, onError, textTransform, grammarFixer)
