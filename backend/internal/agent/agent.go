@@ -57,6 +57,22 @@ Skip todo_write for simple requests: answering questions, single-file edits, qui
 When you do use it: call todo_write up front with concrete steps, then update with merge=true as each step completes.
 `
 
+// agentOptionsPromptSuffix instructs the agent to output options inside `<options>` block when asking clarifying questions.
+const agentOptionsPromptSuffix = `
+
+## Clarifying Questions & Options (IMPORTANT)
+When you need clarification, a decision, or to present choices to the user, ALWAYS provide 2-4 explicit, concise option suggestions that the user can choose from.
+Format these options at the very end of your response inside an <options> block, with one option per line prefixed by a bullet (-).
+Example:
+Would you like to keep them in the same folder or move them?
+<options>
+- Keep them in the same folder
+- Move them to ~/Downloads/code_demo/screenshots/
+- Rename them to screenshot_1.png, screenshot_2.png, ...
+</options>
+Keep options extremely short, clear, and action-oriented. Do not include markdown formatting inside option lines.
+`
+
 // Step is one intermediate step recorded during an agent turn.
 type Step struct {
 	Type      string `json:"type"` // "thinking", "tool_call", "tool_result"
@@ -145,6 +161,7 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 		systemPrompt += todoPromptSuffix
 	}
 	systemPrompt += agentCodeFileSuffix
+	systemPrompt += agentOptionsPromptSuffix
 
 	// Wire up todo_write callback for real-time progress updates.
 	ctx = tools.WithTodoCallback(ctx, func(items []tools.TodoItem) {

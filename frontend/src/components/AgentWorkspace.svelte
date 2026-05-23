@@ -528,6 +528,61 @@
     copiedMsgIdx = msgIdx;
     setTimeout(() => { copiedMsgIdx = -1; }, 1500);
   }
+
+  // --- Clarification Options ---
+  let showInlineOther = false;
+  let otherInputValue = '';
+
+  function parseOptions(content) {
+    if (!content) return { cleanContent: '', options: [] };
+    const optionsRegex = /<options>([\s\S]*?)<\/options>/i;
+    const match = content.match(optionsRegex);
+    if (!match) {
+      return { cleanContent: content, options: [] };
+    }
+    const optionsText = match[1];
+    const cleanContent = content.replace(optionsRegex, '').trim();
+    const options = optionsText
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.startsWith('-') || line.startsWith('*'))
+      .map(line => line.replace(/^[-*]\s*/, '').trim())
+      .filter(line => line.length > 0);
+    return { cleanContent, options };
+  }
+
+  function selectOption(opt) {
+    input = opt;
+    tick().then(() => {
+      handleSend();
+      showInlineOther = false;
+      otherInputValue = '';
+    });
+  }
+
+  function submitOtherInput() {
+    const val = otherInputValue.trim();
+    if (!val) return;
+    input = val;
+    tick().then(() => {
+      handleSend();
+      showInlineOther = false;
+      otherInputValue = '';
+    });
+  }
+
+  function handleOtherKeydown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitOtherInput();
+    }
+  }
+
+  // Reset other options state whenever a new stream starts or messages load
+  $: if (isStreaming || messages.length) {
+    showInlineOther = false;
+    otherInputValue = '';
+  }
 </script>
 
 <div class="workspace-layout">
@@ -685,19 +740,52 @@
 
             <!-- Agent Response Text -->
             {#if message.content}
+              {@const parsed = parseOptions(message.content)}
               <!-- svelte-ignore a11y-click-events-have-key-events -->
               <!-- svelte-ignore a11y-no-static-element-interactions -->
               <div class="agent-response" on:click={handleContentClick}>
-                {@html renderMarkdown(message.content)}
+                {@html renderMarkdown(parsed.cleanContent)}
                 {#if message.isStreaming}
                   <LoadingSpinner />
                 {/if}
               </div>
 
+              <!-- Clarification Options -->
+              {#if !message.isStreaming && parsed.options.length > 0 && msgIdx === messages.length - 1 && !loading}
+                <div class="agent-options-container">
+                  {#each parsed.options as opt}
+                    <button class="agent-option-pill" on:click={() => selectOption(opt)}>
+                      {opt}
+                    </button>
+                  {/each}
+
+                  {#if showInlineOther}
+                    <div class="other-input-wrapper">
+                      <input
+                        type="text"
+                        bind:value={otherInputValue}
+                        placeholder="Type custom response..."
+                        on:keydown={handleOtherKeydown}
+                        class="other-input-field"
+                      />
+                      <button class="other-submit-btn" on:click={submitOtherInput} disabled={!otherInputValue.trim()}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                          <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                      </button>
+                    </div>
+                  {:else}
+                    <button class="agent-option-pill other-pill" on:click={() => showInlineOther = true}>
+                      Other...
+                    </button>
+                  {/if}
+                </div>
+              {/if}
+
               <!-- Copy full message button -->
               {#if !message.isStreaming}
                 <div class="message-actions">
-                  <button class="msg-copy-btn" on:click={() => copyMessage(msgIdx, message.content)} title="Copy message">
+                  <button class="msg-copy-btn" on:click={() => copyMessage(msgIdx, parsed.cleanContent)} title="Copy message">
                     {#if copiedMsgIdx === msgIdx}
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M20 6L9 17l-5-5"/>
@@ -2146,5 +2234,114 @@
     border-radius: 50%;
     background: var(--border);
     opacity: 0.35;
+  }
+
+  /* Agent Clarification Options */
+  .agent-options-container {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0 16px 0;
+  }
+
+  .agent-option-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 8px 16px;
+    font-size: 13px;
+    color: var(--accent); /* beautiful warm theme green/teal accent */
+    cursor: pointer;
+    transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    font-weight: 500;
+    line-height: 1.4;
+    text-align: left;
+  }
+
+  .agent-option-pill:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(45, 212, 191, 0.4);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .agent-option-pill:active {
+    transform: translateY(0);
+  }
+
+  .agent-option-pill.other-pill {
+    color: var(--text-secondary);
+    border-style: dashed;
+  }
+
+  .agent-option-pill.other-pill:hover {
+    border-color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  /* Inline Other Input box */
+  .other-input-wrapper {
+    display: inline-flex;
+    align-items: center;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 2px 4px 2px 14px;
+    height: 36px;
+    min-width: 240px;
+    max-width: 100%;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease;
+  }
+
+  .other-input-wrapper:focus-within {
+    border-color: rgba(45, 212, 191, 0.5);
+  }
+
+  .other-input-field {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13px;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+  }
+
+  .other-input-field::placeholder {
+    color: var(--text-muted);
+  }
+
+  .other-submit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #000;
+    cursor: pointer;
+    transition: all 0.12s ease;
+    flex-shrink: 0;
+    margin-left: 6px;
+  }
+
+  .other-submit-btn:hover:not(:disabled) {
+    transform: scale(1.05);
+    background: var(--accent-hover);
+  }
+
+  .other-submit-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
   }
 </style>

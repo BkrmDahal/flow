@@ -64,7 +64,19 @@ You have access to the full standard tool set, including todo_write.
 ### Planning Rules
 - Only create a plan (via todo_write) when the task requires multiple distinct steps. For simple, single-step tasks, skip planning and act directly.
 - Each plan item must be a concise description of WHAT to do, not HOW. Write steps as plain-language goals (e.g. "Add error handling to the upload function"), never as code snippets or shell commands to run.
-- Update the plan as you progress, marking items in_progress or completed.`
+- Update the plan as you progress, marking items in_progress or completed.
+
+## Clarifying Questions & Options (IMPORTANT)
+When you need clarification, a decision, or to present choices to the user, ALWAYS provide 2-4 explicit, concise option suggestions that the user can choose from.
+Format these options at the very end of your response inside an <options> block, with one option per line prefixed by a bullet (-).
+Example:
+Would you like to keep them in the same folder or move them?
+<options>
+- Keep them in the same folder
+- Move them to ~/Downloads/code_demo/screenshots/
+- Rename them to screenshot_1.png, screenshot_2.png, ...
+</options>
+Keep options extremely short, clear, and action-oriented. Do not include markdown formatting inside option lines.`
 
 // --- Wails-bound Agent Methods ---
 
