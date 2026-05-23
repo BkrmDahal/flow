@@ -8,7 +8,7 @@ APP_BUNDLE="build/bin/Flow.app"
 DMG_NAME="Flow-Installer"
 DMG_DIR="build/dmg"
 DMG_OUTPUT="build/${DMG_NAME}.dmg"
-VERSION="0.1.0"
+VERSION="0.5.0"
 
 usage() {
     echo "Usage: ./flow.sh <command>"
@@ -18,6 +18,7 @@ usage() {
     echo "  build        Build production Mac app (Apple Silicon)"
     echo "  universal    Build universal binary (Intel + Apple Silicon)"
     echo "  dmg          Build app and create DMG installer"
+    echo "  sign         Sign, notarize, and staple the app for public distribution"
     echo "  open         Launch the built .app"
     echo "  doctor       Check if your system is ready for Wails development"
     echo "  dequarantine Remove Gatekeeper quarantine flag from built/installed app"
@@ -124,6 +125,9 @@ EOF
         ;;
     dequarantine)
         ./dequarantine.sh "${2:-}"
+        ;;
+    sign|release)
+        ./scripts/sign.sh
         ;;
     *)
         usage
