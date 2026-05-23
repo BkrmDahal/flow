@@ -61,7 +61,7 @@
   }
 
   // ── Tab state ──
-  let activeTab = 'general' // 'general' | 'voice'
+  let activeTab = 'general' // 'general' | 'llm' | 'voice'
 
   const CLOUD_PROVIDERS = [
     { id: 'openai',     label: 'OpenAI',     keyPlaceholder: 'sk-...',     modelPlaceholder: 'gpt-4o-mini' },
@@ -512,13 +512,49 @@
       <!-- Tab bar -->
       <div class="tab-bar">
         <button class="tab-btn" class:tab-active={activeTab === 'general'} on:click={() => activeTab = 'general'} type="button">General</button>
+        <button class="tab-btn" class:tab-active={activeTab === 'llm'}     on:click={() => activeTab = 'llm'}     type="button">LLM Settings</button>
         <button class="tab-btn" class:tab-active={activeTab === 'voice'}   on:click={() => activeTab = 'voice'}   type="button">Voice / STT</button>
       </div>
 
       <div class="modal-body">
 
-        <!-- ── General Tab ── -->
+        <!-- ── General Tab (Allowed Commands Only) ── -->
         {#if activeTab === 'general'}
+          <section>
+            <span class="row-label">Allowed Bash Commands</span>
+            <p class="hint" style="margin-bottom: 10px;">
+              Specify command prefixes that Flow is allowed to run. Enter a command prefix and press Enter or click Add.
+            </p>
+            <div class="allowed-commands-list">
+              {#each allowedCommands as cmd}
+                <span class="command-tag">
+                  <code>{cmd}</code>
+                  <button type="button" class="command-remove-btn" on:click={() => removeAllowedCommand(cmd)} title="Remove command">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                      <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                </span>
+              {/each}
+              {#if allowedCommands.length === 0}
+                <span style="font-size: 12px; color: var(--text-muted);">No commands allowed. Bash access is disabled.</span>
+              {/if}
+            </div>
+            
+            <div class="row" style="margin-top: 10px;">
+              <input
+                type="text"
+                bind:value={newAllowedCommand}
+                placeholder="e.g., git, npm, ls, python"
+                on:keydown={(e) => e.key === 'Enter' && (e.preventDefault(), addAllowedCommand())}
+              />
+              <button type="button" class="secondary" on:click={addAllowedCommand}>Add</button>
+            </div>
+          </section>
+        {/if}
+
+        <!-- ── LLM Settings Tab (Local/Cloud LLM Setup) ── -->
+        {#if activeTab === 'llm'}
           <section>
             <span class="row-label">Provider Mode</span>
             <div class="segmented" role="tablist" aria-label="Provider mode">
@@ -735,45 +771,10 @@
             {/if}
           </section>
           {/if}
-
-          <!-- Divider line to separate Provider from Bash Approvals -->
-          <div style="height: 1px; background: var(--border-subtle); margin: 20px 0;"></div>
-
-          <!-- ── Allowed Bash Commands Section ── -->
-          <section>
-            <span class="row-label">Allowed Bash Commands</span>
-            <p class="hint" style="margin-bottom: 10px;">
-              Specify command prefixes that Flow is allowed to run. Enter a command prefix and press Enter or click Add.
-            </p>
-            <div class="allowed-commands-list">
-              {#each allowedCommands as cmd}
-                <span class="command-tag">
-                  <code>{cmd}</code>
-                  <button type="button" class="command-remove-btn" on:click={() => removeAllowedCommand(cmd)} title="Remove command">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
-                      <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-                    </svg>
-                  </button>
-                </span>
-              {/each}
-              {#if allowedCommands.length === 0}
-                <span style="font-size: 12px; color: var(--text-muted);">No commands allowed. Bash access is disabled.</span>
-              {/if}
-            </div>
-            
-            <div class="row" style="margin-top: 10px;">
-              <input
-                type="text"
-                bind:value={newAllowedCommand}
-                placeholder="e.g., git, npm, ls, python"
-                on:keydown={(e) => e.key === 'Enter' && (e.preventDefault(), addAllowedCommand())}
-              />
-              <button type="button" class="secondary" on:click={addAllowedCommand}>Add</button>
-            </div>
-          </section>
+        {/if}
 
         <!-- ── Voice / STT Tab ── -->
-        {:else if activeTab === 'voice'}
+        {#if activeTab === 'voice'}
           <section>
             <label class="row-label" for="speechProvider">Transcription Provider</label>
             <select id="speechProvider" bind:value={speechProvider}>
