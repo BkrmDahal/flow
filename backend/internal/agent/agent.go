@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -17,18 +18,23 @@ import (
 )
 
 // maxToolIterations prevents infinite loops in the agent turn.
-const maxToolIterations = 50
+const maxToolIterations = 25
+
+// maxWebSearchPerTurn limits how many web_search/fetch_url calls the agent
+// can make in a single turn before we inject a "use your knowledge" nudge.
+const maxWebSearchPerTurn = 3
 
 // minIterationInterval is the minimum delay between consecutive LLM API
 // calls within one turn. This rate-limits prompt-injection attempts that
 // try to burn through API credits via rapid tool-call loops.
 const minIterationInterval = 500 * time.Millisecond
 
-// agentCodeFileSuffix is appended to the system prompt for agent tasks. It
-// points the agent at write_file when the user actually wants code saved, but
-// leaves room for inline code in conversational answers.
-const agentCodeFileSuffix = `
+// ── Prompt Section Constants ──
+// These are composable sections injected by the structured prompt builder.
+// They are NOT appended blindly — the builder selects which sections to
+// include based on ChatMode and other Deps fields.
 
+const sectionCodeOutput = `
 ## Code Output
 
 Use the write_file tool when the user is asking you to **build, save, or modify** something they'll run or keep — scripts, projects, config they want on disk. Pick clear filenames (e.g. "app.py", "index.html").
@@ -36,32 +42,52 @@ Use the write_file tool when the user is asking you to **build, save, or modify*
 For conversational answers, demonstration snippets, examples in an explanation, or short edits the user just wants to read — just include the code inline in your response. Don't materialize a file every time you mention code.
 `
 
-// chatBrevitySuffix keeps replies short for chat mode.
-const chatBrevitySuffix = `
-
+const sectionBrevity = `
 ## Response Style (IMPORTANT)
 
 Keep your responses **short and to the point**. Be concise — no lengthy explanations, preambles, or unnecessary detail. Answer directly. Use bullet points only when listing multiple items.
 `
 
-// todoPromptSuffix instructs the agent to always plan before executing any multi-step task,
-// and to write plans with high-level goal-oriented steps rather than technical tool calls.
-const todoPromptSuffix = `
+const sectionPlanning = `
+## Task Planning (CRITICAL — READ CAREFULLY)
 
-## Task Planning
+For ANY task that requires more than one step, you MUST call todo_write FIRST — before ANY other tool call.
 
-For ANY task that requires more than a single simple action (i.e., any task requiring two or more steps or tools), you MUST use the todo_write tool to create a visible plan BEFORE executing any other tools. 
+### Rules:
+1. **Plan FIRST.** Your very first tool call in any multi-step task MUST be todo_write. Do NOT call web_search, read_file, run_bash, or any other tool before the plan exists.
+2. **Write GOALS, not tool names.** Each plan item describes WHAT you want to achieve in plain language the user can understand. NEVER write a tool name as a plan item.
+3. **Update as you go.** After completing each step, call todo_write with merge=true to mark it completed and the next item in_progress.
 
-### Planning Rules:
-1. **Plan BEFORE executing:** Call todo_write as your very first tool call in the turn. Do not perform any edits, searches, or run commands until the plan is created.
-2. **High-Level Goals Only:** Every plan item must describe a high-level goal or milestone in plain, user-friendly language (e.g., "1. make invoice sample", "2. use python to convert to pdf", "3. check samples"). 
-3. **NO Tool Calls in Plan:** Never write steps as low-level tool calls, technical procedures, or code details (e.g., do NOT write "call write_file to save script", "run run_bash with python"). The user must see what you are trying to achieve, not which API or command you are invoking.
-4. **Progress Tracking:** Update the plan as you progress by calling todo_write with merge=true, marking completed items as completed, and the current active item as in_progress.
+### Examples:
+
+✅ GOOD plan (high-level goals):
+- "Research current NY state tax brackets for married couples"
+- "Calculate federal income tax on $200k"
+- "Calculate NY state tax (excluding city tax)"
+- "Summarize total tax liability"
+
+❌ BAD plan (these are just tool names — NEVER do this):
+- "web search"
+- "fetch url"
+- "run_bash"
+- "read_file"
+- "write_file"
+
+✅ GOOD plan:
+- "Create the invoice template"
+- "Convert invoice to PDF using Python"
+- "Verify the PDF output is correct"
+
+❌ BAD plan:
+- "call write_file to save template"
+- "run python script"
+- "use read_file to check output"
+
+The user sees this plan. They need to understand WHAT you are doing and WHY, not WHICH tool you are calling.
 `
 
-// agentOptionsPromptSuffix instructs the agent to output options inside `<options>` block when asking clarifying questions.
-const agentOptionsPromptSuffix = `
 
+const sectionOptions = `
 ## Clarifying Questions & Options (IMPORTANT)
 Avoid asking too many clarifying questions. Be proactive: make safe, reasonable assumptions whenever possible to keep moving forward. Only ask questions when you are genuinely blocked or need the user to make a key choice.
 When you DO need clarification, a decision, or to present choices to the user, ALWAYS provide 2-4 explicit, concise option suggestions that the user can choose from.
@@ -75,6 +101,41 @@ Would you like to keep them in the same folder or move them?
 </options>
 Keep options extremely short, clear, and action-oriented. Do not include markdown formatting inside option lines.
 `
+
+const sectionSafety = `
+## Safety Guardrails
+
+- NEVER delete files outside the session workspace without explicit user permission.
+- NEVER install global packages without asking.
+- NEVER modify system files (/etc, /System, /Library, /usr).
+- NEVER run commands that require sudo without asking.
+- NEVER expose API keys or credentials in output.
+- NEVER read from ~/.ssh, ~/.aws, ~/.kube, ~/.gnupg, or similar sensitive directories.
+`
+
+// buildToolGuidance returns the tool usage tips section, omitting entries
+// for any tools in the disabled set so the LLM doesn't even know they exist.
+func buildToolGuidance(disabledSet map[string]bool) string {
+	var sb strings.Builder
+	sb.WriteString("\n## Tool Usage Tips\n\n")
+	sb.WriteString("- **Use your knowledge FIRST.** You already know common facts like tax brackets, programming languages, math formulas, geography, history, science, etc. Do NOT search for things you already know. Only search when you genuinely need very recent data, specific URLs, or niche information you are unsure about.\n")
+	sb.WriteString("- **Limit tool calls.** Prefer fewer, targeted tool calls over many speculative ones. If a search returns no results, do NOT keep searching — use your training knowledge instead.\n")
+	sb.WriteString("- **run_bash**: Prefer single-line commands. Chain with && for multi-step. Check exit codes. For Python, prefer 'python3 -c \"...\"' for one-liners. Commands run in a macOS sandbox with restricted write access and are killed after 60s.\n")
+	sb.WriteString("- **write_file**: Use relative paths from the session workspace. Parent directories are created automatically. For edits, read the file first, then write the full updated content back.\n")
+	sb.WriteString("- **read_file**: Always read a file before attempting to overwrite it. Relative paths resolve within the workspace; absolute paths also work for reading external files.\n")
+
+	if !disabledSet["web_search"] && !disabledSet["fetch_url"] {
+		sb.WriteString("- **web_search / fetch_url**: ONLY use when you genuinely need current or niche information you don't already know. For common knowledge (tax rates, formulas, code syntax, etc.), just answer directly from your training data. Maximum 3 searches per task — after that, use your knowledge.\n")
+	}
+	if !disabledSet["capture_screen"] {
+		sb.WriteString("- **capture_screen**: Use when the user asks about what they see on screen.\n")
+	}
+
+	sb.WriteString("- **save_memory / memory_search**: Use to persist and recall important information across sessions.\n")
+	sb.WriteString("- **todo_write**: Use to create and track task plans visible to the user.\n")
+	sb.WriteString("- **use_skill**: Load specialized instructions for specific task types.\n")
+	return sb.String()
+}
 
 // Step is one intermediate step recorded during an agent turn.
 type Step struct {
@@ -92,13 +153,14 @@ type TurnResult struct {
 
 // Deps bundles the dependencies an agent turn needs.
 type Deps struct {
-	SessionMgr   *session.Manager
-	LLMClient    llm.LLMClient
-	ToolRegistry *tools.Registry
-	WorkDir      string // per-session working directory
-	BaseDir      string // ~/.flow/
-	ChatMode     bool   // true for chat sessions (concise), false for agent tasks (detailed)
-	CommandBody  string // optional plugin command context
+	SessionMgr    *session.Manager
+	LLMClient     llm.LLMClient
+	ToolRegistry  *tools.Registry
+	WorkDir       string   // per-session working directory
+	BaseDir       string   // ~/.flow/
+	ChatMode      bool     // true for chat sessions (concise), false for agent tasks (detailed)
+	CommandBody   string   // optional plugin command context
+	DisabledTools []string // tool names that are toggled off (e.g. "web_search", "fetch_url")
 }
 
 // StreamEvent is emitted during a streaming turn.
@@ -145,26 +207,8 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 		ctx = tools.WithSessionDir(ctx, workDir)
 	}
 
-	// Build system prompt if not supplied.
-	if systemPrompt == "" && deps.BaseDir != "" {
-		systemPrompt = buildSystemPrompt(deps)
-	} else if deps.BaseDir != "" {
-		// Inject memory + skill indices even if system prompt is supplied.
-		systemPrompt += buildMemoryIndex(deps.BaseDir)
-		systemPrompt += buildSkillIndex(deps.BaseDir)
-	}
-
-	if deps.CommandBody != "" {
-		systemPrompt += "\n\n## Active Command\n\nThe user invoked a custom command. Follow the instructions below:\n\n" + deps.CommandBody + "\n"
-	}
-
-	if deps.ChatMode {
-		systemPrompt += chatBrevitySuffix
-	} else {
-		systemPrompt += todoPromptSuffix
-	}
-	systemPrompt += agentCodeFileSuffix
-	systemPrompt += agentOptionsPromptSuffix
+	// Build system prompt using the structured builder.
+	systemPrompt = buildFullSystemPrompt(systemPrompt, deps)
 
 	// Wire up todo_write callback for real-time progress updates.
 	ctx = tools.WithTodoCallback(ctx, func(items []tools.TodoItem) {
@@ -204,8 +248,32 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 		return nil, fmt.Errorf("append user msg: %w", err)
 	}
 
-	toolDefs := deps.ToolRegistry.AllDefs()
+	// Filter out disabled tools from definitions sent to the model.
+	allDefs := deps.ToolRegistry.AllDefs()
+	disabledSet := make(map[string]bool, len(deps.DisabledTools))
+	for _, name := range deps.DisabledTools {
+		disabledSet[name] = true
+	}
+	var toolDefs []llm.ToolDef
+	for _, td := range allDefs {
+		if !disabledSet[td.Name] {
+			toolDefs = append(toolDefs, td)
+		}
+	}
+
 	result := &TurnResult{}
+	webSearchCount := 0 // tracks web_search + fetch_url calls for rate limiting
+	turnStart := time.Now()
+	totalToolCalls := 0
+
+	// ── Turn Start Log ──
+	modelName := deps.LLMClient.GetModel()
+	enabledToolNames := make([]string, 0, len(toolDefs))
+	for _, td := range toolDefs {
+		enabledToolNames = append(enabledToolNames, td.Name)
+	}
+	log.Printf("[agent] ── TURN START ── session=%s model=%s prompt_size=%d history_msgs=%d tools=%d(%v) disabled=%v",
+		sessionID, modelName, len(systemPrompt), len(history), len(toolDefs), enabledToolNames, deps.DisabledTools)
 
 	for i := 0; i < maxToolIterations; i++ {
 		// Rate-limit consecutive API calls to prevent credit burn.
@@ -230,11 +298,20 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 		}
 
 		agentCfg := config.AgentConfig{}
+		llmStart := time.Now()
+		log.Printf("[agent] ── LLM CALL ── session=%s iter=%d/%d history_msgs=%d model=%s",
+			sessionID, i+1, maxToolIterations, len(history), modelName)
+
 		resp, err := deps.LLMClient.SendMessagesStream(ctx, systemPrompt, history, toolDefs, agentCfg.EnableThinking, onDelta)
+		llmDuration := time.Since(llmStart)
 		if err != nil {
+			log.Printf("[agent] ── LLM ERROR ── session=%s iter=%d err=%v elapsed=%s",
+				sessionID, i+1, err, llmDuration)
 			emit(StreamEvent{Type: "error", Content: err.Error()})
 			return nil, fmt.Errorf("llm: %w", err)
 		}
+		log.Printf("[agent] ── LLM RESP ── session=%s iter=%d elapsed=%s content_blocks=%d has_tool_use=%v",
+			sessionID, i+1, llmDuration, len(resp.Content), resp.HasToolUse())
 		if len(resp.Content) == 0 {
 			log.Printf("[agent] streaming response was empty for %s; retrying without stream", sessionID)
 			resp, err = deps.LLMClient.SendMessages(ctx, systemPrompt, history, toolDefs, agentCfg.EnableThinking)
@@ -268,11 +345,28 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 
 		if !resp.HasToolUse() {
 			result.FinalText = resp.TextContent()
+			log.Printf("[agent] ── TURN END ── session=%s iterations=%d tool_calls=%d final_len=%d elapsed=%s",
+				sessionID, i+1, totalToolCalls, len(result.FinalText), time.Since(turnStart))
 			return result, nil
 		}
 
 		var toolResults []map[string]interface{}
 		for _, tb := range resp.ToolUseBlocks() {
+			// ── Disabled tools: silently reject without emitting UI events ──
+			if disabledSet[tb.Name] {
+				log.Printf("[agent]   tool BLOCKED (disabled) name=%s", tb.Name)
+				toolResults = append(toolResults, map[string]interface{}{
+					"type":        "tool_result",
+					"tool_use_id": tb.ID,
+					"content":     "This tool is not available. Proceed without it and use your own knowledge.",
+				})
+				continue
+			}
+
+			// Record step and emit event for visible tools only.
+			totalToolCalls++
+			log.Printf("[agent]   tool CALL #%d name=%s input_size=%d",
+				totalToolCalls, tb.Name, len(tb.Input))
 			result.Steps = append(result.Steps, Step{
 				Type:      "tool_call",
 				ToolName:  tb.Name,
@@ -280,12 +374,44 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 			})
 			emit(StreamEvent{Type: "tool_call", ToolName: tb.Name, ToolInput: string(tb.Input)})
 
-			toolOutput, err := deps.ToolRegistry.Execute(ctx, tb.Name, tb.Input)
-			if err != nil {
-				toolOutput = fmt.Sprintf("Tool execution error: %v", err)
+			// ── Web search rate limiting ──
+			if tb.Name == "web_search" || tb.Name == "fetch_url" {
+				webSearchCount++
+				if webSearchCount > maxWebSearchPerTurn {
+					toolOutput := fmt.Sprintf(
+						"LIMIT REACHED: You have already made %d web searches this turn. "+
+							"STOP searching and use your training knowledge to answer instead. "+
+							"You already know common facts like tax rates, formulas, code syntax, etc. "+
+							"Proceed with the information you already have.",
+						webSearchCount)
+					result.Steps = append(result.Steps, Step{
+						Type:     "tool_result",
+						Content:  toolOutput,
+						ToolName: tb.Name,
+					})
+					emit(StreamEvent{Type: "tool_result", ToolName: tb.Name, Content: toolOutput})
+					toolResults = append(toolResults, map[string]interface{}{
+						"type":        "tool_result",
+						"tool_use_id": tb.ID,
+						"content":     toolOutput,
+					})
+					continue
+				}
 			}
 
-			truncated := truncate(toolOutput, 2000)
+			toolStart := time.Now()
+			toolOutput, err := deps.ToolRegistry.Execute(ctx, tb.Name, tb.Input)
+			toolDuration := time.Since(toolStart)
+			if err != nil {
+				log.Printf("[agent]   tool ERROR name=%s err=%v elapsed=%s",
+					tb.Name, err, toolDuration)
+				toolOutput = fmt.Sprintf("Tool execution error: %v", err)
+			} else {
+				log.Printf("[agent]   tool DONE  name=%s output_size=%d elapsed=%s",
+					tb.Name, len(toolOutput), toolDuration)
+			}
+
+			truncated := truncateSmart(toolOutput, 4000)
 			result.Steps = append(result.Steps, Step{
 				Type:     "tool_result",
 				Content:  truncated,
@@ -384,6 +510,55 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 	return result, fmt.Errorf("agent exceeded %d tool iterations", maxToolIterations)
 }
 
+// truncateSmart uses a head+tail pattern so the model sees both the
+// beginning and end of long output, plus a count of omitted lines.
+func truncateSmart(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	totalLines := len(lines)
+
+	// Budget: first 60%, last 40%.
+	headBudget := maxBytes * 6 / 10
+	tailBudget := maxBytes - headBudget - 60 // 60 bytes for the separator
+	if tailBudget < 0 {
+		tailBudget = 0
+	}
+
+	// Build head.
+	var head []string
+	headLen := 0
+	for _, ln := range lines {
+		if headLen+len(ln)+1 > headBudget {
+			break
+		}
+		head = append(head, ln)
+		headLen += len(ln) + 1
+	}
+
+	// Build tail (walk backward).
+	var tail []string
+	tailLen := 0
+	for i := len(lines) - 1; i >= len(head); i-- {
+		if tailLen+len(lines[i])+1 > tailBudget {
+			break
+		}
+		tail = append([]string{lines[i]}, tail...)
+		tailLen += len(lines[i]) + 1
+	}
+
+	omitted := totalLines - len(head) - len(tail)
+	if omitted <= 0 {
+		return s[:maxBytes] + "\n... [truncated]"
+	}
+
+	return strings.Join(head, "\n") +
+		fmt.Sprintf("\n\n... [%d lines omitted] ...\n\n", omitted) +
+		strings.Join(tail, "\n")
+}
+
+// truncate is a simple byte-based fallback (kept for backward compat).
 func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
@@ -401,20 +576,161 @@ func extractWritePath(input json.RawMessage, workDir string) string {
 	return filepath.Join(workDir, filepath.Clean(w.Path))
 }
 
-// buildSystemPrompt loads the master prompt file and injects memory + skill indices.
-func buildSystemPrompt(deps Deps) string {
-	promptPath := ""
+// ── Structured System Prompt Builder ──
+
+// defaultSystemPrompt is the Pi-style default prompt (~50 lines) used when
+// no user-editable prompt file exists.
+const defaultSystemPrompt = `# Cowork — System Prompt
+
+You are Cowork, a powerful AI coding assistant built into the Flow app.
+You help users write code, analyze files, automate tasks, and solve problems.
+You run on macOS and have direct access to the user's filesystem and shell.
+
+## Core Principles
+
+- **Be concise** — answer directly, no preambles or unnecessary detail.
+- **Be proactive** — make safe, reasonable assumptions. Don't over-ask.
+- **Be precise** — use exact paths, exact commands, exact values.
+- **Verify your work** — after writing code, test it if possible (run it, check output).
+- **Read before writing** — always read a file before overwriting it.
+- **Plan multi-step tasks** — use todo_write to create a visible plan before executing.
+
+## Memory
+
+You have persistent memory across sessions. Use save_memory to remember important information,
+memory_search to recall it, list_memories to browse, and delete_memory to remove outdated entries.
+`
+
+// promptFileName is the unified system prompt file.
+const promptFileName = "system_prompt.md"
+
+// legacyPromptFiles are older prompt file locations we migrate from.
+var legacyPromptFiles = []string{
+	"cowork_prompt.md",
+	"workspace/Master_prompt.md",
+}
+
+// buildFullSystemPrompt composes the final system prompt from all sections.
+// If the caller already supplied a systemPrompt (from agentapp.go's
+// loadCoworkSystemPrompt), it's used as the base; otherwise we load from
+// the unified file or fall back to the default.
+func buildFullSystemPrompt(supplied string, deps Deps) string {
+	var sections []string
+
+	// 1. Base prompt: user-supplied > file > default.
+	base := supplied
+	if strings.TrimSpace(base) == "" && deps.BaseDir != "" {
+		base = loadUnifiedPrompt(deps.BaseDir)
+	}
+	if strings.TrimSpace(base) == "" {
+		base = defaultSystemPrompt
+	}
+	sections = append(sections, strings.TrimSpace(base))
+
+	// 2. Environment context (date, OS, cwd, python).
+	if deps.BaseDir != "" || deps.WorkDir != "" {
+		sections = append(sections, buildEnvironmentSection(deps))
+	}
+
+	// 3. Tool guidance (dynamically excludes disabled tools).
+	disabledSet := make(map[string]bool, len(deps.DisabledTools))
+	for _, name := range deps.DisabledTools {
+		disabledSet[name] = true
+	}
+	sections = append(sections, buildToolGuidance(disabledSet))
+
+	// 4. Safety guardrails.
+	sections = append(sections, sectionSafety)
+
+	// 5. Mode-specific sections.
+	if deps.ChatMode {
+		sections = append(sections, sectionBrevity)
+	} else {
+		sections = append(sections, sectionPlanning)
+	}
+	sections = append(sections, sectionCodeOutput)
+	sections = append(sections, sectionOptions)
+
+	// 6. Active command (plugin context).
+	if deps.CommandBody != "" {
+		sections = append(sections, "\n## Active Command\n\nThe user invoked a custom command. Follow the instructions below:\n\n"+deps.CommandBody)
+	}
+
+	// 7. Memory index.
 	if deps.BaseDir != "" {
-		promptPath = filepath.Join(deps.BaseDir, "workspace", "Master_prompt.md")
+		if mem := buildMemoryIndex(deps.BaseDir); mem != "" {
+			sections = append(sections, mem)
+		}
 	}
-	data, err := os.ReadFile(promptPath)
-	if err != nil {
-		return "You are a helpful assistant."
+
+	// 8. Skill index.
+	if deps.BaseDir != "" {
+		if sk := buildSkillIndex(deps.BaseDir); sk != "" {
+			sections = append(sections, sk)
+		}
 	}
-	prompt := string(data)
-	prompt += buildMemoryIndex(deps.BaseDir)
-	prompt += buildSkillIndex(deps.BaseDir)
-	return prompt
+
+	return strings.Join(sections, "\n")
+}
+
+// loadUnifiedPrompt loads the system prompt from the unified file location,
+// migrating from legacy locations if needed.
+func loadUnifiedPrompt(baseDir string) string {
+	unifiedPath := filepath.Join(baseDir, promptFileName)
+
+	// Try the unified file first.
+	if data, err := os.ReadFile(unifiedPath); err == nil {
+		if s := strings.TrimSpace(string(data)); s != "" {
+			return s
+		}
+	}
+
+	// Try legacy locations and migrate.
+	for _, legacy := range legacyPromptFiles {
+		legacyPath := filepath.Join(baseDir, legacy)
+		if data, err := os.ReadFile(legacyPath); err == nil {
+			if s := strings.TrimSpace(string(data)); s != "" {
+				// Migrate: write to unified path.
+				_ = os.WriteFile(unifiedPath, data, 0o644)
+				log.Printf("[agent] migrated prompt from %s to %s", legacy, promptFileName)
+				return s
+			}
+		}
+	}
+
+	// Bootstrap the default.
+	_ = os.WriteFile(unifiedPath, []byte(defaultSystemPrompt), 0o644)
+	return defaultSystemPrompt
+}
+
+// buildEnvironmentSection injects runtime context into the prompt.
+func buildEnvironmentSection(deps Deps) string {
+	now := time.Now()
+	date := now.Format("2006-01-02")
+	timeStr := now.Format("15:04 MST")
+	osInfo := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+
+	workDir := deps.WorkDir
+	if workDir == "" {
+		workDir = "(not set)"
+	}
+
+	// Load Python path from settings.
+	pythonPath := "python3"
+	if deps.BaseDir != "" {
+		if cfg, err := config.Load(deps.BaseDir); err == nil && cfg != nil && cfg.PythonPath != "" {
+			pythonPath = cfg.PythonPath
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString("\n## Environment\n\n")
+	fmt.Fprintf(&b, "- **Date:** %s (%s)\n", date, timeStr)
+	fmt.Fprintf(&b, "- **OS:** macOS (%s)\n", osInfo)
+	fmt.Fprintf(&b, "- **Working Directory:** %s\n", workDir)
+	fmt.Fprintf(&b, "- **Python:** %s\n", pythonPath)
+
+	return b.String()
 }
 
 // buildMemoryIndex scans the memory directory and returns a lightweight index.

@@ -96,10 +96,17 @@ func NewRunBashTool(baseDir string) *RunBashTool { return &RunBashTool{baseDir: 
 func (t *RunBashTool) Name() string { return "run_bash" }
 
 func (t *RunBashTool) Description() string {
-	desc := "Execute a shell command on the local machine via `sh -c`. Returns combined stdout and stderr, truncated to 10KB. Use this for things like ls, grep, running scripts, git, package managers, etc. The command is killed after 60 seconds."
+	desc := `Execute a shell command on macOS via sh -c. Returns combined stdout+stderr, truncated to 10KB. Killed after 60 seconds. Commands run inside a macOS sandbox with restricted write access (writes only allowed to the session workspace, /tmp, and explicitly approved directories).
+
+TIPS:
+- Prefer single-line commands; chain with && for multi-step.
+- Use 'cat', 'head -n', or 'tail -n' for reading files inline.
+- Always check if a binary exists before using it.
+- For Python one-liners, use 'python3 -c "..."'.
+- Destructive commands (rm -rf /, sudo, etc.) are blocked.`
 	if t.baseDir != "" {
 		if cfg, err := config.Load(t.baseDir); err == nil && cfg != nil && cfg.PythonPath != "" && cfg.PythonPath != "python" && cfg.PythonPath != "python3" {
-			desc += fmt.Sprintf(" Standard 'python'/'python3' calls are dynamically rewritten to execute within your custom configured Python environment: %q. If you need to install packages, run packages, or check installed libs, use this environment (e.g. run 'python -m pip install' to install packages into it directly).", cfg.PythonPath)
+			desc += fmt.Sprintf("\n\nPYTHON ENVIRONMENT: Standard 'python'/'python3' calls are dynamically rewritten to use your configured Python: %q. Use 'python -m pip install' to install packages into it.", cfg.PythonPath)
 		}
 	}
 	return desc

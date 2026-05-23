@@ -8,7 +8,7 @@
   import TypingIndicator from './TypingIndicator.svelte';
   import LoadingSpinner from './LoadingSpinner.svelte';
   import { skills, refreshSkills } from '../lib/stores/pluginsStore.js';
-  import { renameCoworkTask, activeCoworkTaskId } from '../lib/stores/coworkStore.js';
+  import { renameCoworkTask, activeCoworkTaskId, coworkWebSearchEnabled, coworkScreenCaptureEnabled } from '../lib/stores/coworkStore.js';
 
   let editingTitle = false;
   let newTitleValue = '';
@@ -945,10 +945,14 @@
                       <label class="toggle-switch">
                         <input
                           type="checkbox"
-                          checked={item.id === 'parse-document' ? parseDocuments : false}
+                          checked={item.id === 'parse-document' ? parseDocuments : item.id === 'web-search' ? $coworkWebSearchEnabled : item.id === 'screencapture' ? $coworkScreenCaptureEnabled : false}
                           on:change={(e) => {
                             if (item.id === 'parse-document') {
                               parseDocuments = e.target.checked;
+                            } else if (item.id === 'web-search') {
+                              $coworkWebSearchEnabled = e.target.checked;
+                            } else if (item.id === 'screencapture') {
+                              $coworkScreenCaptureEnabled = e.target.checked;
                             }
                           }}
                         />

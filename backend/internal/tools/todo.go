@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -30,6 +31,36 @@ func TodoCallbackFromContext(ctx context.Context) TodoCallback {
 	return cb
 }
 
+// blockedTodoContent is a set of tool names and low-effort strings that
+// must not appear as the entire content of a todo item. The agent should
+// write high-level goals, not tool names.
+var blockedTodoContent = map[string]bool{
+	"web search":     true,
+	"web_search":     true,
+	"fetch url":      true,
+	"fetch_url":      true,
+	"read file":      true,
+	"read_file":      true,
+	"write file":     true,
+	"write_file":     true,
+	"run bash":       true,
+	"run_bash":       true,
+	"save memory":    true,
+	"save_memory":    true,
+	"memory search":  true,
+	"memory_search":  true,
+	"list memories":  true,
+	"list_memories":  true,
+	"delete memory":  true,
+	"delete_memory":  true,
+	"capture screen": true,
+	"capture_screen": true,
+	"use skill":      true,
+	"use_skill":      true,
+	"todo write":     true,
+	"todo_write":     true,
+}
+
 // TodoWriteTool allows the agent to create and update a planning checklist.
 type TodoWriteTool struct {
 	mu    sync.Mutex
@@ -43,7 +74,14 @@ func NewTodoWriteTool() *TodoWriteTool {
 func (t *TodoWriteTool) Name() string { return "todo_write" }
 
 func (t *TodoWriteTool) Description() string {
-	return `Create or update a planning checklist. Only use this for tasks that require multiple distinct steps — skip it for simple, single-step tasks. Each item should be a concise, plain-language description of WHAT to do (e.g. "Add validation to the signup form"), NOT code snippets or shell commands. Each item has an id, content (description), and status (pending, in_progress, or completed). You can pass the full list each time (merge=false to replace all) or pass only changed items (merge=true to update by id).`
+	return `Create or update a planning checklist visible to the user. Each item must be a concise, plain-language GOAL describing WHAT you want to achieve — NOT a tool name.
+
+GOOD items: "Research NY tax brackets", "Build the invoice PDF", "Verify output is correct"
+BAD items (REJECTED): "web search", "fetch url", "run_bash", "read_file"
+
+Each item has an id, content (goal description), and status (pending, in_progress, completed).
+Pass merge=false to replace the full list, or merge=true to update specific items by id.
+Skip this tool entirely for simple single-step tasks.`
 }
 
 func (t *TodoWriteTool) Schema() map[string]interface{} {
@@ -52,7 +90,7 @@ func (t *TodoWriteTool) Schema() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"todos": map[string]interface{}{
 				"type":        "array",
-				"description": "Array of todo items. Each item has 'id' (unique string), 'content' (description), and 'status' ('pending', 'in_progress', or 'completed').",
+				"description": "Array of todo items. Each item has 'id' (unique string), 'content' (high-level goal description — NOT a tool name), and 'status' ('pending', 'in_progress', or 'completed').",
 				"items": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -62,7 +100,7 @@ func (t *TodoWriteTool) Schema() map[string]interface{} {
 						},
 						"content": map[string]interface{}{
 							"type":        "string",
-							"description": "Short description of what needs to be done",
+							"description": "High-level goal in plain language (e.g. 'Research tax brackets'). Must NOT be a tool name like 'web search' or 'run_bash'.",
 						},
 						"status": map[string]interface{}{
 							"type":        "string",
@@ -102,6 +140,24 @@ func (t *TodoWriteTool) Execute(ctx context.Context, input json.RawMessage) (str
 		case "pending", "in_progress", "completed":
 		default:
 			return fmt.Sprintf("Error: invalid status %q for item %q — must be pending, in_progress, or completed", item.Status, item.ID), nil
+		}
+
+		// Reject items that are just tool names or very short non-descriptive strings.
+		normalized := strings.ToLower(strings.TrimSpace(item.Content))
+		if blockedTodoContent[normalized] {
+			return fmt.Sprintf(
+				"Error: todo item %q has content %q which is just a tool name. "+
+					"Plan items must be high-level goals in plain language that describe WHAT you want to achieve. "+
+					"Example: instead of 'web search', write 'Research current NY state tax brackets'. "+
+					"Please rewrite your plan with descriptive goals and try again.",
+				item.ID, item.Content), nil
+		}
+		// Also reject items shorter than 5 chars (too terse to be a real goal).
+		if len(normalized) < 5 && item.Status != "completed" {
+			return fmt.Sprintf(
+				"Error: todo item %q has content %q which is too short to be a meaningful goal. "+
+					"Write a clear, descriptive plan step. Example: 'Calculate federal tax on $200k income'.",
+				item.ID, item.Content), nil
 		}
 	}
 
