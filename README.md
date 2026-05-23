@@ -243,6 +243,11 @@ Requires an Apple Developer account and the signing environment variables config
 
 ---
 
+### All at once
+
+```bash
+./flow.sh build && ./flow.sh universal && ./flow.sh dmg && ./flow.sh sign
+```
 ## 🩺 Doctor
 
 Check if your system has all the Wails development dependencies:
