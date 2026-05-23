@@ -91,14 +91,28 @@ case "${1:-}" in
         DMG_SIZE_KB=$(( APP_SIZE_KB + 20480 ))
 
         TMP_DMG="build/${DMG_NAME}-tmp.dmg"
-        hdiutil create \
-            -srcfolder "${DMG_DIR}" \
-            -volname "${APP_NAME}" \
-            -fs HFS+ \
-            -fsargs "-c c=64,a=16,e=16" \
-            -format UDRW \
-            -size "${DMG_SIZE_KB}k" \
-            "${TMP_DMG}"
+        CREATE_SUCCESS=false
+        for i in {1..5}; do
+            if hdiutil create \
+                -srcfolder "${DMG_DIR}" \
+                -volname "${APP_NAME}" \
+                -fs HFS+ \
+                -fsargs "-c c=64,a=16,e=16" \
+                -format UDRW \
+                -size "${DMG_SIZE_KB}k" \
+                "${TMP_DMG}"; then
+                CREATE_SUCCESS=true
+                break
+            fi
+            echo "hdiutil create failed or resource is busy, retrying in 3 seconds... ($i/5)"
+            sleep 3
+        done
+
+        if [ "$CREATE_SUCCESS" = false ]; then
+            echo "Error: Failed to create temporary DMG after 5 attempts."
+            exit 1
+        fi
+
 
         # 2. Extract full mount path preserving spaces (using sed instead of awk to avoid truncating at spaces)
         MOUNT_DIR=$(hdiutil attach -readwrite -noverify "${TMP_DMG}" | \
