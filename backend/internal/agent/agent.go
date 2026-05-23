@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -758,12 +759,26 @@ func buildEnvironmentSection(deps Deps) string {
 		}
 	}
 
+	// Probe for standard tools on the host.
+	commonTools := []string{"git", "pdftotext", "ffmpeg", "sqlite3", "curl", "wget", "npm", "cargo"}
+	var available []string
+	for _, cmd := range commonTools {
+		if _, err := exec.LookPath(cmd); err == nil {
+			available = append(available, cmd)
+		}
+	}
+	availableStr := "(none detected)"
+	if len(available) > 0 {
+		availableStr = strings.Join(available, ", ")
+	}
+
 	var b strings.Builder
 	b.WriteString("\n## Environment\n\n")
 	fmt.Fprintf(&b, "- **Date:** %s (%s)\n", date, timeStr)
 	fmt.Fprintf(&b, "- **OS:** macOS (%s)\n", osInfo)
 	fmt.Fprintf(&b, "- **Working Directory:** %s\n", workDir)
 	fmt.Fprintf(&b, "- **Python:** %s\n", pythonPath)
+	fmt.Fprintf(&b, "- **Available CLI Utilities:** %s\n", availableStr)
 
 	return b.String()
 }
