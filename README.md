@@ -5,7 +5,7 @@
 <h1 align="center">Flow</h1>
 
 <p align="center">
-  <strong>The Ultimate Native AI Copilot & Voice Dictation Workspace for macOS</strong>
+  <strong>The Privacy-First, 100% Local AI Copilot & Voice Dictation Workspace for macOS</strong>
 </p>
 
 <p align="center">
@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  Built with Go + Svelte via Wails, <strong>Flow</strong> is native desktop command center that seamlessly fuses a multi-turn agentic AI chat workspace (<strong>Cowork</strong>) and instantaneous, push-to-talk disfluency-free dictation refinement (<strong>Flow</strong>) directly into your daily macOS workflow. Run it completely locally using Whisper and any local model, or add cloud LLM keys.
+  Built with Go + Svelte via Wails, <strong>Flow</strong> is a native desktop command center that seamlessly fuses a multi-turn agentic AI chat workspace (<strong>Cowork</strong>) and instantaneous, push-to-talk disfluency-free dictation refinement (<strong>Flow</strong>) directly into your daily macOS workflow. Designed with a strict <strong>privacy-first philosophy</strong>, Flow is engineered to run <strong>100% locally on-device</strong> using local voice transcription (Whisper.cpp) and local LLMs (managed llama.cpp, LM Studio, Ollama)—keeping all your voice logs, transcripts, workspace files, and code strictly on your machine.
 </p>
 
 ---
@@ -73,6 +73,13 @@ Pinwheel-based status bar widget showing status (idle, recording, or transcribin
 ---
 
 ## ✨ Features
+
+### 🛡️ Privacy-First & 100% Local Execution
+Flow is designed from the ground up to respect your privacy and secure your data:
+- **Zero Cloud Leakage** — Keep all your voice logs, dictation transcripts, workspace files, and agent logs strictly on your local disk.
+- **On-Device Speech-to-Text** — Bundled native `whisper.cpp` transcription runs fully offline with zero external API calls.
+- **Managed Local LLM Server** — Flow can download, start, stop, and configure a local `llama.cpp` server to run open-source GGUF models directly on your Mac.
+- **Opt-In Cloud Flexibility** — Complete compatibility with cloud providers (Anthropic Claude, OpenAI, Google Gemini, OpenRouter) if and only if you choose to configure their API keys.
 
 ### 🤖 Cowork — AI Agent Workspace
 A full-featured, multi-turn chat workspace powered by LLMs with agentic tool-calling capabilities:
