@@ -3,6 +3,7 @@
   import CoworkWorkspace from './components/CoworkWorkspace.svelte';
   import SettingsModal from './components/SettingsModal.svelte';
   import SkillToolkitPanel from './components/SkillToolkitPanel.svelte';
+  import SandboxApprovalModal from './components/SandboxApprovalModal.svelte';
 
   import { OpenFileInApp } from '../wailsjs/go/backend/App';
 
@@ -64,6 +65,7 @@
   {/if}
 
   <SettingsModal open={settingsOpen} onClose={() => settingsOpen = false} />
+  <SandboxApprovalModal />
 </main>
 
 <style>

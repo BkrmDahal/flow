@@ -122,3 +122,17 @@ func (a *App) OpenLogFile() error {
 func (a *App) GetContext() context.Context {
 	return a.ctx
 }
+
+// SubmitSandboxApproval is called by the Svelte frontend to approve or deny a folder access request
+func (a *App) SubmitSandboxApproval(id string, approved bool) {
+	tools.SandboxApprovalMu.Lock()
+	ch, exists := tools.PendingSandboxApprovals[id]
+	tools.SandboxApprovalMu.Unlock()
+
+	if exists {
+		select {
+		case ch <- approved:
+		default:
+		}
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/user/flow/backend/internal/config"
@@ -19,6 +20,12 @@ import (
 const (
 	commandTimeout = 60 * time.Second
 	maxOutputBytes = 10 * 1024 // 10KB
+)
+
+// PendingSandboxApprovals maps approval IDs to blocked channels waiting for user decision
+var (
+	PendingSandboxApprovals = make(map[string]chan bool)
+	SandboxApprovalMu       sync.Mutex
 )
 
 // hardBlocked is a small hardcoded blocklist of obviously destructive
@@ -172,16 +179,7 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 
 			// If it's not whitelisted, and is a valid external path, prompt the user!
 			if !isAllowed && absDir != "/" && absDir != "." && absDir != ".." {
-				resp, err := wailsRuntime.MessageDialog(ctx, wailsRuntime.MessageDialogOptions{
-					Type:          wailsRuntime.QuestionDialog,
-					Title:         "Sandbox Folder Access Request",
-					Message:       fmt.Sprintf("Flow's terminal tool wants to write/access the following folder:\n\n%s\n\nDo you want to temporarily grant Flow write permissions for this folder?", absDir),
-					Buttons:       []string{"Allow", "Deny"},
-					DefaultButton: "Allow",
-					CancelButton:  "Deny",
-				})
-
-				if err == nil && resp == "Allow" {
+				if AskSandboxApproval(ctx, absDir) {
 					uniquePaths[absDir] = true
 				}
 			}
@@ -268,4 +266,37 @@ func extractPotentialPaths(cmdStr string) []string {
 		}
 	}
 	return paths
+}
+
+// AskSandboxApproval emits an event to the Svelte frontend requesting folder permission,
+// and blocks Go thread execution until the user clicks Allow or Deny (with a 60s timeout).
+func AskSandboxApproval(ctx context.Context, path string) bool {
+	id := fmt.Sprintf("sb_%d", time.Now().UnixNano())
+	ch := make(chan bool, 1)
+
+	SandboxApprovalMu.Lock()
+	PendingSandboxApprovals[id] = ch
+	SandboxApprovalMu.Unlock()
+
+	defer func() {
+		SandboxApprovalMu.Lock()
+		delete(PendingSandboxApprovals, id)
+		SandboxApprovalMu.Unlock()
+	}()
+
+	// Emit event to the frontend
+	wailsRuntime.EventsEmit(ctx, "sandbox:request_approval", map[string]interface{}{
+		"id":   id,
+		"path": path,
+	})
+
+	// Wait for response or timeout
+	select {
+	case approved := <-ch:
+		return approved
+	case <-time.After(60 * time.Second): // 60s timeout
+		return false
+	case <-ctx.Done():
+		return false
+	}
 }
