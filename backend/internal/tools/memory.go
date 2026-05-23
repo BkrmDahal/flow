@@ -53,10 +53,15 @@ func (t *SaveMemoryTool) Execute(_ context.Context, input json.RawMessage) (stri
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", fmt.Errorf("parse input: %w", err)
 	}
+	// Sanitize key to prevent directory traversal (e.g. "../../config").
+	safeKey := filepath.Base(filepath.Clean(in.Key))
+	if safeKey == "." || safeKey == ".." || safeKey == "" {
+		return "Error: invalid memory key", nil
+	}
 	if err := os.MkdirAll(t.memoryDir, 0o755); err != nil {
 		return fmt.Sprintf("Error creating memory dir: %v", err), nil
 	}
-	path := filepath.Join(t.memoryDir, in.Key+".md")
+	path := filepath.Join(t.memoryDir, safeKey+".md")
 	if err := os.WriteFile(path, []byte(in.Content), 0o644); err != nil {
 		return fmt.Sprintf("Error saving memory: %v", err), nil
 	}
@@ -265,7 +270,12 @@ func (t *DeleteMemoryTool) Execute(_ context.Context, input json.RawMessage) (st
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", fmt.Errorf("parse input: %w", err)
 	}
-	path := filepath.Join(t.memoryDir, in.Key+".md")
+	// Sanitize key to prevent directory traversal.
+	safeKey := filepath.Base(filepath.Clean(in.Key))
+	if safeKey == "." || safeKey == ".." || safeKey == "" {
+		return "Error: invalid memory key", nil
+	}
+	path := filepath.Join(t.memoryDir, safeKey+".md")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return fmt.Sprintf("Memory %q not found.", in.Key), nil
 	}

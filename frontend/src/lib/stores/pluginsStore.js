@@ -12,17 +12,24 @@ import {
   DeleteSkill,
   GetMasterPrompt,
   SaveMasterPrompt as SaveMasterPromptAPI,
+  GetCoworkPrompt,
+  SaveCoworkPrompt as SaveCoworkPromptAPI,
   ListMemoryFiles,
   GetMemoryFile,
   AddMemoryFile,
   SaveMemoryFile as SaveMemoryFileAPI,
   DeleteMemoryFile as DeleteMemoryFileAPI,
+  ListSnippets,
+  AddSnippet,
+  UpdateSnippet,
+  DeleteSnippet,
 } from '../../../wailsjs/go/backend/App';
 
 // ─── Commands State ───
 export const commands = writable([]);
 export const skills = writable([]);
-export const activeSection = writable('commands'); // 'commands' | 'skills' | 'memory' | 'prompt'
+export const snippets = writable([]);
+export const activeSection = writable('commands'); // 'commands' | 'skills' | 'memory' | 'prompt' | 'cowork_prompt' | 'snippets'
 export const activeItemId = writable(null);
 export const activeItemDetail = writable(null);
 export const detailLoading = writable(false);
@@ -30,6 +37,10 @@ export const detailLoading = writable(false);
 // ─── Master Prompt ───
 export const masterPrompt = writable('');
 export const masterPromptLoading = writable(false);
+
+// ─── Cowork Prompt ───
+export const coworkPrompt = writable('');
+export const coworkPromptLoading = writable(false);
 
 // ─── Memory Files ───
 export const memoryFiles = writable([]);
@@ -153,6 +164,25 @@ export async function saveMasterPrompt(body) {
   masterPrompt.set(body);
 }
 
+// ─── Cowork Prompt ───
+
+export async function loadCoworkPrompt() {
+  coworkPromptLoading.set(true);
+  try {
+    const body = await GetCoworkPrompt();
+    coworkPrompt.set(body || '');
+  } catch (e) {
+    console.error('Failed to load cowork prompt:', e);
+  }
+  coworkPromptLoading.set(false);
+}
+
+export async function saveCoworkPrompt(body) {
+  await SaveCoworkPromptAPI(body);
+  coworkPrompt.set(body);
+}
+
+
 // ─── Memory Files CRUD ───
 
 export async function refreshMemoryFiles() {
@@ -206,6 +236,57 @@ export function clearMemorySelection() {
   activeMemoryDetail.set(null);
 }
 
+// ─── Snippets CRUD ───
+
+export async function refreshSnippets() {
+  try {
+    const items = await ListSnippets();
+    snippets.set(items || []);
+  } catch (e) {
+    console.error('Failed to load snippets:', e);
+  }
+}
+
+export async function selectSnippet(id) {
+  activeSection.set('snippets');
+  activeItemId.set(id);
+  detailLoading.set(true);
+  try {
+    const list = get(snippets);
+    const snip = list.find(s => s.id === id);
+    activeItemDetail.set(snip || null);
+  } catch (e) {
+    console.error('Failed to select snippet:', e);
+    activeItemDetail.set(null);
+  }
+  detailLoading.set(false);
+}
+
+export async function addSnippet(trigger, expansion) {
+  const snip = await AddSnippet(trigger, expansion);
+  await refreshSnippets();
+  return snip;
+}
+
+export async function updateSnippet(id, trigger, expansion) {
+  await UpdateSnippet(id, trigger, expansion);
+  await refreshSnippets();
+  if (get(activeItemId) === id) {
+    const list = get(snippets);
+    const snip = list.find(s => s.id === id);
+    activeItemDetail.set(snip || null);
+  }
+}
+
+export async function deleteSnippet(id) {
+  await DeleteSnippet(id);
+  await refreshSnippets();
+  if (get(activeItemId) === id) {
+    activeItemId.set(null);
+    activeItemDetail.set(null);
+  }
+}
+
 // ─── Navigation ───
 
 export function switchSection(section) {
@@ -217,7 +298,7 @@ export function switchSection(section) {
 }
 
 export async function refreshPlugins() {
-  await Promise.all([refreshCommands(), refreshSkills()]);
+  await Promise.all([refreshCommands(), refreshSkills(), refreshSnippets()]);
 }
 
 export function clearPluginSelection() {

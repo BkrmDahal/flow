@@ -2,53 +2,69 @@
   import FlowPanel from './components/FlowPanel.svelte';
   import CoworkWorkspace from './components/CoworkWorkspace.svelte';
   import SettingsModal from './components/SettingsModal.svelte';
+  import SkillToolkitPanel from './components/SkillToolkitPanel.svelte';
 
   import { OpenFileInApp } from '../wailsjs/go/backend/App';
 
-  let activeTab = 'cowork';  // 'cowork' | 'flow'
+  let activeTab = 'cowork';  // 'cowork' | 'flow' | 'toolkit'
+  let previousTab = 'cowork';
   let settingsOpen = false;
 
   async function openLogs() {
-    try { await OpenFileInApp('~/.flow/logs/') } catch (e) { console.warn(e) }
+    try { await OpenFileInApp('~/.flow/flow.log') } catch (e) { console.warn(e) }
+  }
+
+  function openToolkit() {
+    if (activeTab !== 'toolkit') previousTab = activeTab;
+    activeTab = 'toolkit';
+  }
+
+  function closeToolkit() {
+    activeTab = previousTab || 'cowork';
   }
 </script>
 
 <main>
-  <!-- Titlebar -->
-  <header class="titlebar">
-    <div class="titlebar-left"></div>
-    <nav class="tabs">
-      <button class="tab" class:active={activeTab === 'cowork'} on:click={() => activeTab = 'cowork'}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-        Cowork
-      </button>
-      <button class="tab" class:active={activeTab === 'flow'} on:click={() => activeTab = 'flow'}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-        Flow
-      </button>
-    </nav>
-    <div class="titlebar-right">
-      <button class="icon-btn" on:click={openLogs} title="Open log file">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/>
-          <line x1="16" y1="13" x2="8" y2="13"/>
-          <line x1="16" y1="17" x2="8" y2="17"/>
-          <polyline points="10 9 9 9 8 9"/>
-        </svg>
-      </button>
-    </div>
-  </header>
+  {#if activeTab === 'toolkit'}
+    <SkillToolkitPanel on:close={closeToolkit} />
+  {:else}
+    <!-- Titlebar -->
+    <header class="titlebar">
+      <div class="titlebar-left"></div>
+      <nav class="tabs">
+        <button class="tab" class:active={activeTab === 'cowork'} on:click={() => activeTab = 'cowork'}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          Cowork
+        </button>
+        <button class="tab" class:active={activeTab === 'flow'} on:click={() => activeTab = 'flow'}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          Flow
+        </button>
+      </nav>
+      <div class="titlebar-right">
+        <button class="icon-btn" on:click={openLogs} title="Open log file">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+        </button>
+      </div>
+    </header>
 
-  <section class="body">
-    {#if activeTab === 'flow'}
-      <FlowPanel onOpenSettings={() => settingsOpen = true} />
-    {:else}
-      <CoworkWorkspace onOpenSettings={() => settingsOpen = true} />
-    {/if}
-  </section>
+    <section class="body">
+      {#if activeTab === 'flow'}
+        <FlowPanel onOpenSettings={() => settingsOpen = true} onOpenToolkit={openToolkit} />
+      {:else}
+        <CoworkWorkspace onOpenSettings={() => settingsOpen = true} onOpenToolkit={openToolkit} />
+      {/if}
+    </section>
+  {/if}
 
   <SettingsModal open={settingsOpen} onClose={() => settingsOpen = false} />
+
 </main>
 
 <style>

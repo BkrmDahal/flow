@@ -19,18 +19,21 @@ import (
 // maxToolIterations prevents infinite loops in the agent turn.
 const maxToolIterations = 50
 
-// agentCodeFileSuffix is appended to the system prompt for agent tasks to
-// ensure generated code is always saved as files in the workspace directory.
+// minIterationInterval is the minimum delay between consecutive LLM API
+// calls within one turn. This rate-limits prompt-injection attempts that
+// try to burn through API credits via rapid tool-call loops.
+const minIterationInterval = 500 * time.Millisecond
+
+// agentCodeFileSuffix is appended to the system prompt for agent tasks. It
+// points the agent at write_file when the user actually wants code saved, but
+// leaves room for inline code in conversational answers.
 const agentCodeFileSuffix = `
 
-## Code Output Rules (IMPORTANT)
+## Code Output
 
-You MUST always save any code you produce as files using the write_file tool. NEVER just display code in your response without also writing it to a file.
+Use the write_file tool when the user is asking you to **build, save, or modify** something they'll run or keep — scripts, projects, config they want on disk. Pick clear filenames (e.g. "app.py", "index.html").
 
-- **Every code snippet** (scripts, configs, HTML, CSS, JSON, YAML, etc.) MUST be saved as a file with an appropriate name and extension.
-- If the user asks you to write a program, build something, or generate any code, create the file(s) first using write_file, then explain what you created.
-- Use clear, descriptive filenames (e.g. "app.py", "index.html", "schema.sql").
-- After writing files, you may still show key parts of the code in your response for explanation, but the file MUST exist.
+For conversational answers, demonstration snippets, examples in an explanation, or short edits the user just wants to read — just include the code inline in your response. Don't materialize a file every time you mention code.
 `
 
 // chatBrevitySuffix keeps replies short for chat mode.
@@ -41,23 +44,41 @@ const chatBrevitySuffix = `
 Keep your responses **short and to the point**. Be concise — no lengthy explanations, preambles, or unnecessary detail. Answer directly. Use bullet points only when listing multiple items.
 `
 
-// todoPromptSuffix instructs the agent to use todo_write for task planning.
+// todoPromptSuffix instructs the agent to always plan before executing any multi-step task,
+// and to write plans with high-level goal-oriented steps rather than technical tool calls.
 const todoPromptSuffix = `
 
-## Task Planning (IMPORTANT)
+## Task Planning
 
-For any multi-step task, you MUST use the todo_write tool to create a visible plan:
+For ANY task that requires more than a single simple action (i.e., any task requiring two or more steps or tools), you MUST use the todo_write tool to create a visible plan BEFORE executing any other tools. 
 
-1. **Before doing anything else**, call todo_write with a list of concrete, specific steps (status "pending", first one "in_progress").
-2. **As you complete each step**, call todo_write with merge=true to mark it "completed" and the next one "in_progress".
-3. **When finished**, ensure all items are "completed".
+### Planning Rules:
+1. **Plan BEFORE executing:** Call todo_write as your very first tool call in the turn. Do not perform any edits, searches, or run commands until the plan is created.
+2. **High-Level Goals Only:** Every plan item must describe a high-level goal or milestone in plain, user-friendly language (e.g., "1. make invoice sample", "2. use python to convert to pdf", "3. check samples"). 
+3. **NO Tool Calls in Plan:** Never write steps as low-level tool calls, technical procedures, or code details (e.g., do NOT write "call write_file to save script", "run run_bash with python"). The user must see what you are trying to achieve, not which API or command you are invoking.
+4. **Progress Tracking:** Update the plan as you progress by calling todo_write with merge=true, marking completed items as completed, and the current active item as in_progress.
+`
 
-Keep items short and descriptive. This gives the user real-time visibility into your progress.
+// agentOptionsPromptSuffix instructs the agent to output options inside `<options>` block when asking clarifying questions.
+const agentOptionsPromptSuffix = `
+
+## Clarifying Questions & Options (IMPORTANT)
+Avoid asking too many clarifying questions. Be proactive: make safe, reasonable assumptions whenever possible to keep moving forward. Only ask questions when you are genuinely blocked or need the user to make a key choice.
+When you DO need clarification, a decision, or to present choices to the user, ALWAYS provide 2-4 explicit, concise option suggestions that the user can choose from.
+Format these options at the very end of your response inside an <options> block, with one option per line prefixed by a bullet (-).
+Example:
+Would you like to keep them in the same folder or move them?
+<options>
+- Keep them in the same folder
+- Move them to ~/Downloads/code_demo/screenshots/
+- Rename them to screenshot_1.png, screenshot_2.png, ...
+</options>
+Keep options extremely short, clear, and action-oriented. Do not include markdown formatting inside option lines.
 `
 
 // Step is one intermediate step recorded during an agent turn.
 type Step struct {
-	Type      string `json:"type"`                // "thinking", "tool_call", "tool_result"
+	Type      string `json:"type"` // "thinking", "tool_call", "tool_result"
 	Content   string `json:"content,omitempty"`
 	ToolName  string `json:"tool_name,omitempty"`
 	ToolInput string `json:"tool_input,omitempty"`
@@ -74,20 +95,20 @@ type Deps struct {
 	SessionMgr   *session.Manager
 	LLMClient    llm.LLMClient
 	ToolRegistry *tools.Registry
-	WorkDir      string  // per-session working directory
-	BaseDir      string  // ~/.flow/
-	ChatMode     bool    // true for chat sessions (concise), false for agent tasks (detailed)
-	CommandBody  string  // optional plugin command context
+	WorkDir      string // per-session working directory
+	BaseDir      string // ~/.flow/
+	ChatMode     bool   // true for chat sessions (concise), false for agent tasks (detailed)
+	CommandBody  string // optional plugin command context
 }
 
 // StreamEvent is emitted during a streaming turn.
 type StreamEvent struct {
-	Type      string `json:"type"`                // "thinking_start"|"thinking"|"text"|"tool_call"|"tool_result"|"todo_update"|"skill_used"|"file_created"|"done"|"error"
+	Type      string `json:"type"` // "thinking_start"|"thinking"|"text"|"tool_call"|"tool_result"|"todo_update"|"skill_used"|"file_created"|"done"|"error"
 	Content   string `json:"content,omitempty"`
 	ToolName  string `json:"tool_name,omitempty"`
 	ToolInput string `json:"tool_input,omitempty"`
-	Path      string `json:"path,omitempty"`   // for file_created
-	Name      string `json:"name,omitempty"`   // for file_created (basename)
+	Path      string `json:"path,omitempty"` // for file_created
+	Name      string `json:"name,omitempty"` // for file_created (basename)
 	// TodoItems carries the full todo list snapshot for "todo_update" events.
 	TodoItems []tools.TodoItem `json:"todo_items,omitempty"`
 }
@@ -143,6 +164,7 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 		systemPrompt += todoPromptSuffix
 	}
 	systemPrompt += agentCodeFileSuffix
+	systemPrompt += agentOptionsPromptSuffix
 
 	// Wire up todo_write callback for real-time progress updates.
 	ctx = tools.WithTodoCallback(ctx, func(items []tools.TodoItem) {
@@ -186,6 +208,14 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 	result := &TurnResult{}
 
 	for i := 0; i < maxToolIterations; i++ {
+		// Rate-limit consecutive API calls to prevent credit burn.
+		if i > 0 {
+			select {
+			case <-time.After(minIterationInterval):
+			case <-ctx.Done():
+				return result, ctx.Err()
+			}
+		}
 		onDelta := func(delta llm.StreamDelta) {
 			switch delta.Type {
 			case "thinking_start":
@@ -204,6 +234,19 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 		if err != nil {
 			emit(StreamEvent{Type: "error", Content: err.Error()})
 			return nil, fmt.Errorf("llm: %w", err)
+		}
+		if len(resp.Content) == 0 {
+			log.Printf("[agent] streaming response was empty for %s; retrying without stream", sessionID)
+			resp, err = deps.LLMClient.SendMessages(ctx, systemPrompt, history, toolDefs, agentCfg.EnableThinking)
+			if err != nil {
+				emit(StreamEvent{Type: "error", Content: err.Error()})
+				return nil, fmt.Errorf("llm fallback: %w", err)
+			}
+			if len(resp.Content) == 0 {
+				err := fmt.Errorf("model returned an empty response")
+				emit(StreamEvent{Type: "error", Content: err.Error()})
+				return nil, err
+			}
 		}
 
 		// Collect thinking steps.

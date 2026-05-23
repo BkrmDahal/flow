@@ -95,7 +95,7 @@ func (a *App) RefineFlowText(transcriptID, action, customPrompt string) (string,
 		Text:      finalText,
 		Timestamp: time.Now().UnixMilli(),
 	}
-	if action == RefineActionCustom {
+	if strings.TrimSpace(customPrompt) != "" {
 		ref.CustomPrompt = customPrompt
 	}
 	if err := a.appendRefinement(transcriptID, ref); err != nil {
@@ -107,12 +107,50 @@ func (a *App) RefineFlowText(transcriptID, action, customPrompt string) (string,
 }
 
 func promptFor(action, customPrompt string) string {
-	if action == RefineActionCustom {
-		s := strings.TrimSpace(customPrompt)
-		if s == "" {
-			return ""
-		}
+	s := strings.TrimSpace(customPrompt)
+	if s != "" {
 		return s + "\nOutput only the result, no preamble."
 	}
+	if action == RefineActionCustom {
+		return ""
+	}
 	return refineSystemPrompts[action]
+}
+
+// RefineTextDirect runs any raw text through the configured local/cloud LLM directly.
+func (a *App) RefineTextDirect(text, action, customPrompt string) (string, error) {
+	if a.llm == nil {
+		return "", fmt.Errorf("no model configured — set up Settings first")
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("text is empty")
+	}
+
+	systemPrompt := promptFor(action, customPrompt)
+	if systemPrompt == "" {
+		return "", fmt.Errorf("unknown refine action %q", action)
+	}
+
+	contentJSON, err := json.Marshal(text)
+	if err != nil {
+		return "", fmt.Errorf("encode text: %w", err)
+	}
+	messages := []session.Message{
+		{Role: "user", Content: contentJSON},
+	}
+
+	ctx, cancel := context.WithTimeout(a.ctx, 45*time.Second)
+	defer cancel()
+
+	resp, err := a.llm.SendMessages(ctx, systemPrompt, messages, nil, false)
+	if err != nil {
+		return "", fmt.Errorf("LLM error: %w", err)
+	}
+
+	finalText := strings.TrimSpace(resp.TextContent())
+	if finalText == "" {
+		return "", fmt.Errorf("model returned empty response")
+	}
+
+	return finalText, nil
 }

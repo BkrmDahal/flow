@@ -25,11 +25,26 @@ type Config struct {
 	APIKey        string `json:"api_key"`        // API key for OpenAI-compat providers
 	Model         string `json:"model"`          // model id for Cowork
 
+	// ── Managed llama.cpp server ─────────────────────────────────────────────
+	LlamaManagedEnabled bool   `json:"llama_managed_enabled"`
+	LlamaModelPath      string `json:"llama_model_path"`
+	LlamaDownloadURL    string `json:"llama_download_url"`
+	LlamaPort           int    `json:"llama_port"`
+	LlamaContextSize    int    `json:"llama_context_size"`
+
 	// ── Cloud provider keys (agent/chat modes) ───────────────────────────────
-	AnthropicKey string `json:"anthropic_key"` // Anthropic Claude API key
-	OpenAIKey    string `json:"openai_key"`    // OpenAI API key
-	GeminiKey    string `json:"gemini_key"`    // Google Gemini API key
-	DeepgramKey  string `json:"deepgram_key"` // Deepgram STT API key
+	AnthropicKey  string `json:"anthropic_key"`  // Anthropic Claude API key
+	OpenAIKey     string `json:"openai_key"`     // OpenAI API key
+	GeminiKey     string `json:"gemini_key"`     // Google Gemini API key
+	OpenRouterKey string `json:"openrouter_key"` // OpenRouter API key
+	DeepgramKey   string `json:"deepgram_key"`   // Deepgram STT API key
+
+	// ── Cloud provider (Settings → General → Cloud) ──────────────────────────
+	ProviderMode   string `json:"provider_mode"`    // "local" (default) | "cloud"
+	CloudProvider  string `json:"cloud_provider"`   // "" | "openai" | "anthropic" | "openrouter" | "custom"
+	CloudModel     string `json:"cloud_model"`      // model id to call
+	CustomCloudURL string `json:"custom_cloud_url"` // for cloud_provider="custom"
+	CustomCloudKey string `json:"custom_cloud_key"` // for cloud_provider="custom"
 
 	// ── Named agent configs (keyed by name, e.g. "main") ────────────────────
 	Agents map[string]AgentConfig `json:"agents,omitempty"`
@@ -48,6 +63,9 @@ type Config struct {
 	// ── Auto-refine transcript ────────────────────────────────────────────────
 	AutoRefineAction       string `json:"auto_refine_action"`        // "off" | "clean" | "summarize" | "bullets" | "custom"
 	AutoRefineCustomPrompt string `json:"auto_refine_custom_prompt"` // custom prompt if action is "custom"
+
+	// ── Python Executable ────────────────────────────────────────────────────
+	PythonPath string `json:"python_path"`
 }
 
 // FlowDir returns the resolved path to ~/.flow/.
@@ -69,7 +87,6 @@ func Bootstrap() (string, error) {
 	dirs := []string{
 		filepath.Join(base, "flow"),
 		filepath.Join(base, "cowork"),
-		filepath.Join(base, "agents"),
 		filepath.Join(base, "sessions"),
 		filepath.Join(base, "memory"),
 		filepath.Join(base, "workspace"),
@@ -90,12 +107,16 @@ func Bootstrap() (string, error) {
 			BaseURL:          "http://localhost:1234/v1",
 			APIKey:           "lm-studio",
 			Model:            "",
+			LlamaPort:        8080,
+			LlamaContextSize: 4096,
 			HotkeyEnabled:    false,
 			HotkeyModifier:   "right_option",
 			SpeechProvider:   "local",
 			SpeechModel:      "base.en",
 			SpeechLanguage:   "en",
 			AutoRefineAction: "off",
+			PythonPath:       "python3",
+			ProviderMode:     "none",
 			Agents: map[string]AgentConfig{
 				"main": {
 					Name:           "Flow",
@@ -107,7 +128,7 @@ func Bootstrap() (string, error) {
 			},
 		}
 		data, _ := json.MarshalIndent(def, "", "  ")
-		if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		if err := os.WriteFile(cfgPath, data, 0o600); err != nil {
 			return "", fmt.Errorf("write config.json: %w", err)
 		}
 	}
@@ -153,7 +174,7 @@ memory_search to recall it, and delete_memory to remove outdated entries.
 			"blocked": {"rm -rf /", "mkfs", "dd if="},
 		}
 		data, _ := json.MarshalIndent(defaultApprovals, "", "  ")
-		_ = os.WriteFile(approvalsPath, data, 0o644)
+		_ = os.WriteFile(approvalsPath, data, 0o600)
 	}
 
 	return base, nil
@@ -174,6 +195,12 @@ func Load(base string) (*Config, error) {
 
 	if cfg.ProviderType == "" {
 		cfg.ProviderType = "local-openai"
+	}
+	if cfg.LlamaPort == 0 {
+		cfg.LlamaPort = 8080
+	}
+	if cfg.LlamaContextSize == 0 {
+		cfg.LlamaContextSize = 4096
 	}
 	if cfg.HotkeyModifier == "" {
 		cfg.HotkeyModifier = "right_option"
@@ -200,6 +227,12 @@ func Load(base string) (*Config, error) {
 	if cfg.AutoRefineAction == "" {
 		cfg.AutoRefineAction = "off"
 	}
+	if cfg.PythonPath == "" {
+		cfg.PythonPath = "python3"
+	}
+	if cfg.ProviderMode == "" {
+		cfg.ProviderMode = "none"
+	}
 	return &cfg, nil
 }
 
@@ -209,7 +242,7 @@ func Save(base string, cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(base, "config.json"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(base, "config.json"), data, 0o600); err != nil {
 		return fmt.Errorf("write config.json: %w", err)
 	}
 	return nil
@@ -243,7 +276,7 @@ func SaveExecApprovals(base string, approvals *ExecApprovals) error {
 	if err != nil {
 		return fmt.Errorf("marshal exec-approvals: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write exec-approvals.json: %w", err)
 	}
 	return nil

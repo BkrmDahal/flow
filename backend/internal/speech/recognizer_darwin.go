@@ -16,6 +16,7 @@ void StopSpeechRecognition(void);
 void StartAudioRecording(const char *outputPath);
 void StopAudioRecording(void);
 int  IsAudioRecording(void);
+int  CheckMicrophonePermission(void);
 */
 import "C"
 import (
@@ -109,6 +110,12 @@ func StopRecording() {
 // IsRecording returns whether an audio recording is currently active.
 func IsRecording() bool {
 	return C.IsAudioRecording() != 0
+}
+
+// CheckMicrophonePermission returns the current microphone authorization status:
+// 0 = NotDetermined, 1 = Restricted, 2 = Denied, 3 = Authorized
+func CheckMicrophonePermission() int {
+	return int(C.CheckMicrophonePermission())
 }
 
 //export goRecordingError

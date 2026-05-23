@@ -43,7 +43,7 @@ func NewTodoWriteTool() *TodoWriteTool {
 func (t *TodoWriteTool) Name() string { return "todo_write" }
 
 func (t *TodoWriteTool) Description() string {
-	return `Create or update a planning checklist for the current task. Call this tool at the start of a task to lay out your plan, then call it again as you complete steps to update their status. Each item has an id, content (description), and status (pending, in_progress, or completed). You can pass the full list each time (merge=false to replace all) or pass only changed items (merge=true to update by id).`
+	return `Create or update a planning checklist. Only use this for tasks that require multiple distinct steps — skip it for simple, single-step tasks. Each item should be a concise, plain-language description of WHAT to do (e.g. "Add validation to the signup form"), NOT code snippets or shell commands. Each item has an id, content (description), and status (pending, in_progress, or completed). You can pass the full list each time (merge=false to replace all) or pass only changed items (merge=true to update by id).`
 }
 
 func (t *TodoWriteTool) Schema() map[string]interface{} {

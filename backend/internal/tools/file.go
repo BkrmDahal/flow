@@ -109,6 +109,12 @@ func (t *ReadFileTool) Execute(ctx context.Context, input json.RawMessage) (stri
 		}
 	}
 
+	// Block access to sensitive directories and files to prevent
+	// prompt-injection exfiltration of credentials and secrets.
+	if err := checkSensitivePath(readPath); err != nil {
+		return fmt.Sprintf("Error: access denied — %v", err), nil
+	}
+
 	data, err := os.ReadFile(readPath)
 	if err != nil {
 		return fmt.Sprintf("Error reading file: %v", err), nil
@@ -119,6 +125,55 @@ func (t *ReadFileTool) Execute(ctx context.Context, input json.RawMessage) (stri
 		content = content[:maxReadBytes] + "\n... [file truncated at 10KB]"
 	}
 	return content, nil
+}
+
+// sensitivePathPrefixes are directories that read_file must never access,
+// even when the LLM requests them with an absolute path.
+var sensitivePathPrefixes = []string{
+	".ssh",
+	".aws",
+	".kube",
+	".gnupg",
+	".gpg",
+	".config/gcloud",
+}
+
+// sensitiveExactFiles are specific files that must never be readable.
+var sensitiveExactFiles = []string{
+	"config.json", // ~/.flow/config.json contains API keys
+}
+
+// checkSensitivePath returns an error if the given path falls inside a
+// blocked sensitive directory or matches a blocked file.
+func checkSensitivePath(path string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil // can't resolve home, allow (defensive)
+	}
+
+	absPath := path
+	if !filepath.IsAbs(absPath) {
+		absPath, err = filepath.Abs(absPath)
+		if err != nil {
+			return nil
+		}
+	}
+	absPath = filepath.Clean(absPath)
+
+	for _, prefix := range sensitivePathPrefixes {
+		sensitive := filepath.Join(homeDir, prefix)
+		if absPath == sensitive || strings.HasPrefix(absPath, sensitive+string(filepath.Separator)) {
+			return fmt.Errorf("reading from %s is not allowed for security reasons", prefix)
+		}
+	}
+
+	// Block the Flow config file itself (contains API keys).
+	flowConfigPath := filepath.Join(homeDir, ".flow", "config.json")
+	if absPath == flowConfigPath {
+		return fmt.Errorf("reading config.json is not allowed (contains API keys)")
+	}
+
+	return nil
 }
 
 // --- write_file ---

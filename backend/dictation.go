@@ -76,7 +76,23 @@ func (a *App) setupDictationIfEnabled() {
 		}
 	}
 
-	speech.SetupDictation(modifier, cfgLoader, onStatus, onError, nil, grammarFixer)
+	// Text transformer — applies snippets trigger-expansion first, then optionally auto-refine
+	textTransform := func(rawText string) string {
+		processed := a.ApplySnippets(rawText)
+
+		if a.llm != nil && a.cfg != nil && a.cfg.AutoRefineAction != "" && a.cfg.AutoRefineAction != "off" {
+			log.Printf("[dictation] auto-refining transcription with action %q...", a.cfg.AutoRefineAction)
+			refined, err := a.RefineTextDirect(processed, a.cfg.AutoRefineAction, a.cfg.AutoRefineCustomPrompt)
+			if err != nil {
+				log.Printf("[dictation] auto-refine failed: %v — falling back to snippet-processed text", err)
+				return processed
+			}
+			return refined
+		}
+		return processed
+	}
+
+	speech.SetupDictation(modifier, cfgLoader, onStatus, onError, textTransform, grammarFixer)
 }
 
 // ToggleDictation enables or disables the dictation hotkey at runtime.

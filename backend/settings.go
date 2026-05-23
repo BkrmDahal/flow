@@ -3,6 +3,7 @@ package backend
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/user/flow/backend/internal/config"
 	"github.com/user/flow/backend/internal/llm"
@@ -17,11 +18,25 @@ type SettingsPayload struct {
 	APIKey        string `json:"apiKey"`
 	Model         string `json:"model"`
 
+	LlamaManagedEnabled bool   `json:"llamaManagedEnabled"`
+	LlamaModelPath      string `json:"llamaModelPath"`
+	LlamaDownloadURL    string `json:"llamaDownloadURL"`
+	LlamaPort           int    `json:"llamaPort"`
+	LlamaContextSize    int    `json:"llamaContextSize"`
+
 	// Cloud provider keys (agent/chat)
-	AnthropicKey string `json:"anthropicKey"`
-	OpenAIKey    string `json:"openaiKey"`
-	GeminiKey    string `json:"geminiKey"`
-	DeepgramKey  string `json:"deepgramKey"`
+	AnthropicKey  string `json:"anthropicKey"`
+	OpenAIKey     string `json:"openaiKey"`
+	GeminiKey     string `json:"geminiKey"`
+	OpenRouterKey string `json:"openRouterKey"`
+	DeepgramKey   string `json:"deepgramKey"`
+
+	// Provider mode and cloud-tab selection
+	ProviderMode   string `json:"providerMode"` // "local" | "cloud"
+	CloudProvider  string `json:"cloudProvider"`
+	CloudModel     string `json:"cloudModel"`
+	CustomCloudURL string `json:"customCloudURL"`
+	CustomCloudKey string `json:"customCloudKey"`
 
 	// Hotkey
 	HotkeyEnabled  bool   `json:"hotkeyEnabled"`
@@ -37,6 +52,9 @@ type SettingsPayload struct {
 	// Auto-refine
 	AutoRefineAction       string `json:"autoRefineAction"`
 	AutoRefineCustomPrompt string `json:"autoRefineCustomPrompt"`
+
+	// Python Executable Path
+	PythonPath string `json:"pythonPath"`
 }
 
 // GetSettings returns the current persisted configuration.
@@ -56,6 +74,28 @@ func (a *App) SaveSettings(p SettingsPayload) error {
 	oldHotkeyEnabled := a.cfg != nil && a.cfg.HotkeyEnabled
 
 	cfg := fromPayload(p)
+
+	// Preserve existing API keys when the frontend sends back masked values.
+	// The frontend receives masked keys (e.g. "sk-****abcd") and should not
+	// overwrite the real keys stored in memory.
+	if a.cfg != nil {
+		preserveKeyIfMasked(&cfg.APIKey, a.cfg.APIKey)
+		preserveKeyIfMasked(&cfg.AnthropicKey, a.cfg.AnthropicKey)
+		preserveKeyIfMasked(&cfg.OpenAIKey, a.cfg.OpenAIKey)
+		preserveKeyIfMasked(&cfg.GeminiKey, a.cfg.GeminiKey)
+		preserveKeyIfMasked(&cfg.OpenRouterKey, a.cfg.OpenRouterKey)
+		preserveKeyIfMasked(&cfg.DeepgramKey, a.cfg.DeepgramKey)
+		preserveKeyIfMasked(&cfg.CustomCloudKey, a.cfg.CustomCloudKey)
+		preserveKeyIfMasked(&cfg.SpeechAPIKey, a.cfg.SpeechAPIKey)
+	}
+
+	if cfg.LlamaManagedEnabled {
+		if cfg.LlamaPort == 0 {
+			cfg.LlamaPort = 8080
+		}
+		cfg.BaseURL = fmt.Sprintf("http://127.0.0.1:%d/v1", cfg.LlamaPort)
+		cfg.APIKey = ""
+	}
 	// Preserve existing agents config — settings panel doesn't touch it.
 	if a.cfg != nil && a.cfg.Agents != nil {
 		cfg.Agents = a.cfg.Agents
@@ -122,90 +162,164 @@ func (a *App) SaveExecApprovals(allowed []string, blocked []string) error {
 	})
 }
 
-// rebuildLLMClient swaps a.llm based on the current config.
-// For Cowork / local use-case, uses NewClient (OpenAI-compat).
-// For agent tab, uses NewClientForModel (multi-provider).
+// rebuildLLMClient swaps a.llm based on the current config. The user-chosen
+// ProviderMode ("local" or "cloud") picks the primary path; the other side
+// is the fallback. Legacy agent-map config is the last resort.
 func (a *App) rebuildLLMClient() error {
 	if a.cfg == nil {
 		a.llm = nil
 		return nil
 	}
 
-	// Try building a client for the agent model first.
+	tryLocal := func() (llm.LLMClient, error) {
+		if a.cfg.Model == "" || a.cfg.BaseURL == "" {
+			return nil, fmt.Errorf("local provider not configured")
+		}
+		return llm.NewClient(a.cfg)
+	}
+	tryCloud := func() (llm.LLMClient, error) {
+		if a.cfg.CloudProvider == "" || a.cfg.CloudModel == "" {
+			return nil, fmt.Errorf("cloud provider not configured")
+		}
+		return llm.NewCloudClient(
+			a.cfg.CloudProvider, a.cfg.CloudModel,
+			a.cfg.AnthropicKey, a.cfg.OpenAIKey, a.cfg.OpenRouterKey,
+			a.cfg.CustomCloudURL, a.cfg.CustomCloudKey,
+		)
+	}
+
+	primary, fallback := tryLocal, tryCloud
+	primaryName, fallbackName := "local", "cloud"
+	if a.cfg.ProviderMode == "cloud" {
+		primary, fallback = tryCloud, tryLocal
+		primaryName, fallbackName = "cloud", "local"
+	}
+
+	if client, err := primary(); err == nil {
+		a.llm = client
+		log.Printf("flow: LLM client ready (%s provider)", primaryName)
+		return nil
+	} else {
+		log.Printf("flow: %s LLM not ready: %v", primaryName, err)
+	}
+	if client, err := fallback(); err == nil {
+		a.llm = client
+		log.Printf("flow: LLM client ready (%s provider, fallback)", fallbackName)
+		return nil
+	} else {
+		log.Printf("flow: %s LLM not ready: %v", fallbackName, err)
+	}
+
+	// Last resort: legacy agent-map model.
 	agentModel := ""
 	if a.cfg.Agents != nil {
 		if ac, ok := a.cfg.Agents["main"]; ok {
 			agentModel = ac.Model
 		}
 	}
-
 	if agentModel != "" {
-		client, err := llm.NewClientForModel(agentModel, a.cfg.AnthropicKey, a.cfg.OpenAIKey, a.cfg.GeminiKey)
-		if err == nil {
+		if client, err := llm.NewClientForModel(agentModel, a.cfg.AnthropicKey, a.cfg.OpenAIKey, a.cfg.GeminiKey); err == nil {
 			a.llm = client
-			log.Printf("flow: LLM client ready for agent (model=%q)", agentModel)
+			log.Printf("flow: LLM client ready (agent model=%q)", agentModel)
 			return nil
 		}
-		log.Printf("flow: agent LLM not ready: %v", err)
 	}
 
-	// Fall back to the Cowork local/OpenAI-compat client.
-	if a.cfg.Model == "" || a.cfg.BaseURL == "" {
-		a.llm = nil
-		return nil
-	}
-	client, err := llm.NewClient(a.cfg)
-	if err != nil {
-		a.llm = nil
-		return err
-	}
-	a.llm = client
-	log.Printf("flow: LLM client ready (provider=%q model=%q)", a.cfg.ProviderLabel, a.cfg.Model)
+	a.llm = nil
 	return nil
+}
+
+// maskKey returns a masked version of an API key for frontend display.
+// Shows the first 4 and last 4 characters with **** in the middle.
+// Returns empty string if the key is empty.
+func maskKey(key string) string {
+	if key == "" {
+		return ""
+	}
+	if len(key) <= 8 {
+		return "****"
+	}
+	return key[:4] + "****" + key[len(key)-4:]
 }
 
 func toPayload(c *config.Config) *SettingsPayload {
 	return &SettingsPayload{
-		ProviderType:     c.ProviderType,
-		ProviderLabel:    c.ProviderLabel,
-		BaseURL:          c.BaseURL,
-		APIKey:           c.APIKey,
-		Model:            c.Model,
-		AnthropicKey:     c.AnthropicKey,
-		OpenAIKey:        c.OpenAIKey,
-		GeminiKey:        c.GeminiKey,
-		DeepgramKey:      c.DeepgramKey,
-		HotkeyEnabled:    c.HotkeyEnabled,
-		HotkeyModifier:   c.HotkeyModifier,
-		SpeechProvider:   c.SpeechProvider,
-		SpeechAPIKey:     c.SpeechAPIKey,
-		SpeechModel:      c.SpeechModel,
-		SpeechLanguage:   c.SpeechLanguage,
+		ProviderType:           c.ProviderType,
+		ProviderLabel:          c.ProviderLabel,
+		BaseURL:                c.BaseURL,
+		APIKey:                 maskKey(c.APIKey),
+		Model:                  c.Model,
+		LlamaManagedEnabled:    c.LlamaManagedEnabled,
+		LlamaModelPath:         c.LlamaModelPath,
+		LlamaDownloadURL:       c.LlamaDownloadURL,
+		LlamaPort:              c.LlamaPort,
+		LlamaContextSize:       c.LlamaContextSize,
+		AnthropicKey:           maskKey(c.AnthropicKey),
+		OpenAIKey:              maskKey(c.OpenAIKey),
+		GeminiKey:              maskKey(c.GeminiKey),
+		OpenRouterKey:          maskKey(c.OpenRouterKey),
+		DeepgramKey:            maskKey(c.DeepgramKey),
+		ProviderMode:           c.ProviderMode,
+		CloudProvider:          c.CloudProvider,
+		CloudModel:             c.CloudModel,
+		CustomCloudURL:         c.CustomCloudURL,
+		CustomCloudKey:         maskKey(c.CustomCloudKey),
+		HotkeyEnabled:          c.HotkeyEnabled,
+		HotkeyModifier:         c.HotkeyModifier,
+		SpeechProvider:         c.SpeechProvider,
+		SpeechAPIKey:           maskKey(c.SpeechAPIKey),
+		SpeechModel:            c.SpeechModel,
+		SpeechLanguage:         c.SpeechLanguage,
 		SpeechPrompt:           c.SpeechPrompt,
 		AutoRefineAction:       c.AutoRefineAction,
 		AutoRefineCustomPrompt: c.AutoRefineCustomPrompt,
+		PythonPath:             c.PythonPath,
+	}
+}
+
+// isMasked returns true if the value is a masked placeholder from maskKey().
+func isMasked(v string) bool {
+	return strings.Contains(v, "****")
+}
+
+// preserveKeyIfMasked keeps the existing key if the incoming value is masked.
+func preserveKeyIfMasked(incoming *string, existing string) {
+	if isMasked(*incoming) {
+		*incoming = existing
 	}
 }
 
 func fromPayload(p SettingsPayload) *config.Config {
 	return &config.Config{
-		ProviderType:     p.ProviderType,
-		ProviderLabel:    p.ProviderLabel,
-		BaseURL:          p.BaseURL,
-		APIKey:           p.APIKey,
-		Model:            p.Model,
-		AnthropicKey:     p.AnthropicKey,
-		OpenAIKey:        p.OpenAIKey,
-		GeminiKey:        p.GeminiKey,
-		DeepgramKey:      p.DeepgramKey,
-		HotkeyEnabled:    p.HotkeyEnabled,
-		HotkeyModifier:   p.HotkeyModifier,
-		SpeechProvider:   p.SpeechProvider,
-		SpeechAPIKey:     p.SpeechAPIKey,
-		SpeechModel:      p.SpeechModel,
-		SpeechLanguage:   p.SpeechLanguage,
+		ProviderType:           p.ProviderType,
+		ProviderLabel:          p.ProviderLabel,
+		BaseURL:                p.BaseURL,
+		APIKey:                 p.APIKey,
+		Model:                  p.Model,
+		LlamaManagedEnabled:    p.LlamaManagedEnabled,
+		LlamaModelPath:         p.LlamaModelPath,
+		LlamaDownloadURL:       p.LlamaDownloadURL,
+		LlamaPort:              p.LlamaPort,
+		LlamaContextSize:       p.LlamaContextSize,
+		AnthropicKey:           p.AnthropicKey,
+		OpenAIKey:              p.OpenAIKey,
+		GeminiKey:              p.GeminiKey,
+		OpenRouterKey:          p.OpenRouterKey,
+		DeepgramKey:            p.DeepgramKey,
+		ProviderMode:           p.ProviderMode,
+		CloudProvider:          p.CloudProvider,
+		CloudModel:             p.CloudModel,
+		CustomCloudURL:         p.CustomCloudURL,
+		CustomCloudKey:         p.CustomCloudKey,
+		HotkeyEnabled:          p.HotkeyEnabled,
+		HotkeyModifier:         p.HotkeyModifier,
+		SpeechProvider:         p.SpeechProvider,
+		SpeechAPIKey:           p.SpeechAPIKey,
+		SpeechModel:            p.SpeechModel,
+		SpeechLanguage:         p.SpeechLanguage,
 		SpeechPrompt:           p.SpeechPrompt,
 		AutoRefineAction:       p.AutoRefineAction,
 		AutoRefineCustomPrompt: p.AutoRefineCustomPrompt,
+		PythonPath:             p.PythonPath,
 	}
 }

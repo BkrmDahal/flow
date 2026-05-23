@@ -12,11 +12,69 @@ import (
 type Provider string
 
 const (
-	ProviderAnthropic Provider = "anthropic"
-	ProviderOpenAI    Provider = "openai"
-	ProviderGemini    Provider = "gemini"
-	ProviderLocal     Provider = "local-openai"
+	ProviderAnthropic  Provider = "anthropic"
+	ProviderOpenAI     Provider = "openai"
+	ProviderGemini     Provider = "gemini"
+	ProviderOpenRouter Provider = "openrouter"
+	ProviderCustom     Provider = "custom"
+	ProviderLocal      Provider = "local-openai"
 )
+
+const openRouterAPIURL = "https://openrouter.ai/api/v1/chat/completions"
+
+// NewOpenRouterClient builds an OpenAI-compatible client pointed at OpenRouter.
+func NewOpenRouterClient(apiKey, model string) *OpenAIClient {
+	return &OpenAIClient{
+		APIKey:        apiKey,
+		Model:         model,
+		BaseURL:       openRouterAPIURL,
+		ProviderLabel: "OpenRouter",
+		HTTPClient:    &http.Client{},
+	}
+}
+
+// NewCloudClient builds the LLM client for the explicit Cloud-tab selection.
+// kind is one of "openai" | "anthropic" | "openrouter" | "custom". For
+// "custom", customURL is the chat-completions endpoint and customKey the API
+// key.
+func NewCloudClient(kind, model, anthropicKey, openaiKey, openRouterKey, customURL, customKey string) (LLMClient, error) {
+	if model == "" {
+		return nil, fmt.Errorf("no cloud model selected")
+	}
+	switch Provider(kind) {
+	case ProviderAnthropic:
+		if anthropicKey == "" {
+			return nil, fmt.Errorf("Anthropic API key not configured")
+		}
+		return NewAnthropicClient(anthropicKey, model), nil
+	case ProviderOpenAI:
+		if openaiKey == "" {
+			return nil, fmt.Errorf("OpenAI API key not configured")
+		}
+		return NewOpenAIClient(openaiKey, model), nil
+	case ProviderOpenRouter:
+		if openRouterKey == "" {
+			return nil, fmt.Errorf("OpenRouter API key not configured")
+		}
+		return NewOpenRouterClient(openRouterKey, model), nil
+	case ProviderCustom:
+		base := strings.TrimRight(customURL, "/")
+		if base == "" {
+			return nil, fmt.Errorf("custom cloud URL is empty")
+		}
+		c := NewOpenAIClient(customKey, model)
+		// Accept either a /v1 base or a full /chat/completions URL.
+		if strings.HasSuffix(base, "/chat/completions") {
+			c.BaseURL = base
+		} else {
+			c.BaseURL = base + "/chat/completions"
+		}
+		c.ProviderLabel = "Custom Cloud"
+		return c, nil
+	default:
+		return nil, fmt.Errorf("cloud provider %q not supported", kind)
+	}
+}
 
 // DetectProvider returns the API provider for a given model ID.
 func DetectProvider(model string) Provider {

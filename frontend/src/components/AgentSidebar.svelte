@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
 
   export let agentTaskHistory = [];
   export let activeAgentTaskId = null;
@@ -9,6 +9,36 @@
 
   let searchQuery = '';
   let hoveredTaskId = null;
+
+  // ── Resizer state ──
+  let sidebarWidth = 220;
+  let isResizing = false;
+
+  onMount(() => {
+    const saved = localStorage.getItem('flow-sidebar-width');
+    if (saved) {
+      sidebarWidth = Math.max(160, Math.min(450, parseInt(saved, 10)));
+    }
+  });
+
+  function startResize(e) {
+    e.preventDefault();
+    isResizing = true;
+    window.addEventListener('mousemove', handleResize);
+    window.addEventListener('mouseup', stopResize);
+  }
+
+  function handleResize(e) {
+    if (!isResizing) return;
+    sidebarWidth = Math.max(160, Math.min(450, e.clientX));
+  }
+
+  function stopResize() {
+    isResizing = false;
+    window.removeEventListener('mousemove', handleResize);
+    window.removeEventListener('mouseup', stopResize);
+    localStorage.setItem('flow-sidebar-width', sidebarWidth.toString());
+  }
 
   $: filtered = searchQuery
     ? agentTaskHistory.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -42,7 +72,8 @@
   }
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" style="width: {sidebarWidth}px;">
+  <div class="resize-handle" class:active={isResizing} on:mousedown={startResize} role="separator" aria-label="Resize Sidebar"></div>
   <div class="drag-region"></div>
   <div class="sidebar-inner">
     <button class="nav-new" on:click={() => dispatch('newTask')}>
@@ -112,10 +143,24 @@
   </div>
 
   <div class="sidebar-footer">
+    <button class="footer-nav-btn" on:click={() => dispatch('openToolkit')} title="Customize">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="4" y1="21" x2="4" y2="14" />
+        <line x1="4" y1="10" x2="4" y2="3" />
+        <line x1="12" y1="21" x2="12" y2="12" />
+        <line x1="12" y1="8" x2="12" y2="3" />
+        <line x1="20" y1="21" x2="20" y2="16" />
+        <line x1="20" y1="12" x2="20" y2="3" />
+        <line x1="1" y1="14" x2="7" y2="14" />
+        <line x1="9" y1="8" x2="15" y2="8" />
+        <line x1="17" y1="16" x2="23" y2="16" />
+      </svg>
+      <span>Customize</span>
+    </button>
     <button class="footer-btn" on:click={() => dispatch('openSettings')} title="Settings">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
       </svg>
     </button>
   </div>
@@ -123,6 +168,7 @@
 
 <style>
   .sidebar {
+    position: relative;
     width: 220px; height: 100%;
     background: var(--bg-sidebar);
     border-right: 1px solid var(--border);
@@ -130,6 +176,19 @@
     display: flex; flex-direction: column;
     overflow: hidden;
     user-select: none;
+  }
+
+  .resize-handle {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 4px;
+    cursor: col-resize;
+    z-index: 100;
+    transition: background 0.15s ease;
+  }
+  .resize-handle:hover,
+  .resize-handle.active {
+    background: var(--accent);
   }
 
   .drag-region { --wails-draggable: drag; height: 12px; flex-shrink: 0; }
@@ -202,8 +261,12 @@
   .task-item.active { background: rgba(255,255,255,0.08); color: var(--text-primary); }
 
   .task-title {
-    flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
     min-width: 0;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
   }
 
   .streaming-dot {
@@ -218,25 +281,37 @@
 
   .action-btn {
     display: flex; align-items: center; justify-content: center;
-    width: 22px; height: 22px; padding: 0;
+    width: 0; height: 22px; padding: 0;
     background: none; border: none; border-radius: 4px;
     color: var(--text-muted); cursor: pointer;
-    transition: all 0.15s ease;
+    transition: width 0.15s ease, opacity 0.15s ease;
     opacity: 0; flex-shrink: 0;
+    overflow: hidden;
   }
-  .action-btn.visible { opacity: 1; }
+  .action-btn.visible { width: 22px; opacity: 1; }
   .action-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
   .delete-btn:hover { color: #f87171; background: rgba(248,113,113,0.1); }
 
   .sidebar-footer {
-    padding: 8px 14px;
+    padding: 8px 10px;
     border-top: 1px solid var(--border);
-    display: flex; justify-content: flex-end;
+    display: flex; align-items: center; justify-content: space-between; gap: 4px;
   }
+
+  .footer-nav-btn {
+    display: flex; align-items: center; gap: 8px;
+    flex: 1; height: 32px; padding: 0 10px;
+    background: none; border: none; border-radius: 8px;
+    color: var(--text-secondary); cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 13px; font-weight: 500; font-family: var(--font-sans);
+  }
+  .footer-nav-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .footer-nav-btn svg { flex-shrink: 0; }
 
   .footer-btn {
     display: flex; align-items: center; justify-content: center;
-    width: 32px; height: 32px;
+    width: 32px; height: 32px; flex-shrink: 0;
     background: none; border: none; border-radius: 8px;
     color: var(--text-muted); cursor: pointer;
     transition: all 0.15s ease;

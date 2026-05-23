@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -235,7 +236,7 @@ func (a *App) StopFlow() (string, error) {
 	}
 
 	log.Printf("[flow] transcription complete: %d chars", len(result.Text))
-	return result.Text, nil
+	return a.ApplySnippets(result.Text), nil
 }
 
 // loadSpeechConfig builds a TranscribeConfig from the app's persisted settings.
@@ -278,3 +279,65 @@ func (a *App) appendRefinement(transcriptID string, ref FlowRefinement) error {
 	}
 	return os.WriteFile(path, out, 0o644)
 }
+
+// UpdateFlowTranscript updates the text and word count of an existing transcript.
+func (a *App) UpdateFlowTranscript(id string, text string) error {
+	dir, err := a.flowDir()
+	if err != nil {
+		return err
+	}
+
+	path := filepath.Join(dir, id+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read transcript %s: %w", id, err)
+	}
+
+	var t FlowTranscript
+	if err := json.Unmarshal(data, &t); err != nil {
+		return fmt.Errorf("parse transcript %s: %w", id, err)
+	}
+
+	t.Text = text
+	t.WordCount = len(strings.Fields(text))
+
+	out, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal transcript: %w", err)
+	}
+
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		return fmt.Errorf("write transcript: %w", err)
+	}
+
+	log.Printf("[flow] updated %s (%d words)", id, t.WordCount)
+	return nil
+}
+
+// CheckMicrophonePermission returns the microphone status:
+// "authorized", "denied", "restricted", or "undetermined"
+func (a *App) CheckMicrophonePermission() string {
+	status := speech.CheckMicrophonePermission()
+	switch status {
+	case 0:
+		return "undetermined"
+	case 1:
+		return "restricted"
+	case 2:
+		return "denied"
+	case 3:
+		return "authorized"
+	default:
+		return "authorized"
+	}
+}
+
+// OpenMicrophoneSettings opens macOS System Settings to the Microphone privacy pane.
+func (a *App) OpenMicrophoneSettings() {
+	log.Println("[flow] opening macOS microphone settings")
+	cmd := exec.Command("open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+	if err := cmd.Run(); err != nil {
+		log.Printf("[flow] failed to open microphone settings: %v", err)
+	}
+}
+

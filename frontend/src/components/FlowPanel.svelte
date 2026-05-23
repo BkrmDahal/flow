@@ -4,6 +4,7 @@
   import FlowRefineMenu from './FlowRefineMenu.svelte'
 
   export let onOpenSettings = () => {}
+  export let onOpenToolkit = () => {}
 
   let transcripts = []
   let selectedId = null
@@ -17,6 +18,118 @@
   let errorMsg = ''
   let searchQuery = ''
   let modelDownload = null        // { downloaded, total } while bundled model downloads
+  let micPermission = 'authorized' // 'authorized' | 'denied' | 'restricted' | 'undetermined'
+
+  async function checkMicPermission() {
+    try {
+      if (Backend.CheckMicrophonePermission) {
+        micPermission = await Backend.CheckMicrophonePermission()
+      }
+    } catch (e) {
+      console.warn('Failed to check microphone permission:', e)
+    }
+  }
+
+  async function openMicrophoneSettings() {
+    try {
+      if (Backend.OpenMicrophoneSettings) {
+        await Backend.OpenMicrophoneSettings()
+        setTimeout(checkMicPermission, 1000)
+      }
+    } catch (e) {
+      console.error('Failed to open microphone settings:', e)
+    }
+  }
+
+  // ── Resizer state ──
+  let sidebarWidth = 220;
+  let isResizing = false;
+
+  function startResize(e) {
+    e.preventDefault();
+    isResizing = true;
+    window.addEventListener('mousemove', handleResize);
+    window.addEventListener('mouseup', stopResize);
+  }
+
+  function handleResize(e) {
+    if (!isResizing) return;
+    sidebarWidth = Math.max(160, Math.min(450, e.clientX));
+  }
+
+  function stopResize() {
+    isResizing = false;
+    window.removeEventListener('mousemove', handleResize);
+    window.removeEventListener('mouseup', stopResize);
+    localStorage.setItem('flow-sidebar-width', sidebarWidth.toString());
+  }
+
+  // ── Click and Type/Inline Edit variables ──
+  let lastViewingId = null
+  let viewingText = ''
+  let originalViewingText = ''
+
+  $: if (viewing) {
+    if (viewing.id !== lastViewingId) {
+      viewingText = viewing.text
+      originalViewingText = viewing.text
+      lastViewingId = viewing.id
+    }
+  } else {
+    lastViewingId = null
+    viewingText = ''
+    originalViewingText = ''
+  }
+
+  async function saveTypedText() {
+    if (!liveText.trim()) return
+    errorMsg = ''
+    try {
+      const id = await Backend.SaveFlowTranscript(liveText, 0)
+      await refreshList()
+      await selectTranscript(id)
+      await maybeAutoRefine(id)
+    } catch (e) {
+      errorMsg = String(e)
+    }
+  }
+
+  async function saveViewingEdits() {
+    if (!viewing || viewingText === originalViewingText) return
+    errorMsg = ''
+    try {
+      await Backend.UpdateFlowTranscript(viewing.id, viewingText)
+      originalViewingText = viewingText
+      await refreshList()
+      viewing = await Backend.LoadFlowTranscript(viewing.id)
+    } catch (e) {
+      errorMsg = String(e)
+    }
+  }
+
+  async function handleViewingBlur() {
+    if (viewingText !== originalViewingText) {
+      await saveViewingEdits()
+    }
+  }
+
+  function autoResize(node) {
+    const adjust = () => {
+      node.style.height = 'auto'
+      node.style.height = `${node.scrollHeight}px`
+    }
+    node.addEventListener('input', adjust)
+    setTimeout(adjust, 0)
+    return {
+      update() {
+        adjust()
+      },
+      destroy() {
+        node.removeEventListener('input', adjust)
+      }
+    }
+  }
+
 
   // ── Hotkey banner state ──
   let hotkeyEnabled = false
@@ -50,9 +163,10 @@
   function onSettingsSaved() {
     hotkeyBannerDismissed = false
     loadHotkeyStatus()
+    checkMicPermission()
   }
 
-  $: wordCount = (liveText || viewing?.text || '').trim().split(/\s+/).filter(Boolean).length
+  $: wordCount = (viewing ? viewingText : liveText).trim().split(/\s+/).filter(Boolean).length
   $: filteredTranscripts = searchQuery.trim()
     ? transcripts.filter(t => (t.title || '').toLowerCase().includes(searchQuery.toLowerCase()))
     : transcripts
@@ -168,9 +282,7 @@
     }
   }
 
-  async function deleteTranscript(id, evt) {
-    evt?.stopPropagation()
-    if (!confirm('Delete this transcript?')) return
+  async function deleteTranscript(id) {
     try {
       await Backend.DeleteFlowTranscript(id)
       if (selectedId === id) {
@@ -217,22 +329,18 @@
     return s.length > 60 ? s.slice(0, 60) + '…' : s
   }
 
-  // M6: Cmd+Shift+R keyboard shortcut toggles recording.
-  function handleKeydown(e) {
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'r') {
-      e.preventDefault()
-      if (isRecording) {
-        stopRecording()
-      } else {
-        startRecording()
-      }
-    }
-  }
+
 
   onMount(() => {
+    const saved = localStorage.getItem('flow-sidebar-width');
+    if (saved) {
+      sidebarWidth = Math.max(160, Math.min(450, parseInt(saved, 10)));
+    }
     refreshList()
     loadHotkeyStatus()
+    checkMicPermission()
     window.addEventListener('flow:settings-saved', onSettingsSaved)
+    window.addEventListener('focus', checkMicPermission)
     Events.on('flow:result', (payload) => {
       liveText = payload.text ?? liveText
     })
@@ -240,6 +348,9 @@
       errorMsg = payload.error ?? 'Unknown speech error'
       isRecording = false
       stopTimer()
+      if (errorMsg.toLowerCase().includes('permission')) {
+        checkMicPermission()
+      }
     })
     Events.on('flow:hotkey:toggle', () => {
       if (isRecording) {
@@ -254,7 +365,6 @@
         total: payload?.total ?? 0,
       }
     })
-    window.addEventListener('keydown', handleKeydown)
   })
 
   onDestroy(() => {
@@ -262,15 +372,16 @@
     Events.off('flow:error')
     Events.off('flow:hotkey:toggle')
     Events.off('flow:model:download:progress')
-    window.removeEventListener('keydown', handleKeydown)
     window.removeEventListener('flow:settings-saved', onSettingsSaved)
+    window.removeEventListener('focus', checkMicPermission)
     stopTimer()
   })
 </script>
 
-<div class="flow">
+<div class="flow" style="grid-template-columns: {sidebarWidth}px 1fr;">
   <!-- Sidebar -->
   <aside class="sidebar">
+    <div class="resize-handle" class:active={isResizing} on:mousedown={startResize} role="separator" aria-label="Resize Sidebar"></div>
     <div class="drag-region"></div>
     <div class="sidebar-inner">
       <button class="nav-new" on:click={startRecording} disabled={isRecording}>
@@ -290,17 +401,28 @@
           <div class="date-group">
             <div class="date-label">{group.label}</div>
             {#each group.items as t (t.id)}
-              <button
+              <!-- svelte-ignore a11y-click-events-have-key-events -->
+              <div
                 class="transcript-item"
                 class:selected={selectedId === t.id}
                 on:click={() => selectTranscript(t.id)}
+                role="button"
+                tabindex="0"
               >
                 <div class="transcript-title">{t.title}</div>
                 <div class="transcript-meta">
                   {t.wordCount} words · {formatDuration(t.duration)}
                 </div>
-                <button class="transcript-delete" on:click={(e) => deleteTranscript(t.id, e)} title="Delete recording">×</button>
-              </button>
+                <button
+                  class="transcript-delete"
+                  on:click|stopPropagation={() => deleteTranscript(t.id)}
+                  title="Delete recording"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                  </svg>
+                </button>
+              </div>
             {/each}
           </div>
         {/each}
@@ -311,9 +433,24 @@
     </div>
 
     <div class="sidebar-bottom">
+      <button class="footer-nav-btn" on:click={onOpenToolkit} title="Customize">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="4" y1="21" x2="4" y2="14" />
+          <line x1="4" y1="10" x2="4" y2="3" />
+          <line x1="12" y1="21" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12" y2="3" />
+          <line x1="20" y1="21" x2="20" y2="16" />
+          <line x1="20" y1="12" x2="20" y2="3" />
+          <line x1="1" y1="14" x2="7" y2="14" />
+          <line x1="9" y1="8" x2="15" y2="8" />
+          <line x1="17" y1="16" x2="23" y2="16" />
+        </svg>
+        <span>Customize</span>
+      </button>
       <button class="sidebar-icon-btn" on:click={onOpenSettings} title="Settings">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
         </svg>
       </button>
     </div>
@@ -322,7 +459,25 @@
   <!-- Main content -->
   <main class="content">
     <!-- ─── Hotkey Banner ─── -->
-    {#if hotkeyLoaded && !hotkeyBannerDismissed}
+    <!-- ─── Microphone Permission Alert Banner ─── -->
+    {#if micPermission === 'denied' || micPermission === 'restricted'}
+      <div class="hotkey-banner hotkey-banner-warning">
+        <div class="hotkey-banner-icon hotkey-banner-icon-warning">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="1" y1="1" x2="23" y2="23" />
+            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+            <path d="M17 11.5a6 6 0 0 1-2.5 4.5" />
+            <path d="M12 19v4" />
+            <path d="M8 23h8" />
+          </svg>
+        </div>
+        <div class="hotkey-banner-body">
+          <span class="hotkey-banner-title">Microphone permission denied</span>
+          <span class="hotkey-banner-desc">Flow requires microphone access for voice dictation. Please enable it in System Settings → Privacy & Security → Microphone.</span>
+        </div>
+        <button class="hotkey-banner-btn warning-btn" on:click={openMicrophoneSettings} type="button">Open System Settings</button>
+      </div>
+    {:else if hotkeyLoaded && !hotkeyBannerDismissed}
       {#if !hotkeyEnabled}
         <div class="hotkey-banner hotkey-banner-enable">
           <div class="hotkey-banner-icon">
@@ -423,7 +578,13 @@
           {/if}
         </div>
       {:else if viewing}
-        <div class="transcript-text">{viewing.text}</div>
+        <textarea
+          class="transcript-textarea-view"
+          bind:value={viewingText}
+          use:autoResize
+          on:blur={handleViewingBlur}
+          placeholder="Start typing..."
+        ></textarea>
         {#if viewing.refinements?.length}
           <div class="refinements">
             {#each viewing.refinements as r}
@@ -440,49 +601,50 @@
         {/if}
         <FlowRefineMenu transcript={viewing} onRefined={() => selectTranscript(viewing.id)} />
       {:else}
-        <span class="placeholder-text">Click the microphone to start speaking</span>
+        <textarea
+          class="transcript-textarea"
+          bind:value={liveText}
+          on:blur={saveTypedText}
+          placeholder="Click the microphone to start speaking, or start typing here..."
+        ></textarea>
       {/if}
     </div>
 
     <!-- Bottom actions -->
     <footer class="bottom-bar">
-      <div class="bottom-actions">
-        <button class="action-btn" on:click={clearText} disabled={!liveText && !viewing} title="Clear transcript">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-          Clear
+      <div class="bottom-left">
+        <button class="action-btn" on:click={clearText} disabled={viewing ? !viewingText : !liveText} title="Clear transcript">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
         </button>
-        <button class="action-btn" on:click={() => copyText(liveText || viewing?.text || '')} disabled={!liveText && !viewing} title="Copy to clipboard">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-          Copy
-        </button>
-        <button class="action-btn" on:click={stopRecording} disabled={!isRecording} title="Stop recording and save">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
-          Save
+        <button class="action-btn" on:click={() => copyText(viewing ? viewingText : liveText)} disabled={viewing ? !viewingText.trim() : !liveText.trim()} title="Copy to clipboard">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
         </button>
       </div>
 
-      <!-- Big microphone button -->
-      <button
-        class="mic-btn"
-        class:recording={isRecording}
-        on:click={() => isRecording ? stopRecording() : startRecording()}
-        title={isRecording ? "Stop recording" : "Start recording"}
-      >
-        {#if isRecording}
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-        {:else}
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-        {/if}
-      </button>
+      <div class="bottom-center">
+        <!-- Big microphone button -->
+        <button
+          class="mic-btn"
+          class:recording={isRecording}
+          on:click={() => isRecording ? stopRecording() : startRecording()}
+          title={isRecording ? "Stop recording" : "Start recording"}
+        >
+          {#if isRecording}
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+          {:else}
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          {/if}
+        </button>
+      </div>
 
-      <div class="status-text">
+      <div class="bottom-right">
         {#if isRecording}
-          <span class="status-recording">
-            <span class="rec-dot"></span>
-            Recording · {formatTime(elapsedSec)}
-          </span>
-        {:else}
-          Ready
+          <div class="status-text">
+            <span class="status-recording">
+              <span class="rec-dot"></span>
+              Recording · {formatTime(elapsedSec)}
+            </span>
+          </div>
         {/if}
       </div>
     </footer>
@@ -512,6 +674,10 @@
     background: rgba(34, 197, 94, 0.06);
     border-bottom: 1px solid rgba(34, 197, 94, 0.18);
   }
+  .hotkey-banner-warning {
+    background: rgba(239, 68, 68, 0.06);
+    border-bottom: 1px solid rgba(239, 68, 68, 0.18);
+  }
   .hotkey-banner-icon {
     width: 34px; height: 34px;
     display: flex; align-items: center; justify-content: center;
@@ -524,9 +690,20 @@
     background: rgba(34, 197, 94, 0.12);
     color: #4ade80;
   }
+  .hotkey-banner-icon-warning {
+    background: rgba(239, 68, 68, 0.12);
+    color: var(--danger);
+  }
+  .warning-btn {
+    background: var(--danger) !important;
+    color: #fff !important;
+  }
+  .warning-btn:hover {
+    background: #dc2626 !important;
+  }
   .hotkey-banner-body {
     flex: 1;
-    display: flex; flex-direction: column; gap: 1px;
+    display: flex; flex-direction: column; gap: 4px;
     min-width: 0;
   }
   .hotkey-banner-title {
@@ -534,7 +711,7 @@
     color: var(--text-primary); line-height: 1.3;
   }
   .hotkey-banner-desc {
-    font-size: 11px; color: var(--text-secondary); line-height: 1.4;
+    font-size: 11px; color: var(--text-secondary); line-height: 1.6;
   }
   .hotkey-kbd {
     display: inline-block;
@@ -544,6 +721,8 @@
     border-radius: 4px;
     font-family: inherit; font-size: 10px; font-weight: 600;
     color: var(--text-primary); letter-spacing: 0.2px;
+    vertical-align: middle;
+    margin: 1px 0;
   }
   .hotkey-banner-btn {
     padding: 5px 12px;
@@ -571,7 +750,8 @@
 
   /* ─── Sidebar ─── */
   .sidebar {
-    width: 220px;
+    position: relative;
+    width: 100%;
     height: 100%;
     display: flex;
     flex-direction: column;
@@ -579,6 +759,19 @@
     background: var(--bg-sidebar);
     overflow: hidden;
     user-select: none;
+  }
+
+  .resize-handle {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 4px;
+    cursor: col-resize;
+    z-index: 100;
+    transition: background 0.15s ease;
+  }
+  .resize-handle:hover,
+  .resize-handle.active {
+    background: var(--accent);
   }
   .drag-region {
     --wails-draggable: drag;
@@ -688,11 +881,16 @@
   .transcript-title {
     font-size: 13px;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
-    padding-right: 22px;
+    padding-right: 6px;
     font-weight: 400;
     min-width: 0;
+    transition: padding-right 0.15s ease;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+  }
+  .transcript-item:hover .transcript-title {
+    padding-right: 22px;
   }
   .transcript-item.selected .transcript-title,
   .transcript-item:hover .transcript-title { font-weight: 500; }
@@ -703,19 +901,21 @@
   }
   .transcript-delete {
     position: absolute;
-    top: 5px; right: 6px;
-    background: transparent;
-    color: var(--text-muted);
-    border: none;
-    font-size: 15px;
-    line-height: 1;
-    padding: 2px 5px;
-    border-radius: 4px;
-    opacity: 0;
+    top: 10px; right: 10px;
+    display: flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; padding: 0;
+    background: transparent; border: none; border-radius: 4px;
+    color: var(--text-muted); cursor: pointer;
     transition: all 0.15s ease;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 10;
   }
-  .transcript-item:hover .transcript-delete { opacity: 1; }
-  .transcript-delete:hover { color: var(--danger); background: var(--danger-bg); }
+  .transcript-item:hover .transcript-delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .transcript-delete:hover { color: #f87171; background: rgba(248,113,113,0.1); }
 
   .sidebar-empty {
     padding: 12px;
@@ -727,12 +927,31 @@
   .sidebar-bottom {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: space-between;
     gap: 4px;
-    padding: 8px 14px;
+    padding: 8px 10px;
     border-top: 1px solid var(--border);
     flex-shrink: 0;
   }
+  .footer-nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    height: 32px;
+    padding: 0 10px;
+    background: none;
+    border: none;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: var(--font-sans);
+  }
+  .footer-nav-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .footer-nav-btn svg { flex-shrink: 0; }
   .sidebar-icon-btn {
     background: transparent;
     border: none;
@@ -745,6 +964,7 @@
     justify-content: center;
     cursor: pointer;
     transition: all 0.15s ease;
+    flex-shrink: 0;
   }
   .sidebar-icon-btn:hover { color: var(--text-secondary); background: var(--bg-hover); }
 
@@ -872,10 +1092,29 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
   }
-  .placeholder-text {
-    color: var(--text-muted);
+  .transcript-textarea, .transcript-textarea-view {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    resize: none;
+    font-family: inherit;
     font-size: 15px;
+    line-height: 1.7;
+    color: var(--text-primary);
+    padding: 0;
+    margin: 0;
+    overflow-y: hidden;
   }
+  .transcript-textarea {
+    height: 100%;
+    min-height: 200px;
+    overflow-y: auto;
+  }
+  .transcript-textarea::placeholder, .transcript-textarea-view::placeholder {
+    color: var(--text-muted);
+  }
+
 
   .refinements {
     margin-top: 20px;
@@ -918,34 +1157,56 @@
 
   /* ─── Bottom bar ─── */
   .bottom-bar {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    gap: 16px;
+    width: 100%;
     flex-shrink: 0;
   }
-  .bottom-actions {
+  .bottom-left {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+  .bottom-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .bottom-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: flex-end;
   }
   .action-btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    background: transparent;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: rgba(255, 255, 255, 0.03);
     border: 1px solid var(--border-subtle);
     color: var(--text-secondary);
-    padding: 7px 14px;
-    border-radius: var(--radius-full);
-    font-size: 12px;
-    font-weight: 500;
-    transition: all 0.12s;
+    border-radius: 50%;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    padding: 0;
   }
   .action-btn:hover:not(:disabled) {
     color: var(--text-primary);
-    border-color: var(--border);
+    border-color: var(--accent);
     background: var(--bg-hover);
+    transform: translateY(-1px);
   }
-  .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .action-btn:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  .action-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
 
   /* Mic button */
   .mic-btn {
@@ -958,7 +1219,6 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto;
     box-shadow: 0 4px 16px rgba(45, 212, 191, 0.25);
     transition: all 0.2s ease;
   }

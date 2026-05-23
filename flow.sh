@@ -8,18 +8,20 @@ APP_BUNDLE="build/bin/Flow.app"
 DMG_NAME="Flow-Installer"
 DMG_DIR="build/dmg"
 DMG_OUTPUT="build/${DMG_NAME}.dmg"
-VERSION="0.1.0"
+VERSION="0.6.0"
 
 usage() {
     echo "Usage: ./flow.sh <command>"
     echo ""
     echo "Commands:"
-    echo "  dev        Start dev mode (hot-reload frontend + live Go recompilation)"
-    echo "  build      Build production Mac app (Apple Silicon)"
-    echo "  universal  Build universal binary (Intel + Apple Silicon)"
-    echo "  dmg        Build app and create DMG installer"
-    echo "  open       Launch the built .app"
-    echo "  doctor     Check if your system is ready for Wails development"
+    echo "  dev          Start dev mode (hot-reload frontend + live Go recompilation)"
+    echo "  build        Build production Mac app (Apple Silicon)"
+    echo "  universal    Build universal binary (Intel + Apple Silicon)"
+    echo "  dmg          Build app and create DMG installer"
+    echo "  sign         Sign, notarize, and staple the app for public distribution"
+    echo "  open         Launch the built .app"
+    echo "  doctor       Check if your system is ready for Wails development"
+    echo "  dequarantine Remove Gatekeeper quarantine flag from built/installed app"
     echo ""
 }
 
@@ -44,12 +46,39 @@ case "${1:-}" in
         open "${APP_BUNDLE}"
         ;;
     dmg)
-        PLATFORM="${2:-darwin/arm64}"
-        echo "==> Building Flow.app (${PLATFORM})..."
-        wails build -platform "${PLATFORM}"
-        echo ""
+        PLATFORM="darwin/arm64"
+        SKIP_BUILD=false
+        
+        # Check if --skip-build is in the arguments
+        for arg in "$@"; do
+            if [ "$arg" = "--skip-build" ]; then
+                SKIP_BUILD=true
+            fi
+        done
+
+        # If the second argument is not --skip-build and is provided, use it as platform
+        if [ "${2:-}" != "--skip-build" ] && [ -n "${2:-}" ]; then
+            PLATFORM="$2"
+        fi
+
+        if [ "$SKIP_BUILD" = false ]; then
+            echo "==> Building Flow.app (${PLATFORM})...."
+            wails build -platform "${PLATFORM}"
+            echo ""
+        else
+            echo "==> Skipping build, packaging existing Flow.app bundle..."
+        fi
 
         echo "==> Creating DMG installer..."
+
+        # 1. Proactively clean up any stale mounts of the same app volume to avoid conflict or "Resource temporarily unavailable"
+        echo "Cleaning up any existing DMG mounts..."
+        hdiutil info | grep -E "/Volumes/${APP_NAME}( [0-9]+)?" | awk '{print $1}' | while read -r dev; do
+            if [ -n "$dev" ]; then
+                echo "Detaching stale mount: $dev"
+                hdiutil detach "$dev" -force 2>/dev/null || true
+            fi
+        done
 
         rm -f "${PWD}"/build/*.dmg
         rm -rf "${DMG_DIR}"
@@ -62,17 +91,32 @@ case "${1:-}" in
         DMG_SIZE_KB=$(( APP_SIZE_KB + 20480 ))
 
         TMP_DMG="build/${DMG_NAME}-tmp.dmg"
-        hdiutil create \
-            -srcfolder "${DMG_DIR}" \
-            -volname "${APP_NAME}" \
-            -fs HFS+ \
-            -fsargs "-c c=64,a=16,e=16" \
-            -format UDRW \
-            -size "${DMG_SIZE_KB}k" \
-            "${TMP_DMG}"
+        CREATE_SUCCESS=false
+        for i in {1..5}; do
+            if hdiutil create \
+                -srcfolder "${DMG_DIR}" \
+                -volname "${APP_NAME}" \
+                -fs HFS+ \
+                -fsargs "-c c=64,a=16,e=16" \
+                -format UDRW \
+                -size "${DMG_SIZE_KB}k" \
+                "${TMP_DMG}"; then
+                CREATE_SUCCESS=true
+                break
+            fi
+            echo "hdiutil create failed or resource is busy, retrying in 3 seconds... ($i/5)"
+            sleep 3
+        done
 
+        if [ "$CREATE_SUCCESS" = false ]; then
+            echo "Error: Failed to create temporary DMG after 5 attempts."
+            exit 1
+        fi
+
+
+        # 2. Extract full mount path preserving spaces (using sed instead of awk to avoid truncating at spaces)
         MOUNT_DIR=$(hdiutil attach -readwrite -noverify "${TMP_DMG}" | \
-            grep -E '^\S+\s+Apple_HFS' | awk '{print $3}')
+            grep -E '^\S+\s+Apple_HFS' | sed 's/.*Apple_HFS[[:space:]]*//')
 
         if [ -z "${MOUNT_DIR}" ]; then
             echo "Error: Failed to mount DMG"
@@ -103,7 +147,24 @@ end tell
 EOF
 
         sync
-        hdiutil detach "${MOUNT_DIR}" -quiet
+        
+        # 3. Detach DMG with a retry loop to give Finder and system services time to release resources
+        echo "==> Detaching DMG mount..."
+        DETACH_SUCCESS=false
+        for i in {1..5}; do
+            if hdiutil detach "${MOUNT_DIR}" -quiet 2>/dev/null; then
+                DETACH_SUCCESS=true
+                break
+            fi
+            echo "Mount is busy, retrying in 2 seconds... ($i/5)"
+            sleep 2
+        done
+
+        if [ "$DETACH_SUCCESS" = false ]; then
+            echo "Warning: Mount is still busy, forcing detach..."
+            hdiutil detach "${MOUNT_DIR}" -force -quiet || true
+            sleep 1
+        fi
 
         hdiutil convert "${TMP_DMG}" \
             -format UDZO \
@@ -120,6 +181,12 @@ EOF
         ;;
     doctor)
         wails doctor
+        ;;
+    dequarantine)
+        ./dequarantine.sh "${2:-}"
+        ;;
+    sign|release)
+        ./scripts/sign.sh
         ;;
     *)
         usage

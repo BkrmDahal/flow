@@ -8,9 +8,13 @@ import (
 	"sync"
 
 	"github.com/user/flow/backend/internal/config"
+	"github.com/user/flow/backend/internal/llamacpp"
 	"github.com/user/flow/backend/internal/llm"
+	"github.com/user/flow/backend/internal/plugins"
 	"github.com/user/flow/backend/internal/session"
+	"github.com/user/flow/backend/internal/snippets"
 	"github.com/user/flow/backend/internal/speech"
+	"github.com/user/flow/backend/internal/streaming"
 	"github.com/user/flow/backend/internal/tools"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -23,10 +27,19 @@ type App struct {
 	baseDir string
 	cfg     *config.Config
 	llm     llm.LLMClient
+	llama   *llamacpp.Manager
 
 	// Agent / session infrastructure
 	sessionMgr *session.Manager
 	tools      *tools.Registry
+
+	// Stream management (shared by agent and cowork)
+	streams *streaming.StreamManager
+	seq     streaming.SeqCounter
+
+	// Plugins & Snippets
+	plugins  *plugins.Store
+	snippets *snippets.Store
 
 	voiceMu            sync.Mutex
 	voiceRecordingPath string
@@ -55,6 +68,7 @@ func (a *App) Startup(ctx context.Context) {
 		return
 	}
 	a.cfg = cfg
+	a.llama = llamacpp.NewManager(base)
 
 	// Initialise session manager.
 	a.sessionMgr = session.NewManager(base)
@@ -62,6 +76,13 @@ func (a *App) Startup(ctx context.Context) {
 	// Initialise tool registry with full standard tools (memory, todo, skill, etc.)
 	a.tools = tools.NewRegistry()
 	tools.RegisterStandardTools(a.tools, base)
+
+	// Initialise stream manager (shared by agent + cowork).
+	a.streams = streaming.NewStreamManager()
+
+	// Initialise plugins & snippets stores.
+	a.plugins = plugins.NewStore(base)
+	a.snippets = snippets.NewStore(base)
 
 	if err := a.rebuildLLMClient(); err != nil {
 		// Expected on first run before the user has configured a model.
@@ -91,6 +112,11 @@ func (a *App) Shutdown(ctx context.Context) {
 	if speech.IsDictationEnabled() {
 		speech.TeardownDictation()
 	}
+	if a.llama != nil {
+		if err := a.llama.Stop(); err != nil {
+			log.Printf("flow: stop llama-server failed: %v", err)
+		}
+	}
 	speech.HideMenuBarIcon()
 	log.Println("flow: shutdown")
 }
@@ -113,4 +139,32 @@ func (a *App) OpenLogFile() error {
 // GetContext returns the Wails context, used by main.go menu callbacks.
 func (a *App) GetContext() context.Context {
 	return a.ctx
+}
+
+// SubmitSandboxApproval is called by the Svelte frontend to approve or deny a folder access request
+func (a *App) SubmitSandboxApproval(id string, approved bool) {
+	tools.SandboxApprovalMu.Lock()
+	ch, exists := tools.PendingSandboxApprovals[id]
+	tools.SandboxApprovalMu.Unlock()
+
+	if exists {
+		select {
+		case ch <- approved:
+		default:
+		}
+	}
+}
+
+// SubmitCommandApproval is called by the Svelte frontend to respond to a pending command approval request
+func (a *App) SubmitCommandApproval(id string, choice string) {
+	tools.CommandApprovalMu.Lock()
+	ch, exists := tools.PendingCommandApprovals[id]
+	tools.CommandApprovalMu.Unlock()
+
+	if exists {
+		select {
+		case ch <- tools.CommandApprovalResponse{Choice: choice}:
+		default:
+		}
+	}
 }

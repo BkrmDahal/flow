@@ -1,11 +1,50 @@
 <script>
-  import { afterUpdate, createEventDispatcher, tick } from 'svelte';
+  import { afterUpdate, createEventDispatcher, tick, onMount, onDestroy } from 'svelte';
   import { renderMarkdown } from '../lib/markdown.js';
   import { formatToolLabel, formatToolName } from '../lib/utils/formatters.js';
+  import { Backend, Events } from '../lib/wails.js';
   import AgentFileCard from './AgentFileCard.svelte';
   import AgentInfoPanel from './AgentInfoPanel.svelte';
   import TypingIndicator from './TypingIndicator.svelte';
   import LoadingSpinner from './LoadingSpinner.svelte';
+  import { skills, refreshSkills } from '../lib/stores/pluginsStore.js';
+  import { renameCoworkTask, activeCoworkTaskId } from '../lib/stores/coworkStore.js';
+
+  let editingTitle = false;
+  let newTitleValue = '';
+
+  function startEditTitle() {
+    newTitleValue = taskTitle;
+    editingTitle = true;
+  }
+
+  function cancelEditTitle() {
+    editingTitle = false;
+  }
+
+  async function saveTitle() {
+    if (!editingTitle) return;
+    const trimmed = newTitleValue.trim();
+    if (trimmed && trimmed !== taskTitle) {
+      await renameCoworkTask($activeCoworkTaskId, trimmed);
+    }
+    editingTitle = false;
+  }
+
+  function handleTitleKeydown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveTitle();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEditTitle();
+    }
+  }
+
+  function autofocus(node) {
+    node.focus();
+    node.select();
+  }
 
   export let taskTitle = '';
   export let messages = [];            // Array of { role: 'user'|'assistant', content, steps?, isStreaming? }
@@ -30,9 +69,68 @@
   let textareaEl;
   let fileInputEl;
   let files = [];
+  let showSkillMenu = false;
+  let skillQuery = '';
+  let skillHighlightIdx = 0;
+  let skillMenuEl;
+  let selectedSkill = null;
   let skipNextScroll = false;
   let userScrolledUp = false;
   let dragOver = false;
+
+  // Integrations state
+  let showIntegrationsMenu = false;
+  let integrationFilter = '';
+  let integrationsMenuEl;
+  let integrationsBtnEl;
+
+  let integrations = [
+    {
+      id: 'parse-document',
+      name: 'parse-document',
+      iconClass: 'doc-icon',
+      iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 2v6h6"/></svg>`,
+      description: 'Extract and send document text',
+    },
+    {
+      id: 'web-search',
+      name: 'web-search',
+      iconClass: 'web-icon',
+      iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+      description: 'Search & Retrieve web resources',
+    },
+    {
+      id: 'screencapture',
+      name: 'screencapture',
+      iconClass: 'screen-icon',
+      iconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
+      description: 'Take screenshots for visual context',
+    }
+  ];
+
+  $: filteredIntegrations = integrationFilter
+    ? integrations.filter(i =>
+        i.name.toLowerCase().includes(integrationFilter.toLowerCase()) ||
+        (i.description || '').toLowerCase().includes(integrationFilter.toLowerCase())
+      )
+    : integrations;
+
+  function toggleIntegrationsMenu() {
+    showIntegrationsMenu = !showIntegrationsMenu;
+    if (showIntegrationsMenu) {
+      integrationFilter = '';
+    }
+  }
+
+  function handleGlobalClick(e) {
+    if (showIntegrationsMenu &&
+        integrationsMenuEl &&
+        !integrationsMenuEl.contains(e.target) &&
+        integrationsBtnEl &&
+        !integrationsBtnEl.contains(e.target)) {
+      showIntegrationsMenu = false;
+    }
+  }
 
   // File attachment constants (same as ChatInput)
   const ACCEPTED_TYPES = [
@@ -40,10 +138,22 @@
     'application/pdf',
     'text/plain', 'text/csv', 'text/markdown', 'text/html',
     'application/json', 'application/xml',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   ].join(',');
 
   const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
   const MAX_FILE_SIZE = 20 * 1024 * 1024;
+
+  $: filteredSkills = skillQuery
+    ? $skills.filter(skill =>
+        skill.name.toLowerCase().includes(skillQuery.toLowerCase()) ||
+        (skill.description || '').toLowerCase().includes(skillQuery.toLowerCase()))
+    : $skills;
+
+  $: if (filteredSkills.length > 0 && skillHighlightIdx >= filteredSkills.length) {
+    skillHighlightIdx = filteredSkills.length - 1;
+  }
 
   afterUpdate(() => {
     if (skipNextScroll) {
@@ -72,8 +182,8 @@
 
   // Build summary from all steps across all messages
   $: allSteps = messages.flatMap(m => m.steps || []);
-  $: commandCount = allSteps.filter(s => s.type === 'tool_call').length;
-  $: toolNames = [...new Set(allSteps.filter(s => s.type === 'tool_call').map(s => s.tool_name))];
+  $: commandCount = allSteps.filter(s => s.type === 'tool_call' && s.tool_name !== 'todo_write').length;
+  $: toolNames = [...new Set(allSteps.filter(s => s.type === 'tool_call' && s.tool_name !== 'todo_write').map(s => s.tool_name))];
   $: summaryText = buildSummary(commandCount, toolNames.length);
 
   function buildSummary(cmds, tools) {
@@ -92,6 +202,97 @@
     expandedSteps[key] = !expandedSteps[key];
     expandedSteps = expandedSteps;
     skipNextScroll = true;
+  }
+
+  let pendingApprovals = {};
+
+  $: if (messages.length === 0) {
+    pendingApprovals = {};
+  }
+
+  onMount(() => {
+    Events.on('sandbox:request_approval', handleSandboxApproval);
+    Events.on('command:request_approval', handleCommandApproval);
+    window.addEventListener('click', handleGlobalClick);
+  });
+
+  onDestroy(() => {
+    Events.off('sandbox:request_approval');
+    Events.off('command:request_approval');
+    window.removeEventListener('click', handleGlobalClick);
+  });
+
+  function handleSandboxApproval(req) {
+    if (!req || !req.id || !req.path) return;
+    const active = findActiveToolStep();
+    if (active) {
+      const key = `${active.msgIdx}-${active.stepIdx}`;
+      pendingApprovals[key] = {
+        type: 'sandbox',
+        id: req.id,
+        path: req.path
+      };
+      pendingApprovals = pendingApprovals;
+      
+      // Auto expand this step so they see the inline prompt immediately
+      expandedSteps[key] = true;
+      expandedSteps = expandedSteps;
+    }
+  }
+
+  function handleCommandApproval(req) {
+    if (!req || !req.id || !req.command) return;
+    const active = findActiveToolStep();
+    if (active) {
+      const key = `${active.msgIdx}-${active.stepIdx}`;
+      pendingApprovals[key] = {
+        type: 'command',
+        id: req.id,
+        command: req.command,
+        exe: req.exe
+      };
+      pendingApprovals = pendingApprovals;
+
+      // Auto expand this step so they see the inline prompt immediately
+      expandedSteps[key] = true;
+      expandedSteps = expandedSteps;
+    }
+  }
+
+  function findActiveToolStep() {
+    // Traverse backwards to find the last assistant tool call step
+    for (let m = messages.length - 1; m >= 0; m--) {
+      const msg = messages[m];
+      if (msg.role === 'assistant' && msg.steps) {
+        for (let s = msg.steps.length - 1; s >= 0; s--) {
+          const step = msg.steps[s];
+          if (step.type === 'tool_call') {
+            return { msgIdx: m, stepIdx: s };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  async function submitCommandApproval(key, id, choice) {
+    try {
+      await Backend.SubmitCommandApproval(id, choice);
+    } catch (e) {
+      console.error('SubmitCommandApproval failed:', e);
+    }
+    delete pendingApprovals[key];
+    pendingApprovals = pendingApprovals;
+  }
+
+  async function submitSandboxApproval(key, id, approved) {
+    try {
+      await Backend.SubmitSandboxApproval(id, approved);
+    } catch (e) {
+      console.error('SubmitSandboxApproval failed:', e);
+    }
+    delete pendingApprovals[key];
+    pendingApprovals = pendingApprovals;
   }
 
   function handleOpenFile(e) {
@@ -116,6 +317,7 @@
   }
 
   function handleKeydown(e) {
+    if (handleSkillKeydown(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -126,15 +328,105 @@
     const el = e.target;
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    checkSkillSlash();
+  }
+
+  function openSkillSlash() {
+    if (!input.trim()) input = '/';
+    skillQuery = '';
+    skillHighlightIdx = 0;
+    showSkillMenu = true;
+    refreshSkills();
+    tick().then(() => {
+      textareaEl?.focus();
+      if (textareaEl) {
+        textareaEl.selectionStart = textareaEl.selectionEnd = input.length;
+      }
+    });
+  }
+
+  function checkSkillSlash() {
+    if (input.startsWith('/')) {
+      const afterSlash = input.slice(1).split(/\s/)[0];
+      const hasSpace = /\s/.test(input.slice(1));
+      if (!hasSpace) {
+        skillQuery = afterSlash;
+        if (!showSkillMenu) {
+          skillHighlightIdx = 0;
+          refreshSkills();
+        }
+        showSkillMenu = true;
+        return;
+      }
+    }
+    showSkillMenu = false;
+    skillQuery = '';
+  }
+
+  function selectSkillForPrompt(skill) {
+    const rest = input.startsWith('/') ? input.slice(1).replace(/^\S*/, '') : input;
+    selectedSkill = skill;
+    input = rest.trimStart();
+    showSkillMenu = false;
+    skillQuery = '';
+    tick().then(() => {
+      if (textareaEl) {
+        textareaEl.focus();
+        textareaEl.selectionStart = textareaEl.selectionEnd = input.length;
+        textareaEl.style.height = 'auto';
+        textareaEl.style.height = Math.min(textareaEl.scrollHeight, 200) + 'px';
+      }
+    });
+  }
+
+  function handleSkillKeydown(e) {
+    if (!showSkillMenu || filteredSkills.length === 0) return false;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      skillHighlightIdx = (skillHighlightIdx + 1) % filteredSkills.length;
+      scrollSkillIntoView();
+      return true;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      skillHighlightIdx = (skillHighlightIdx - 1 + filteredSkills.length) % filteredSkills.length;
+      scrollSkillIntoView();
+      return true;
+    }
+    if (e.key === 'Tab' || e.key === 'Enter') {
+      e.preventDefault();
+      selectSkillForPrompt(filteredSkills[skillHighlightIdx]);
+      return true;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      showSkillMenu = false;
+      return true;
+    }
+    return false;
+  }
+
+  function scrollSkillIntoView() {
+    tick().then(() => {
+      const active = skillMenuEl?.querySelector('.skill-option.highlighted');
+      active?.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  function clearSelectedSkill() {
+    selectedSkill = null;
+    textareaEl?.focus();
   }
 
   function handleSend() {
     const text = input.trim();
-    if ((!text && files.length === 0) || loading) return;
+    if ((!text && files.length === 0 && !selectedSkill) || loading) return;
     userScrolledUp = false;
-    dispatch('sendFollowUp', { text, files: [...files] });
+    dispatch('sendFollowUp', { text, files: [...files], selectedSkillName: selectedSkill?.name || '' });
     input = '';
     files = [];
+    selectedSkill = null;
     if (textareaEl) {
       textareaEl.style.height = 'auto';
     }
@@ -273,46 +565,140 @@
     copiedMsgIdx = msgIdx;
     setTimeout(() => { copiedMsgIdx = -1; }, 1500);
   }
+
+  // --- Clarification Options ---
+  let otherInputValue = '';
+
+  function parseOptions(content) {
+    if (!content) return { cleanContent: '', options: [] };
+    const optionsRegex = /<options>([\s\S]*?)<\/options>/i;
+    const match = content.match(optionsRegex);
+    if (!match) {
+      return { cleanContent: content, options: [] };
+    }
+    const optionsText = match[1];
+    const cleanContent = content.replace(optionsRegex, '').trim();
+    const options = optionsText
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.startsWith('-') || line.startsWith('*'))
+      .map(line => line.replace(/^[-*]\s*/, '').trim())
+      .filter(line => line.length > 0);
+    return { cleanContent, options };
+  }
+
+  function selectOption(opt) {
+    input = opt;
+    tick().then(() => {
+      handleSend();
+      otherInputValue = '';
+    });
+  }
+
+  function submitOtherInput() {
+    const val = otherInputValue.trim();
+    if (!val) return;
+    input = val;
+    tick().then(() => {
+      handleSend();
+      otherInputValue = '';
+    });
+  }
+
+  function handleOtherKeydown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitOtherInput();
+    }
+  }
+
+  // Reset other options state whenever a new stream starts or messages load
+  let lastMessageCount = 0;
+  $: if (messages.length !== lastMessageCount) {
+    otherInputValue = '';
+    lastMessageCount = messages.length;
+  }
+  $: if (isStreaming) {
+    otherInputValue = '';
+  }
 </script>
 
 <div class="workspace-layout">
   <!-- Center Content -->
   <div class="workspace-center">
-    <div class="workspace-scroll" bind:this={contentContainer} on:scroll={handleScroll}>
-      <div class="workspace-content">
-        <!-- Task Title -->
-        {#if taskTitle}
-          <div class="task-title-bar">
-            <h2 class="task-title">{taskTitle}</h2>
+    {#if taskTitle}
+      <div class="workspace-header">
+        {#if editingTitle}
+          <div class="workspace-title-edit-form">
+            <input
+              type="text"
+              class="workspace-title-input"
+              bind:value={newTitleValue}
+              on:keydown={handleTitleKeydown}
+              on:blur={saveTitle}
+              use:autofocus
+            />
+            <button class="workspace-title-btn save" on:click={saveTitle} title="Save title">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+            </button>
+            <button class="workspace-title-btn cancel" on:click={cancelEditTitle} title="Cancel">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        {:else}
+          <div class="workspace-title-wrap">
+            <h2 class="workspace-title">{taskTitle}</h2>
+            <button class="workspace-title-edit-btn" on:click={startEditTitle} title="Edit title">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                <path d="M18.5 2.5a2.122 2.122 0 113 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </button>
           </div>
         {/if}
+      </div>
+    {/if}
+    <div class="workspace-scroll" bind:this={contentContainer} on:scroll={handleScroll}>
+      <div class="workspace-content">
 
         <!-- Messages -->
         {#each messages as message, msgIdx}
           {#if message.role === 'user'}
-            <div class="user-pill">
-              {#if message.files && message.files.length > 0}
-                <div class="user-pill-files">
-                  {#each message.files as file}
-                    <div class="user-pill-file-chip">
-                      {#if IMAGE_TYPES.has(file.type)}
-                        <img class="user-pill-file-thumb" src={file.dataUrl} alt={file.name} />
-                      {:else}
-                        <svg class="user-pill-file-icon" width="12" height="12" viewBox="0 0 24 24" fill="none">
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                          <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                      {/if}
-                      <span class="user-pill-file-name">{file.name}</span>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-              {#if message.content}
-                <span class="user-pill-text">{message.content}</span>
-              {/if}
+            <div class="user-pill-container">
+              <div class="user-pill">
+                {#if message.selectedSkill}
+                  <div class="user-pill-skill-chip">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                    </svg>
+                    <span>{message.selectedSkill}</span>
+                  </div>
+                {/if}
+                {#if message.files && message.files.length > 0}
+                  <div class="user-pill-files">
+                    {#each message.files as file}
+                      <div class="user-pill-file-chip">
+                        {#if IMAGE_TYPES.has(file.type)}
+                          <img class="user-pill-file-thumb" src={file.dataUrl} alt={file.name} />
+                        {:else}
+                          <svg class="user-pill-file-icon" width="12" height="12" viewBox="0 0 24 24" fill="none">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                          </svg>
+                        {/if}
+                        <span class="user-pill-file-name">{file.name}</span>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+                {#if message.content}
+                  <span class="user-pill-text">{message.content}</span>
+                {/if}
+              </div>
             </div>
           {:else if message.role === 'assistant'}
+            {@const parsed = parseOptions(message.content || '')}
             <!-- Summary line (show after first assistant response only, when not streaming) -->
             {#if msgIdx === 1 && summaryText && !message.isStreaming}
               <div class="summary-line">
@@ -333,31 +719,78 @@
                       {step.content}
                     </div>
                   {:else if step.type === 'tool_call'}
-                    <button class="step-toggle step-tool" class:step-skill={step.tool_name === 'use_skill'} on:click={() => toggleStep(msgIdx, i)}>
-                      <span class="step-icon">{expandedSteps[`${msgIdx}-${i}`] ? '▼' : '▶'}</span>
-                      <span class="step-tool-icon">
-                        {#if step.tool_name === 'use_skill'}
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-                          </svg>
-                        {:else}
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-                          </svg>
+                    {#if step.tool_name !== 'todo_write'}
+                      <button class="step-toggle step-tool" class:step-skill={step.tool_name === 'use_skill'} on:click={() => toggleStep(msgIdx, i)}>
+                        <span class="step-icon">{expandedSteps[`${msgIdx}-${i}`] ? '▼' : '▶'}</span>
+                        <span class="step-tool-icon">
+                          {#if step.tool_name === 'use_skill'}
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                            </svg>
+                          {:else}
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                            </svg>
+                          {/if}
+                        </span>
+                        <span class="step-label">{formatToolLabel(step.tool_name, step.tool_input)}</span>
+                        {#if pendingApprovals[`${msgIdx}-${i}`]}
+                          <span class="pending-approval-badge">Requires Action</span>
                         {/if}
-                      </span>
-                      <span class="step-label">{formatToolLabel(step.tool_name, step.tool_input)}</span>
-                    </button>
-                    {#if expandedSteps[`${msgIdx}-${i}`]}
-                      <div class="step-content step-tool-content">
-                        <pre>{step.tool_input}</pre>
-                      </div>
-                      {#if message.steps[i + 1]?.type === 'tool_result'}
-                        <div class="step-content step-result-content">
-                          <div class="step-result-header">Result:</div>
-                          <pre>{message.steps[i + 1].content}</pre>
+                      </button>
+                      {#if expandedSteps[`${msgIdx}-${i}`]}
+                        <div class="step-content step-tool-content">
+                          <pre>{step.tool_input}</pre>
                         </div>
+                        {#if pendingApprovals[`${msgIdx}-${i}`]}
+                          {@const req = pendingApprovals[`${msgIdx}-${i}`]}
+                          <div class="inline-approval-card">
+                            {#if req.type === 'command'}
+                              <div class="approval-header">
+                                <svg class="warning-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                  <line x1="12" y1="9" x2="12" y2="13"/>
+                                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                </svg>
+                                <span class="approval-text">Command requires permission:</span>
+                              </div>
+                              <div class="approval-actions">
+                                <button class="btn-compact btn-always" on:click={() => submitCommandApproval(`${msgIdx}-${i}`, req.id, 'always')}>
+                                  Allow Always
+                                </button>
+                                <button class="btn-compact btn-session" on:click={() => submitCommandApproval(`${msgIdx}-${i}`, req.id, 'session')}>
+                                  Allow Session
+                                </button>
+                                <button class="btn-compact btn-deny" on:click={() => submitCommandApproval(`${msgIdx}-${i}`, req.id, 'deny')}>
+                                  Block
+                                </button>
+                              </div>
+                            {:else if req.type === 'sandbox'}
+                              <div class="approval-header">
+                                <svg class="warning-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                </svg>
+                                <span class="approval-text">Wants access to folder: <code>{req.path}</code></span>
+                              </div>
+                              <div class="approval-actions">
+                                <button class="btn-compact btn-deny" on:click={() => submitSandboxApproval(`${msgIdx}-${i}`, req.id, false)}>
+                                  Deny
+                                </button>
+                                <button class="btn-compact btn-allow" on:click={() => submitSandboxApproval(`${msgIdx}-${i}`, req.id, true)}>
+                                  Allow
+                                </button>
+                              </div>
+                            {/if}
+                          </div>
+                        {/if}
+                        {#if message.steps[i + 1]?.type === 'tool_result'}
+                          <div class="step-content step-result-content">
+                            <div class="step-result-header">Result:</div>
+                            <pre>{message.steps[i + 1].content}</pre>
+                          </div>
+                        {/if}
                       {/if}
                     {/if}
                   {:else if step.type === 'tool_result'}
@@ -372,29 +805,35 @@
               <!-- svelte-ignore a11y-click-events-have-key-events -->
               <!-- svelte-ignore a11y-no-static-element-interactions -->
               <div class="agent-response" on:click={handleContentClick}>
-                {@html renderMarkdown(message.content)}
+                {@html renderMarkdown(parsed.cleanContent)}
                 {#if message.isStreaming}
                   <LoadingSpinner />
                 {/if}
               </div>
 
-              <!-- Copy full message button -->
-              {#if !message.isStreaming}
-                <div class="message-actions">
-                  <button class="msg-copy-btn" on:click={() => copyMessage(msgIdx, message.content)} title="Copy message">
-                    {#if copiedMsgIdx === msgIdx}
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M20 6L9 17l-5-5"/>
+              <!-- Clarification Options -->
+              {#if !message.isStreaming && parsed.options.length > 0 && msgIdx === messages.length - 1 && !loading}
+                <div class="agent-options-container">
+                  {#each parsed.options as opt}
+                    <button class="agent-option-pill" on:click={() => selectOption(opt)}>
+                      {opt}
+                    </button>
+                  {/each}
+
+                  <div class="other-input-wrapper">
+                    <input
+                      type="text"
+                      bind:value={otherInputValue}
+                      placeholder="Type custom response..."
+                      on:keydown={handleOtherKeydown}
+                      class="other-input-field"
+                    />
+                    <button class="other-submit-btn" on:click={submitOtherInput} disabled={!otherInputValue.trim()}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
                       </svg>
-                      <span>Copied!</span>
-                    {:else}
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                      </svg>
-                      <span>Copy</span>
-                    {/if}
-                  </button>
+                    </button>
+                  </div>
                 </div>
               {/if}
             {:else if message.isStreaming}
@@ -402,11 +841,40 @@
                 <TypingIndicator />
               </div>
             {/if}
+
+            <!-- Created File Cards inline under the turn that generated them -->
+            {#if message.filesCreated && message.filesCreated.length > 0}
+              <div class="file-cards" style="margin-top: 10px; margin-bottom: 10px;">
+                {#each message.filesCreated as file}
+                  <AgentFileCard {file} on:openFile={handleOpenFile} on:openFolder={handleRevealFile} />
+                {/each}
+              </div>
+            {/if}
+
+            <!-- Copy full message button (always at the very end of the assistant response block) -->
+            {#if !message.isStreaming && message.content}
+              <div class="message-actions">
+                <button class="msg-copy-btn" on:click={() => copyMessage(msgIdx, parsed.cleanContent)} title="Copy message">
+                  {#if copiedMsgIdx === msgIdx}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M20 6L9 17l-5-5"/>
+                    </svg>
+                    <span>Copied!</span>
+                  {:else}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    <span>Copy</span>
+                  {/if}
+                </button>
+              </div>
+            {/if}
           {/if}
         {/each}
 
-        <!-- Created File Cards (shown when not streaming) -->
-        {#if createdFiles.length > 0}
+        <!-- Created File Cards (shown at bottom only as fallback if not present inline in messages) -->
+        {#if createdFiles.length > 0 && !messages.some(m => m.filesCreated && m.filesCreated.length > 0)}
           <div class="file-cards">
             {#each createdFiles as file}
               <AgentFileCard {file} on:openFile={handleOpenFile} on:openFolder={handleRevealFile} />
@@ -427,6 +895,73 @@
         role="group"
         aria-label="Follow-up input"
       >
+        {#if showSkillMenu}
+          <div class="skill-menu" bind:this={skillMenuEl}>
+            <div class="skill-menu-header">Skills</div>
+            {#if filteredSkills.length === 0}
+              <div class="skill-menu-empty">No matching skills</div>
+            {:else}
+              {#each filteredSkills as skill, i (skill.id)}
+                <button
+                  type="button"
+                  class="skill-option"
+                  class:highlighted={i === skillHighlightIdx}
+                  on:mousedown|preventDefault={() => selectSkillForPrompt(skill)}
+                >
+                  <span class="skill-option-name">{skill.name}</span>
+                  {#if skill.description}<span class="skill-option-desc">{skill.description}</span>{/if}
+                </button>
+              {/each}
+            {/if}
+          </div>
+        {/if}
+
+        {#if showIntegrationsMenu}
+          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          <!-- svelte-ignore a11y-no-static-element-interactions -->
+          <div class="integrations-menu" bind:this={integrationsMenuEl} on:click|stopPropagation>
+            <div class="integrations-header">
+              <div class="integrations-title-wrap">
+                <svg class="integrations-header-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                </svg>
+                <span>Tools</span>
+              </div>
+            </div>
+
+            <div class="integrations-list">
+              {#if filteredIntegrations.length === 0}
+                <div class="integrations-empty">No matching integrations</div>
+              {:else}
+                {#each filteredIntegrations as item (item.id)}
+                  <div class="integration-item">
+                    <div class="integration-info">
+                      <span class="integration-icon {item.iconClass}">
+                        {@html item.iconSvg}
+                      </span>
+                      <span class="integration-name">{item.name}</span>
+                    </div>
+                    <div class="integration-actions">
+                      <label class="toggle-switch">
+                        <input
+                          type="checkbox"
+                          checked={item.id === 'parse-document' ? parseDocuments : false}
+                          on:change={(e) => {
+                            if (item.id === 'parse-document') {
+                              parseDocuments = e.target.checked;
+                            }
+                          }}
+                        />
+                        <span class="toggle-slider"></span>
+                      </label>
+                    </div>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          </div>
+        {/if}
+
         {#if files.length > 0}
           <div class="file-preview-row">
             {#each files as file, i}
@@ -453,15 +988,31 @@
           </div>
         {/if}
 
-        <textarea
-          bind:this={textareaEl}
-          bind:value={input}
-          on:keydown={handleKeydown}
-          on:input={handleInput}
-          placeholder="Send a follow-up..."
-          rows="1"
-          disabled={disabled || loading}
-        ></textarea>
+        <div class="composer-text-row">
+          {#if selectedSkill}
+            <div class="skill-chip" title={selectedSkill.description || selectedSkill.name}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+              </svg>
+              <span>{selectedSkill.name}</span>
+              <button class="skill-chip-remove" on:click={clearSelectedSkill} title="Remove skill">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                  <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          {/if}
+          <textarea
+            bind:this={textareaEl}
+            bind:value={input}
+            on:keydown={handleKeydown}
+            on:input={handleInput}
+            placeholder="Send a follow-up..."
+            rows="1"
+            disabled={disabled || loading}
+          ></textarea>
+        </div>
         <div class="workspace-input-bottom">
           <div class="workspace-input-bottom-left">
             <button
@@ -475,17 +1026,25 @@
               </svg>
             </button>
             <button
-              class="btn-toggle-parse"
-              class:active={parseDocuments}
-              on:click={() => parseDocuments = !parseDocuments}
-              title={parseDocuments ? "Document parsing enabled" : "Document parsing disabled"}
+              class="btn-slash"
+              on:click|stopPropagation={openSkillSlash}
+              disabled={disabled || loading}
+              title="Show skills"
+            >
+              /
+            </button>
+            <span class="input-divider"></span>
+            <button
+              bind:this={integrationsBtnEl}
+              class="btn-integrations-toggle"
+              class:active={showIntegrationsMenu}
+              on:click|stopPropagation={toggleIntegrationsMenu}
+              disabled={disabled || loading}
+              title="Tools"
+              type="button"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/>
-                <path d="M14 2v6h6"/>
-                {#if !parseDocuments}
-                  <line x1="4" y1="4" x2="20" y2="20" stroke="currentColor" stroke-width="2" />
-                {/if}
+                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
               </svg>
             </button>
           </div>
@@ -504,7 +1063,7 @@
               <button
                 class="btn-send"
                 on:click={handleSend}
-                disabled={(!input.trim() && files.length === 0) || disabled}
+                disabled={(!input.trim() && files.length === 0 && !selectedSkill) || disabled}
                 title="Send"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -580,27 +1139,123 @@
     padding: 24px 24px 24px;
   }
 
-  /* Task Title */
-  .task-title-bar {
-    margin-bottom: 24px;
+  /* Workspace Header */
+  .workspace-header {
+    height: 46px;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    background: var(--bg-app);
+    flex-shrink: 0;
+    box-sizing: border-box;
   }
 
-  .task-title {
-    font-size: 18px;
+  .workspace-title {
+    font-size: 13.5px;
     font-weight: 600;
     color: var(--text-primary);
-    letter-spacing: -0.3px;
+    letter-spacing: -0.2px;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .workspace-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .workspace-title-edit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.15s ease;
+  }
+
+  .workspace-title-wrap:hover .workspace-title-edit-btn {
+    opacity: 1;
+  }
+
+  .workspace-title-edit-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  /* Edit Form inside Header */
+  .workspace-title-edit-form {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    max-width: 450px;
+  }
+
+  .workspace-title-input {
+    flex: 1;
+    background: var(--bg-input);
+    border: 1px solid var(--border-focus);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--font-sans);
+    padding: 4px 8px;
+    outline: none;
+  }
+
+  .workspace-title-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.12s ease;
+  }
+
+  .workspace-title-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+  }
+
+  .workspace-title-btn.save:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   /* User Message Pill */
+  .user-pill-container {
+    display: flex;
+    justify-content: flex-end;
+    width: 100%;
+    margin-bottom: 16px;
+  }
+
   .user-pill {
     display: inline-block;
-    max-width: 100%;
+    max-width: 80%;
     padding: 10px 18px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    margin-bottom: 16px;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   }
 
   .user-pill-text {
@@ -608,6 +1263,24 @@
     color: var(--text-primary);
     line-height: 1.5;
     word-wrap: break-word;
+  }
+
+  .user-pill-skill-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--accent-bg);
+    border: 1px solid rgba(45, 212, 191, 0.25);
+    border-radius: 6px;
+    padding: 3px 8px;
+    margin: 0 0 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .user-pill-skill-chip span {
+    color: var(--text-primary);
   }
 
   .user-pill-files {
@@ -714,6 +1387,136 @@
 
   .step-label {
     font-weight: 500;
+  }
+
+  .pending-approval-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #eab308;
+    background: rgba(234, 179, 8, 0.12);
+    border: 1px solid rgba(234, 179, 8, 0.2);
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: auto;
+    animation: pulse-glow 2s infinite ease-in-out;
+  }
+
+  .inline-approval-card {
+    margin: 8px 12px;
+    padding: 10px 12px;
+    background: rgba(30, 30, 30, 0.4);
+    border: 1px solid rgba(234, 179, 8, 0.25);
+    border-radius: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    animation: fadeInStep 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  
+  .approval-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 200px;
+  }
+
+  .warning-icon {
+    color: #eab308;
+    flex-shrink: 0;
+  }
+
+  .approval-text {
+    font-size: 11.5px;
+    color: var(--text-secondary, #e5e7eb);
+    line-height: 1.4;
+  }
+  
+  .approval-text code {
+    font-family: var(--font-mono, monospace);
+    font-size: 10.5px;
+    background: rgba(0, 0, 0, 0.25);
+    padding: 1.5px 5px;
+    border-radius: 4px;
+    color: var(--accent, #3b82f6);
+  }
+
+  .approval-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .btn-compact {
+    padding: 4px 10px;
+    font-size: 11.5px;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    border: none;
+    transition: all 0.12s ease;
+  }
+
+  .btn-always {
+    background: #007aff;
+    color: #ffffff;
+    box-shadow: 0 2px 4px rgba(0, 122, 255, 0.15);
+  }
+  .btn-always:hover {
+    background: #1a88ff;
+  }
+  .btn-always:active {
+    transform: scale(0.97);
+  }
+
+  .btn-session {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary, #ffffff);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+  }
+  .btn-session:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .btn-session:active {
+    transform: scale(0.97);
+  }
+
+  .btn-deny {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.1);
+  }
+  .btn-deny:hover {
+    background: rgba(239, 68, 68, 0.22);
+  }
+  .btn-deny:active {
+    transform: scale(0.97);
+  }
+
+  .btn-allow {
+    background: #007aff;
+    color: #ffffff;
+    box-shadow: 0 2px 4px rgba(0, 122, 255, 0.15);
+  }
+  .btn-allow:hover {
+    background: #1a88ff;
+  }
+  .btn-allow:active {
+    transform: scale(0.97);
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+  @keyframes fadeInStep {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   .step-thinking-inline {
@@ -940,6 +1743,7 @@
     border: 1px solid var(--border);
     border-radius: 16px;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    position: relative;
   }
 
   .workspace-input-container:focus-within {
@@ -947,10 +1751,19 @@
     box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.03);
   }
 
+  .composer-text-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 14px 16px 6px;
+  }
+
   .workspace-input-container textarea {
     --wails-draggable: no-drag;
     display: block;
     width: 100%;
+    flex: 1;
+    min-width: 0;
     background: transparent;
     border: none;
     outline: none;
@@ -961,7 +1774,7 @@
     resize: none;
     min-height: 24px;
     max-height: 200px;
-    padding: 14px 16px 6px;
+    padding: 0;
   }
 
   .workspace-input-container textarea::placeholder {
@@ -989,6 +1802,15 @@
   .workspace-input-bottom-left {
     display: flex;
     align-items: center;
+    gap: 4px;
+  }
+
+  .input-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 2px;
+    flex-shrink: 0;
   }
 
   .workspace-input-bottom-right {
@@ -1022,6 +1844,97 @@
     cursor: not-allowed;
   }
 
+  .btn-slash {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 18px;
+    line-height: 1;
+    font-weight: 600;
+  }
+
+  .btn-slash:hover:not(:disabled) {
+    color: var(--text-secondary);
+    background: var(--bg-hover);
+  }
+
+  .btn-slash:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  .skill-menu {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: calc(100% + 8px);
+    max-height: 260px;
+    overflow-y: auto;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 16px 36px rgba(0,0,0,0.32);
+    padding: 6px;
+    z-index: 10;
+  }
+
+  .skill-menu-header {
+    padding: 5px 8px 7px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .skill-menu-empty {
+    padding: 12px 8px;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .skill-option {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    gap: 2px;
+    padding: 8px 10px;
+    background: none;
+    border: none;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    text-align: left;
+  }
+
+  .skill-option:hover,
+  .skill-option.highlighted {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .skill-option-name {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .skill-option-desc {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
   /* ─── File Preview ─── */
   .file-preview-row {
     display: flex;
@@ -1040,6 +1953,48 @@
     padding: 4px 8px;
     max-width: 220px;
     animation: chipFadeIn 0.15s ease;
+  }
+
+  .skill-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--accent-bg);
+    border: 1px solid rgba(45, 212, 191, 0.35);
+    border-radius: 8px;
+    padding: 5px 8px;
+    max-width: 260px;
+    color: var(--accent);
+    animation: chipFadeIn 0.15s ease;
+    flex-shrink: 0;
+  }
+
+  .skill-chip span {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .skill-chip-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: var(--text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .skill-chip-remove:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.08);
   }
 
   @keyframes chipFadeIn {
@@ -1143,7 +2098,7 @@
     background: #dc2626;
   }
 
-  .btn-toggle-parse {
+  .btn-integrations-toggle {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1156,11 +2111,389 @@
     cursor: pointer;
     transition: all 0.15s ease;
   }
-  .btn-toggle-parse:hover {
+  .btn-integrations-toggle:hover {
     color: var(--text-secondary);
     background: var(--bg-hover);
   }
-  .btn-toggle-parse.active {
+  .btn-integrations-toggle.active {
     color: var(--accent);
+    background: var(--bg-hover);
+  }
+
+  /* Integrations Menu Popover */
+  .integrations-menu {
+    position: absolute;
+    left: 10px;
+    bottom: calc(100% + 8px);
+    width: 240px;
+    background: rgba(24, 24, 27, 0.88);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+    padding: 8px 10px;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    animation: integrationsMenuFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @keyframes integrationsMenuFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .integrations-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 2px;
+  }
+
+  .integrations-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-primary, #ffffff);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+  }
+
+  .integrations-header-icon {
+    color: #10b981;
+  }
+
+  .btn-add-integration {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    transition: all 0.12s ease;
+  }
+
+  .btn-add-integration:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  /* Integrations Search */
+  .integrations-search-wrap {
+    position: relative;
+  }
+
+  .integrations-search-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 7px 10px;
+    color: var(--text-primary, #ffffff);
+    font-family: inherit;
+    font-size: 13px;
+    transition: all 0.15s ease;
+  }
+
+  .integrations-search-input:focus {
+    outline: none;
+    border-color: rgba(59, 130, 246, 0.4);
+    background: rgba(0, 0, 0, 0.2);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  }
+
+  .integrations-search-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.8;
+  }
+
+  /* Integrations List */
+  .integrations-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+
+  .integrations-empty {
+    padding: 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12.5px;
+  }
+
+  .integration-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 6px;
+    border-radius: 8px;
+    transition: background 0.12s ease;
+  }
+
+  .integration-item:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .integration-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .integration-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    background: rgba(59, 130, 246, 0.12);
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .integration-icon.doc-icon {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10b981;
+  }
+
+  .integration-icon.web-icon {
+    background: rgba(59, 130, 246, 0.12);
+    color: #3b82f6;
+  }
+
+  .integration-icon.screen-icon {
+    background: rgba(139, 92, 246, 0.12);
+    color: #8b5cf6;
+  }
+
+  .integration-name {
+    font-family: var(--font-mono, monospace);
+    font-size: 11.5px;
+    color: var(--text-secondary, #e5e7eb);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .integration-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn-integration-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    transition: all 0.12s ease;
+  }
+
+  .btn-integration-more:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  /* iOS Style Premium Toggle Switch */
+  .toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 28px;
+    height: 16px;
+    flex-shrink: 0;
+  }
+
+  .toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.15);
+    transition: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    border-radius: 34px;
+  }
+
+  .toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 12px;
+    width: 12px;
+    left: 2px;
+    bottom: 2px;
+    background-color: white;
+    transition: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+
+  .toggle-switch input:checked + .toggle-slider {
+    background-color: var(--accent, #3b82f6);
+  }
+
+  .toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(12px);
+  }
+
+  /* Chat Separation / Divider */
+  .chat-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin: 28px 0 20px;
+    width: 100%;
+  }
+
+  .divider-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border) 20%, var(--border) 80%, transparent);
+    opacity: 0.45;
+  }
+
+  .divider-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    opacity: 0.35;
+  }
+
+  /* Agent Clarification Options */
+  .agent-options-container {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0 16px 0;
+  }
+
+  .agent-option-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 8px 16px;
+    font-size: 13px;
+    color: var(--accent); /* beautiful warm theme green/teal accent */
+    cursor: pointer;
+    transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    font-weight: 500;
+    line-height: 1.4;
+    text-align: left;
+  }
+
+  .agent-option-pill:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(45, 212, 191, 0.4);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .agent-option-pill:active {
+    transform: translateY(0);
+  }
+
+  .agent-option-pill.other-pill {
+    color: var(--text-secondary);
+    border-style: dashed;
+  }
+
+  .agent-option-pill.other-pill:hover {
+    border-color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  /* Inline Other Input box */
+  .other-input-wrapper {
+    display: inline-flex;
+    align-items: center;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 2px 4px 2px 14px;
+    height: 36px;
+    min-width: 240px;
+    max-width: 100%;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease;
+  }
+
+  .other-input-wrapper:focus-within {
+    border-color: rgba(45, 212, 191, 0.5);
+  }
+
+  .other-input-field {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13px;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+  }
+
+  .other-input-field::placeholder {
+    color: var(--text-muted);
+  }
+
+  .other-submit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #000;
+    cursor: pointer;
+    transition: all 0.12s ease;
+    flex-shrink: 0;
+    margin-left: 6px;
+  }
+
+  .other-submit-btn:hover:not(:disabled) {
+    transform: scale(1.05);
+    background: var(--accent-hover);
+  }
+
+  .other-submit-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
   }
 </style>

@@ -46,10 +46,10 @@ func (c *OpenAIClient) GetModel() string {
 // --- OpenAI-specific types ---
 
 type oaiMessage struct {
-	Role       string      `json:"role"`
-	Content    interface{} `json:"content,omitempty"`     // string or []oaiContentPart
+	Role       string        `json:"role"`
+	Content    interface{}   `json:"content,omitempty"` // string or []oaiContentPart
 	ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string      `json:"tool_call_id,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
 }
 
 type oaiContentPart struct {
@@ -63,10 +63,10 @@ type oaiImageURL struct {
 }
 
 type oaiToolCall struct {
-	ID       string           `json:"id"`
-	Type     string           `json:"type"`
-	Function oaiToolFunction  `json:"function"`
-	Google   *oaiGoogleExt    `json:"google,omitempty"` // Gemini thought signatures for function calls
+	ID       string          `json:"id"`
+	Type     string          `json:"type"`
+	Function oaiToolFunction `json:"function"`
+	Google   *oaiGoogleExt   `json:"google,omitempty"` // Gemini thought signatures for function calls
 }
 
 // oaiGoogleExt holds Gemini-specific extensions returned by Google's
@@ -101,12 +101,12 @@ type oaiToolFunctionDef struct {
 }
 
 type oaiRequest struct {
-	Model              string       `json:"model"`
-	Messages           []oaiMessage `json:"messages"`
-	Tools              []oaiTool    `json:"tools,omitempty"`
-	MaxCompletionTokens int         `json:"max_completion_tokens,omitempty"`
-	Stream             bool         `json:"stream,omitempty"`
-	StreamOptions      *oaiStreamOpts `json:"stream_options,omitempty"`
+	Model               string         `json:"model"`
+	Messages            []oaiMessage   `json:"messages"`
+	Tools               []oaiTool      `json:"tools,omitempty"`
+	MaxCompletionTokens int            `json:"max_completion_tokens,omitempty"`
+	Stream              bool           `json:"stream,omitempty"`
+	StreamOptions       *oaiStreamOpts `json:"stream_options,omitempty"`
 }
 
 type oaiStreamOpts struct {
@@ -259,7 +259,7 @@ func (c *OpenAIClient) convertAssistantMessage(msg session.Message) []oaiMessage
 				tc.Google = &oaiGoogleExt{ThoughtSignature: thoughtSig}
 			}
 			toolCalls = append(toolCalls, tc)
-		// "thinking" blocks are skipped — OpenAI doesn't have an equivalent.
+			// "thinking" blocks are skipped — OpenAI doesn't have an equivalent.
 		}
 	}
 
@@ -282,9 +282,9 @@ func (c *OpenAIClient) SendMessages(ctx context.Context, system string, messages
 	oaiTools := oaiConvertTools(tools)
 
 	reqBody := oaiRequest{
-		Model:              c.Model,
-		Messages:           oaiMsgs,
-		Tools:              oaiTools,
+		Model:               c.Model,
+		Messages:            oaiMsgs,
+		Tools:               oaiTools,
 		MaxCompletionTokens: openaiDefaultMaxTokens,
 	}
 
@@ -386,12 +386,12 @@ func (c *OpenAIClient) SendMessagesStream(ctx context.Context, system string, me
 	oaiTools := oaiConvertTools(tools)
 
 	reqBody := oaiRequest{
-		Model:              c.Model,
-		Messages:           oaiMsgs,
-		Tools:              oaiTools,
+		Model:               c.Model,
+		Messages:            oaiMsgs,
+		Tools:               oaiTools,
 		MaxCompletionTokens: openaiDefaultMaxTokens,
-		Stream:             true,
-		StreamOptions:      &oaiStreamOpts{IncludeUsage: true},
+		Stream:              true,
+		StreamOptions:       &oaiStreamOpts{IncludeUsage: true},
 	}
 
 	payload, err := json.Marshal(reqBody)
@@ -459,18 +459,18 @@ func (c *OpenAIClient) parseStreamResponse(body io.Reader, onDelta func(StreamDe
 				Delta struct {
 					Role      string  `json:"role"`
 					Content   *string `json:"content"`
-				ToolCalls []struct {
-					Index    int    `json:"index"`
-					ID       string `json:"id,omitempty"`
-					Type     string `json:"type,omitempty"`
-					Function struct {
-						Name      string `json:"name,omitempty"`
-						Arguments string `json:"arguments,omitempty"`
-					} `json:"function"`
-					Google *struct {
-						ThoughtSignature string `json:"thought_signature,omitempty"`
-					} `json:"google,omitempty"`
-				} `json:"tool_calls"`
+					ToolCalls []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id,omitempty"`
+						Type     string `json:"type,omitempty"`
+						Function struct {
+							Name      string `json:"name,omitempty"`
+							Arguments string `json:"arguments,omitempty"`
+						} `json:"function"`
+						Google *struct {
+							ThoughtSignature string `json:"thought_signature,omitempty"`
+						} `json:"google,omitempty"`
+					} `json:"tool_calls"`
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
@@ -509,17 +509,20 @@ func (c *OpenAIClient) parseStreamResponse(body io.Reader, onDelta func(StreamDe
 		for _, tc := range choice.Delta.ToolCalls {
 			idx := tc.Index
 
+			for len(toolCalls) <= idx {
+				toolCalls = append(toolCalls, oaiToolCall{Type: "function"})
+			}
+
 			if tc.ID != "" {
-				for len(toolCalls) <= idx {
-					toolCalls = append(toolCalls, oaiToolCall{})
-				}
-				toolCalls[idx] = oaiToolCall{
-					ID:   tc.ID,
-					Type: "function",
-					Function: oaiToolFunction{
-						Name: tc.Function.Name,
-					},
-				}
+				toolCalls[idx].ID = tc.ID
+			}
+
+			if tc.Type != "" {
+				toolCalls[idx].Type = tc.Type
+			}
+
+			if tc.Function.Name != "" {
+				toolCalls[idx].Function.Name = tc.Function.Name
 			}
 
 			if tc.Function.Arguments != "" {
@@ -551,6 +554,9 @@ func (c *OpenAIClient) parseStreamResponse(body io.Reader, onDelta func(StreamDe
 
 	for idx, tc := range toolCalls {
 		args := toolArgBuilders[idx]
+		if tc.ID == "" && tc.Function.Name == "" && args == "" {
+			continue
+		}
 		result.Content = append(result.Content, ContentBlock{
 			Type:             "tool_use",
 			ID:               tc.ID,

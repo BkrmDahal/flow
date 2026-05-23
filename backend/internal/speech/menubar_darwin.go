@@ -13,6 +13,7 @@ void FlowShowMenuBar(void);
 void FlowHideMenuBar(void);
 void FlowSetMenuBarState(int state);
 void FlowSetMenuBarHotkeyLabel(const char *label);
+void FlowSetMenuBarGrammarHotkeyLabel(const char *label);
 
 void FlowSetHotkeyModifier(int keyCode);
 void FlowStartHotkeyMonitor(void);
@@ -53,10 +54,16 @@ func SetMenuBarState(state int) {
 
 // UpdateMenuBarHotkeyLabel sets the hotkey info text shown in the menu bar dropdown.
 func UpdateMenuBarHotkeyLabel(modifier string) {
-	label := "Hold " + ModifierDisplayName(modifier) + " and speak"
+	displayName := ModifierDisplayName(modifier)
+	label := "Hold " + displayName + " and speak"
 	cLabel := C.CString(label)
 	defer C.free(unsafe.Pointer(cLabel))
 	C.FlowSetMenuBarHotkeyLabel(cLabel)
+
+	grammarLabel := "Double-tap " + displayName + " to fix grammar"
+	cGrammarLabel := C.CString(grammarLabel)
+	defer C.free(unsafe.Pointer(cGrammarLabel))
+	C.FlowSetMenuBarGrammarHotkeyLabel(cGrammarLabel)
 }
 
 // HasAccessibilityPermission checks whether the app has macOS Accessibility permission.

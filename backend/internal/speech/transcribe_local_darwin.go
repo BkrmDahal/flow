@@ -155,6 +155,11 @@ func resolveWhisperBinary() (string, error) {
 		if err := extractBundledLibs(); err != nil {
 			return "", err
 		}
+		// Extract dynamic backends to ~/.flow/bin/ (the executable directory)
+		// so that ggml's dynamic backend loader can automatically find them.
+		if err := extractBundledBackends(); err != nil {
+			return "", err
+		}
 		binPath := filepath.Join(binDir, "whisper-cli")
 		if needsExtract(binPath, int64(len(binBytes))) {
 			if err := writeExecutable(binPath, binBytes); err != nil {
@@ -190,6 +195,39 @@ func extractBundledLibs() error {
 			return fmt.Errorf("read %s: %w", p, err)
 		}
 		dest := filepath.Join(libDir, filepath.Base(p))
+		if !needsExtract(dest, int64(len(data))) {
+			return nil
+		}
+		return writeExecutable(dest, data)
+	})
+}
+
+// extractBundledBackends copies every .so file under embed:bin/backends/ into ~/.flow/bin/
+// so the ggml backend loader resolves them.
+func extractBundledBackends() error {
+	binDir, err := flowSubdir("bin")
+	if err != nil {
+		return err
+	}
+	_, err = fs.Stat(bundledFS, "bin/backends")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // ignore if not present (dev fallback)
+		}
+		return err
+	}
+	return fs.WalkDir(bundledFS, "bin/backends", func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		data, err := bundledFS.ReadFile(p)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", p, err)
+		}
+		dest := filepath.Join(binDir, filepath.Base(p))
 		if !needsExtract(dest, int64(len(data))) {
 			return nil
 		}

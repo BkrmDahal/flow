@@ -8,6 +8,7 @@ package speech
 // Defined in menubar_darwin.m
 void FlowSetMenuBarState(int state);
 void FlowSetMenuBarHotkeyLabel(const char *label);
+void FlowSetMenuBarGrammarHotkeyLabel(const char *label);
 void FlowSetHotkeyModifier(int keyCode);
 void FlowStartHotkeyMonitor(void);
 void FlowStopHotkeyMonitor(void);
@@ -160,6 +161,10 @@ func TeardownDictation() {
 	cLabel := C.CString("Hotkey: not configured")
 	C.FlowSetMenuBarHotkeyLabel(cLabel)
 	C.free(unsafe.Pointer(cLabel))
+
+	cGrammarLabel := C.CString("Double-tap to fix grammar")
+	C.FlowSetMenuBarGrammarHotkeyLabel(cGrammarLabel)
+	C.free(unsafe.Pointer(cGrammarLabel))
 
 	dictMu.Lock()
 	dictEnabled = false

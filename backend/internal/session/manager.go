@@ -290,53 +290,6 @@ func (m *Manager) ListTelegramSessions() ([]SessionInfo, error) {
 	return sessions, nil
 }
 
-// ListAgentSessions scans the sessions directory for agent task sessions
-// (those with "_agent_" in the ID) and returns metadata sorted by timestamp
-// (newest first).
-func (m *Manager) ListAgentSessions() ([]SessionInfo, error) {
-	dir := m.sessionsDir()
-	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return []SessionInfo{}, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read sessions dir: %w", err)
-	}
-
-	var sessions []SessionInfo
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
-			continue
-		}
-		sessionID := strings.TrimSuffix(e.Name(), ".jsonl")
-		if !strings.Contains(sessionID, "_agent_") {
-			continue
-		}
-
-		// Extract timestamp from session ID (last underscore-separated part).
-		parts := strings.Split(sessionID, "_")
-		var ts int64
-		if len(parts) > 0 {
-			fmt.Sscanf(parts[len(parts)-1], "%d", &ts)
-		}
-
-		// Extract title from first user message.
-		title := extractTitle(filepath.Join(dir, e.Name()))
-
-		sessions = append(sessions, SessionInfo{
-			ID:        sessionID,
-			Title:     title,
-			Timestamp: ts,
-		})
-	}
-
-	// Sort by timestamp descending (newest first).
-	sort.Slice(sessions, func(i, j int) bool {
-		return sessions[i].Timestamp > sessions[j].Timestamp
-	})
-
-	return sessions, nil
-}
 
 // DeleteSession removes a session's JSONL file.
 func (m *Manager) DeleteSession(sessionID string) error {
@@ -399,6 +352,9 @@ func ExtractTextFromContent(content json.RawMessage) string {
 			typ, _ := block["type"].(string)
 			if typ == "text" {
 				if text, ok := block["text"].(string); ok {
+					if strings.HasPrefix(text, "[Attached file ") {
+						continue
+					}
 					parts = append(parts, text)
 				}
 			}
