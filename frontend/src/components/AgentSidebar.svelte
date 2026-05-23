@@ -143,18 +143,24 @@
   </div>
 
   <div class="sidebar-footer">
-    <button class="footer-nav-btn" on:click={() => dispatch('openToolkit')} title="Toolkit">
+    <button class="footer-nav-btn" on:click={() => dispatch('openToolkit')} title="Customize">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-        <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+        <line x1="4" y1="21" x2="4" y2="14" />
+        <line x1="4" y1="10" x2="4" y2="3" />
+        <line x1="12" y1="21" x2="12" y2="12" />
+        <line x1="12" y1="8" x2="12" y2="3" />
+        <line x1="20" y1="21" x2="20" y2="16" />
+        <line x1="20" y1="12" x2="20" y2="3" />
+        <line x1="1" y1="14" x2="7" y2="14" />
+        <line x1="9" y1="8" x2="15" y2="8" />
+        <line x1="17" y1="16" x2="23" y2="16" />
       </svg>
-      <span>Toolkit</span>
+      <span>Customize</span>
     </button>
-    <div class="footer-divider"></div>
     <button class="footer-btn" on:click={() => dispatch('openSettings')} title="Settings">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
       </svg>
     </button>
   </div>
@@ -289,12 +295,12 @@
   .sidebar-footer {
     padding: 8px 10px;
     border-top: 1px solid var(--border);
-    display: flex; flex-direction: column; gap: 8px;
+    display: flex; align-items: center; justify-content: space-between; gap: 4px;
   }
 
   .footer-nav-btn {
     display: flex; align-items: center; gap: 8px;
-    width: 100%; height: 32px; padding: 0 10px;
+    flex: 1; height: 32px; padding: 0 10px;
     background: none; border: none; border-radius: 8px;
     color: var(--text-secondary); cursor: pointer;
     transition: all 0.15s ease;
@@ -303,19 +309,12 @@
   .footer-nav-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
   .footer-nav-btn svg { flex-shrink: 0; }
 
-  .footer-divider {
-    height: 1px;
-    background: var(--border);
-    margin: 0 4px;
-  }
-
   .footer-btn {
     display: flex; align-items: center; justify-content: center;
-    width: 32px; height: 32px;
+    width: 32px; height: 32px; flex-shrink: 0;
     background: none; border: none; border-radius: 8px;
     color: var(--text-muted); cursor: pointer;
     transition: all 0.15s ease;
-    align-self: flex-end;
   }
   .footer-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
 </style>
