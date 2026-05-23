@@ -14,6 +14,7 @@ type AgentConfig struct {
 	PromptPath     string `json:"prompt_path"`
 	SessionPrefix  string `json:"session_prefix"`
 	EnableThinking bool   `json:"enable_thinking"`
+	ThinkingBudget int    `json:"thinking_budget"` // e.g. 10000
 }
 
 // Config is the application configuration persisted to ~/.flow/config.json.
@@ -125,6 +126,7 @@ func Bootstrap() (string, error) {
 					PromptPath:     "workspace/Master_prompt.md",
 					SessionPrefix:  "agent_main",
 					EnableThinking: false,
+					ThinkingBudget: 10000,
 				},
 			},
 		}
@@ -240,6 +242,15 @@ func Load(base string) (*Config, error) {
 	if cfg.ProviderMode == "" {
 		cfg.ProviderMode = "none"
 	}
+
+	// Set default thinking budget for agents.
+	for k, agent := range cfg.Agents {
+		if agent.ThinkingBudget == 0 {
+			agent.ThinkingBudget = 10000
+			cfg.Agents[k] = agent
+		}
+	}
+
 	return &cfg, nil
 }
 

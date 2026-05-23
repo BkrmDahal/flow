@@ -299,6 +299,13 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 		}
 
 		agentCfg := config.AgentConfig{}
+		if deps.BaseDir != "" {
+			if cfg, err := config.Load(deps.BaseDir); err == nil && cfg != nil {
+				if aCfg, ok := cfg.Agents["main"]; ok {
+					agentCfg = aCfg
+				}
+			}
+		}
 		llmStart := time.Now()
 		log.Printf("[agent] ── LLM CALL ── session=%s iter=%d/%d history_msgs=%d model=%s",
 			sessionID, i+1, maxToolIterations, len(history), modelName)
