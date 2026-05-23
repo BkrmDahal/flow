@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
 
   export let progressSteps = [];
   export let files = [];
@@ -11,6 +11,37 @@
   let skillsOpen = true;
   let filesOpen = true;
   let contextOpen = true;
+
+  // ── Resizer state ──
+  let sidebarWidth = 220;
+  let isResizing = false;
+
+  onMount(() => {
+    const saved = localStorage.getItem('flow-agent-right-sidebar-width');
+    if (saved) {
+      sidebarWidth = Math.max(160, Math.min(450, parseInt(saved, 10)));
+    }
+  });
+
+  function startResize(e) {
+    e.preventDefault();
+    isResizing = true;
+    window.addEventListener('mousemove', handleResize);
+    window.addEventListener('mouseup', stopResize);
+  }
+
+  function handleResize(e) {
+    if (!isResizing) return;
+    const newWidth = window.innerWidth - e.clientX;
+    sidebarWidth = Math.max(160, Math.min(450, newWidth));
+  }
+
+  function stopResize() {
+    isResizing = false;
+    window.removeEventListener('mousemove', handleResize);
+    window.removeEventListener('mouseup', stopResize);
+    localStorage.setItem('flow-agent-right-sidebar-width', sidebarWidth.toString());
+  }
 
   $: totalTodos = progressSteps.length;
   $: completedTodos = progressSteps.filter(s => s.status === 'completed').length;
@@ -39,7 +70,8 @@
   }
 </script>
 
-<aside class="info-panel">
+<aside class="info-panel" style="width: {sidebarWidth}px;">
+  <div class="resize-handle left" class:active={isResizing} on:mousedown={startResize} role="separator" aria-label="Resize Sidebar"></div>
   <!-- Plan Section -->
   <div class="panel-section">
     <button class="section-header" on:click={() => planOpen = !planOpen}>
@@ -185,6 +217,7 @@
 
 <style>
   .info-panel {
+    position: relative;
     width: 220px; height: 100%;
     background: var(--bg-primary);
     border-left: 1px solid var(--border);
@@ -192,6 +225,22 @@
     display: flex; flex-direction: column;
     overflow-y: auto;
     padding-top: 8px;
+  }
+
+  .resize-handle {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 4px;
+    cursor: col-resize;
+    z-index: 100;
+    transition: background 0.15s ease;
+  }
+  .resize-handle.left {
+    left: 0;
+  }
+  .resize-handle:hover,
+  .resize-handle.active {
+    background: var(--accent);
   }
 
   .info-panel::-webkit-scrollbar { width: 4px; }
@@ -287,10 +336,17 @@
   }
 
   .plan-label {
-    font-size: 12.5px; color: var(--text-secondary);
-    line-height: 1.45; min-width: 0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+    min-width: 0;
     flex: 1;
+    display: block;
+    max-height: 2.9em;
+    overflow: hidden;
+    word-wrap: break-word;
+    -webkit-mask-image: linear-gradient(to bottom, #000 1.3em, transparent 2.8em);
+    mask-image: linear-gradient(to bottom, #000 1.3em, transparent 2.8em);
   }
   .plan-label.strikethrough { text-decoration: line-through; color: var(--text-muted); opacity: 0.7; }
   .plan-item.active .plan-label { color: var(--text-primary); font-weight: 500; }

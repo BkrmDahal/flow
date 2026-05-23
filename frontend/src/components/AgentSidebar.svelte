@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
 
   export let agentTaskHistory = [];
   export let activeAgentTaskId = null;
@@ -9,6 +9,36 @@
 
   let searchQuery = '';
   let hoveredTaskId = null;
+
+  // ── Resizer state ──
+  let sidebarWidth = 220;
+  let isResizing = false;
+
+  onMount(() => {
+    const saved = localStorage.getItem('flow-agent-sidebar-width');
+    if (saved) {
+      sidebarWidth = Math.max(160, Math.min(450, parseInt(saved, 10)));
+    }
+  });
+
+  function startResize(e) {
+    e.preventDefault();
+    isResizing = true;
+    window.addEventListener('mousemove', handleResize);
+    window.addEventListener('mouseup', stopResize);
+  }
+
+  function handleResize(e) {
+    if (!isResizing) return;
+    sidebarWidth = Math.max(160, Math.min(450, e.clientX));
+  }
+
+  function stopResize() {
+    isResizing = false;
+    window.removeEventListener('mousemove', handleResize);
+    window.removeEventListener('mouseup', stopResize);
+    localStorage.setItem('flow-agent-sidebar-width', sidebarWidth.toString());
+  }
 
   $: filtered = searchQuery
     ? agentTaskHistory.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -42,7 +72,8 @@
   }
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" style="width: {sidebarWidth}px;">
+  <div class="resize-handle" class:active={isResizing} on:mousedown={startResize} role="separator" aria-label="Resize Sidebar"></div>
   <div class="drag-region"></div>
   <div class="sidebar-inner">
     <button class="nav-new" on:click={() => dispatch('newTask')}>
@@ -131,6 +162,7 @@
 
 <style>
   .sidebar {
+    position: relative;
     width: 220px; height: 100%;
     background: var(--bg-sidebar);
     border-right: 1px solid var(--border);
@@ -138,6 +170,19 @@
     display: flex; flex-direction: column;
     overflow: hidden;
     user-select: none;
+  }
+
+  .resize-handle {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 4px;
+    cursor: col-resize;
+    z-index: 100;
+    transition: background 0.15s ease;
+  }
+  .resize-handle:hover,
+  .resize-handle.active {
+    background: var(--accent);
   }
 
   .drag-region { --wails-draggable: drag; height: 12px; flex-shrink: 0; }
@@ -210,8 +255,12 @@
   .task-item.active { background: rgba(255,255,255,0.08); color: var(--text-primary); }
 
   .task-title {
-    flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
     min-width: 0;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
   }
 
   .streaming-dot {
@@ -226,13 +275,14 @@
 
   .action-btn {
     display: flex; align-items: center; justify-content: center;
-    width: 22px; height: 22px; padding: 0;
+    width: 0; height: 22px; padding: 0;
     background: none; border: none; border-radius: 4px;
     color: var(--text-muted); cursor: pointer;
-    transition: all 0.15s ease;
+    transition: width 0.15s ease, opacity 0.15s ease;
     opacity: 0; flex-shrink: 0;
+    overflow: hidden;
   }
-  .action-btn.visible { opacity: 1; }
+  .action-btn.visible { width: 22px; opacity: 1; }
   .action-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
   .delete-btn:hover { color: #f87171; background: rgba(248,113,113,0.1); }
 

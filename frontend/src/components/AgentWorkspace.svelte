@@ -601,45 +601,41 @@
         <!-- Messages -->
         {#each messages as message, msgIdx}
           {#if message.role === 'user'}
-            {#if msgIdx > 0}
-              <div class="chat-divider">
-                <span class="divider-line"></span>
-                <span class="divider-dot"></span>
-                <span class="divider-line"></span>
+            <div class="user-pill-container">
+              <div class="user-pill">
+                {#if message.selectedSkill}
+                  <div class="user-pill-skill-chip">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                    </svg>
+                    <span>{message.selectedSkill}</span>
+                  </div>
+                {/if}
+                {#if message.files && message.files.length > 0}
+                  <div class="user-pill-files">
+                    {#each message.files as file}
+                      <div class="user-pill-file-chip">
+                        {#if IMAGE_TYPES.has(file.type)}
+                          <img class="user-pill-file-thumb" src={file.dataUrl} alt={file.name} />
+                        {:else}
+                          <svg class="user-pill-file-icon" width="12" height="12" viewBox="0 0 24 24" fill="none">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                          </svg>
+                        {/if}
+                        <span class="user-pill-file-name">{file.name}</span>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+                {#if message.content}
+                  <span class="user-pill-text">{message.content}</span>
+                {/if}
               </div>
-            {/if}
-            <div class="user-pill">
-              {#if message.selectedSkill}
-                <div class="user-pill-skill-chip">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-                  </svg>
-                  <span>{message.selectedSkill}</span>
-                </div>
-              {/if}
-              {#if message.files && message.files.length > 0}
-                <div class="user-pill-files">
-                  {#each message.files as file}
-                    <div class="user-pill-file-chip">
-                      {#if IMAGE_TYPES.has(file.type)}
-                        <img class="user-pill-file-thumb" src={file.dataUrl} alt={file.name} />
-                      {:else}
-                        <svg class="user-pill-file-icon" width="12" height="12" viewBox="0 0 24 24" fill="none">
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                          <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                      {/if}
-                      <span class="user-pill-file-name">{file.name}</span>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-              {#if message.content}
-                <span class="user-pill-text">{message.content}</span>
-              {/if}
             </div>
           {:else if message.role === 'assistant'}
+            {@const parsed = parseOptions(message.content || '')}
             <!-- Summary line (show after first assistant response only, when not streaming) -->
             {#if msgIdx === 1 && summaryText && !message.isStreaming}
               <div class="summary-line">
@@ -741,7 +737,6 @@
 
             <!-- Agent Response Text -->
             {#if message.content}
-              {@const parsed = parseOptions(message.content)}
               <!-- svelte-ignore a11y-click-events-have-key-events -->
               <!-- svelte-ignore a11y-no-static-element-interactions -->
               <div class="agent-response" on:click={handleContentClick}>
@@ -776,37 +771,38 @@
                   </div>
                 </div>
               {/if}
-
-              <!-- Copy full message button -->
-              {#if !message.isStreaming}
-                <div class="message-actions">
-                  <button class="msg-copy-btn" on:click={() => copyMessage(msgIdx, parsed.cleanContent)} title="Copy message">
-                    {#if copiedMsgIdx === msgIdx}
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M20 6L9 17l-5-5"/>
-                      </svg>
-                      <span>Copied!</span>
-                    {:else}
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                      </svg>
-                      <span>Copy</span>
-                    {/if}
-                  </button>
-                </div>
-              {/if}
             {:else if message.isStreaming}
               <div class="agent-response">
                 <TypingIndicator />
               </div>
             {/if}
+
             <!-- Created File Cards inline under the turn that generated them -->
             {#if message.filesCreated && message.filesCreated.length > 0}
               <div class="file-cards" style="margin-top: 10px; margin-bottom: 10px;">
                 {#each message.filesCreated as file}
                   <AgentFileCard {file} on:openFile={handleOpenFile} on:openFolder={handleRevealFile} />
                 {/each}
+              </div>
+            {/if}
+
+            <!-- Copy full message button (always at the very end of the assistant response block) -->
+            {#if !message.isStreaming && message.content}
+              <div class="message-actions">
+                <button class="msg-copy-btn" on:click={() => copyMessage(msgIdx, parsed.cleanContent)} title="Copy message">
+                  {#if copiedMsgIdx === msgIdx}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M20 6L9 17l-5-5"/>
+                    </svg>
+                    <span>Copied!</span>
+                  {:else}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    <span>Copy</span>
+                  {/if}
+                </button>
               </div>
             {/if}
           {/if}
@@ -1091,14 +1087,21 @@
   }
 
   /* User Message Pill */
+  .user-pill-container {
+    display: flex;
+    justify-content: flex-end;
+    width: 100%;
+    margin-bottom: 16px;
+  }
+
   .user-pill {
     display: inline-block;
-    max-width: 100%;
+    max-width: 80%;
     padding: 10px 18px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    margin-bottom: 16px;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   }
 
   .user-pill-text {

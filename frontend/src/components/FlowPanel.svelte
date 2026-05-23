@@ -18,6 +18,29 @@
   let searchQuery = ''
   let modelDownload = null        // { downloaded, total } while bundled model downloads
 
+  // ── Resizer state ──
+  let sidebarWidth = 220;
+  let isResizing = false;
+
+  function startResize(e) {
+    e.preventDefault();
+    isResizing = true;
+    window.addEventListener('mousemove', handleResize);
+    window.addEventListener('mouseup', stopResize);
+  }
+
+  function handleResize(e) {
+    if (!isResizing) return;
+    sidebarWidth = Math.max(160, Math.min(450, e.clientX));
+  }
+
+  function stopResize() {
+    isResizing = false;
+    window.removeEventListener('mousemove', handleResize);
+    window.removeEventListener('mouseup', stopResize);
+    localStorage.setItem('flow-recordings-sidebar-width', sidebarWidth.toString());
+  }
+
   // ── Click and Type/Inline Edit variables ──
   let lastViewingId = null
   let viewingText = ''
@@ -287,6 +310,10 @@
 
 
   onMount(() => {
+    const saved = localStorage.getItem('flow-recordings-sidebar-width');
+    if (saved) {
+      sidebarWidth = Math.max(160, Math.min(450, parseInt(saved, 10)));
+    }
     refreshList()
     loadHotkeyStatus()
     window.addEventListener('flow:settings-saved', onSettingsSaved)
@@ -323,9 +350,10 @@
   })
 </script>
 
-<div class="flow">
+<div class="flow" style="grid-template-columns: {sidebarWidth}px 1fr;">
   <!-- Sidebar -->
   <aside class="sidebar">
+    <div class="resize-handle" class:active={isResizing} on:mousedown={startResize} role="separator" aria-label="Resize Sidebar"></div>
     <div class="drag-region"></div>
     <div class="sidebar-inner">
       <button class="nav-new" on:click={startRecording} disabled={isRecording}>
@@ -649,7 +677,8 @@
 
   /* ─── Sidebar ─── */
   .sidebar {
-    width: 220px;
+    position: relative;
+    width: 100%;
     height: 100%;
     display: flex;
     flex-direction: column;
@@ -657,6 +686,19 @@
     background: var(--bg-sidebar);
     overflow: hidden;
     user-select: none;
+  }
+
+  .resize-handle {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 4px;
+    cursor: col-resize;
+    z-index: 100;
+    transition: background 0.15s ease;
+  }
+  .resize-handle:hover,
+  .resize-handle.active {
+    background: var(--accent);
   }
   .drag-region {
     --wails-draggable: drag;
@@ -766,11 +808,16 @@
   .transcript-title {
     font-size: 13px;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
-    padding-right: 22px;
+    padding-right: 6px;
     font-weight: 400;
     min-width: 0;
+    transition: padding-right 0.15s ease;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+  }
+  .transcript-item:hover .transcript-title {
+    padding-right: 22px;
   }
   .transcript-item.selected .transcript-title,
   .transcript-item:hover .transcript-title { font-weight: 500; }
