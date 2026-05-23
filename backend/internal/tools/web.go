@@ -74,7 +74,18 @@ func (t *WebSearchTool) Execute(ctx context.Context, input json.RawMessage) (str
 	results := parseDuckDuckGoHTML(htmlContent)
 
 	if len(results) == 0 {
-		return "No search results found. Try refining your query.", nil
+		// Check if the response indicates bot protection/blocking.
+		lowerHTML := strings.ToLower(htmlContent)
+		if strings.Contains(lowerHTML, "captcha") ||
+			strings.Contains(lowerHTML, "robot") ||
+			strings.Contains(lowerHTML, "unusual traffic") ||
+			strings.Contains(lowerHTML, "security check") ||
+			strings.Contains(lowerHTML, "blocked") {
+			return "Error: The search provider is currently blocking/rate-limiting automated requests (bot detection). Do NOT retry or refine search queries; they will all fail. Proceed immediately by answering from your own training knowledge.", nil
+		}
+
+		// Fallback for general empty results (prevents infinite search loops)
+		return "No search results found. The query may have no matching indexes, or the search service is temporarily rate-limiting. Do NOT keep retrying or refining search queries in a loop. Proceed using your own training knowledge.", nil
 	}
 
 	var sb strings.Builder
