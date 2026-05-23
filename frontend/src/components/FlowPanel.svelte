@@ -18,6 +18,73 @@
   let searchQuery = ''
   let modelDownload = null        // { downloaded, total } while bundled model downloads
 
+  // ── Click and Type/Inline Edit variables ──
+  let lastViewingId = null
+  let viewingText = ''
+  let originalViewingText = ''
+
+  $: if (viewing) {
+    if (viewing.id !== lastViewingId) {
+      viewingText = viewing.text
+      originalViewingText = viewing.text
+      lastViewingId = viewing.id
+    }
+  } else {
+    lastViewingId = null
+    viewingText = ''
+    originalViewingText = ''
+  }
+
+  async function saveTypedText() {
+    if (!liveText.trim()) return
+    errorMsg = ''
+    try {
+      const id = await Backend.SaveFlowTranscript(liveText, 0)
+      await refreshList()
+      await selectTranscript(id)
+      await maybeAutoRefine(id)
+    } catch (e) {
+      errorMsg = String(e)
+    }
+  }
+
+  async function saveViewingEdits() {
+    if (!viewing || viewingText === originalViewingText) return
+    errorMsg = ''
+    try {
+      await Backend.UpdateFlowTranscript(viewing.id, viewingText)
+      originalViewingText = viewingText
+      await refreshList()
+      viewing = await Backend.LoadFlowTranscript(viewing.id)
+    } catch (e) {
+      errorMsg = String(e)
+    }
+  }
+
+  async function handleViewingBlur() {
+    if (viewingText !== originalViewingText) {
+      await saveViewingEdits()
+    }
+  }
+
+  function autoResize(node) {
+    const adjust = () => {
+      node.style.height = 'auto'
+      node.style.height = `${node.scrollHeight}px`
+    }
+    node.addEventListener('input', adjust)
+    setTimeout(adjust, 0)
+    return {
+      update() {
+        adjust()
+      },
+      destroy() {
+        node.removeEventListener('input', adjust)
+      }
+    }
+  }
+
+
   // ── Hotkey banner state ──
   let hotkeyEnabled = false
   let hotkeyModifier = 'right_option'
@@ -52,7 +119,7 @@
     loadHotkeyStatus()
   }
 
-  $: wordCount = (liveText || viewing?.text || '').trim().split(/\s+/).filter(Boolean).length
+  $: wordCount = (viewing ? viewingText : liveText).trim().split(/\s+/).filter(Boolean).length
   $: filteredTranscripts = searchQuery.trim()
     ? transcripts.filter(t => (t.title || '').toLowerCase().includes(searchQuery.toLowerCase()))
     : transcripts
@@ -411,7 +478,13 @@
           {/if}
         </div>
       {:else if viewing}
-        <div class="transcript-text">{viewing.text}</div>
+        <textarea
+          class="transcript-textarea-view"
+          bind:value={viewingText}
+          use:autoResize
+          on:blur={handleViewingBlur}
+          placeholder="Start typing..."
+        ></textarea>
         {#if viewing.refinements?.length}
           <div class="refinements">
             {#each viewing.refinements as r}
@@ -428,26 +501,43 @@
         {/if}
         <FlowRefineMenu transcript={viewing} onRefined={() => selectTranscript(viewing.id)} />
       {:else}
-        <span class="placeholder-text">Click the microphone to start speaking</span>
+        <textarea
+          class="transcript-textarea"
+          bind:value={liveText}
+          placeholder="Click the microphone to start speaking, or start typing here..."
+        ></textarea>
       {/if}
     </div>
 
     <!-- Bottom actions -->
     <footer class="bottom-bar">
       <div class="bottom-actions">
-        <button class="action-btn" on:click={clearText} disabled={!liveText && !viewing} title="Clear transcript">
+        <button class="action-btn" on:click={clearText} disabled={viewing ? !viewingText : !liveText} title="Clear transcript">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
           Clear
         </button>
-        <button class="action-btn" on:click={() => copyText(liveText || viewing?.text || '')} disabled={!liveText && !viewing} title="Copy to clipboard">
+        <button class="action-btn" on:click={() => copyText(viewing ? viewingText : liveText)} disabled={viewing ? !viewingText.trim() : !liveText.trim()} title="Copy to clipboard">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
           Copy
         </button>
-        <button class="action-btn" on:click={stopRecording} disabled={!isRecording} title="Stop recording and save">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
-          Save
-        </button>
+        {#if isRecording}
+          <button class="action-btn" on:click={stopRecording} title="Stop recording and save">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+            Save
+          </button>
+        {:else if viewing}
+          <button class="action-btn" on:click={saveViewingEdits} disabled={viewingText === originalViewingText} title="Save changes">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+            Save
+          </button>
+        {:else}
+          <button class="action-btn" on:click={saveTypedText} disabled={!liveText.trim()} title="Save typed transcript">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+            Save
+          </button>
+        {/if}
       </div>
+
 
       <!-- Big microphone button -->
       <button
@@ -860,10 +950,29 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
   }
-  .placeholder-text {
-    color: var(--text-muted);
+  .transcript-textarea, .transcript-textarea-view {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    resize: none;
+    font-family: inherit;
     font-size: 15px;
+    line-height: 1.7;
+    color: var(--text-primary);
+    padding: 0;
+    margin: 0;
+    overflow-y: hidden;
   }
+  .transcript-textarea {
+    height: 100%;
+    min-height: 200px;
+    overflow-y: auto;
+  }
+  .transcript-textarea::placeholder, .transcript-textarea-view::placeholder {
+    color: var(--text-muted);
+  }
+
 
   .refinements {
     margin-top: 20px;

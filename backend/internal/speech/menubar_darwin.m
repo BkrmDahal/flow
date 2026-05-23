@@ -16,6 +16,7 @@ static NSStatusItem *statusItem  = nil;
 static NSImage      *iconIdle    = nil;
 static NSMenu       *statusMenu  = nil;
 static NSMenuItem   *hotkeyMenuItem  = nil;
+static NSMenuItem   *grammarHotkeyMenuItem = nil;
 static NSMenuItem   *statusMenuItem  = nil;
 
 @interface FlowMenuHandler : NSObject
@@ -48,20 +49,32 @@ static NSImage* createMenuBarIcon(void) {
     [[NSColor blackColor] setStroke];
 
     NSBezierPath *path = [NSBezierPath bezierPath];
-    [path setLineWidth:2.0];
+    [path setLineWidth:1.6];
     [path setLineCapStyle:NSRoundLineCapStyle];
+    [path setLineJoinStyle:NSRoundLineJoinStyle];
 
-    // Spine and Top arm (one continuous fluid curve mimicking the new logo)
-    [path moveToPoint:NSMakePoint(5, 3)];
-    [path curveToPoint:NSMakePoint(14, 14) 
-          controlPoint1:NSMakePoint(6, 11) 
-          controlPoint2:NSMakePoint(9, 15)];
-
-    // Middle arm (wavy stroke)
-    [path moveToPoint:NSMakePoint(6, 8)];
-    [path curveToPoint:NSMakePoint(12, 8) 
-          controlPoint1:NSMakePoint(8, 10) 
-          controlPoint2:NSMakePoint(10, 7)];
+    // Start at top-left lobe (5.0, 14.5)
+    [path moveToPoint:NSMakePoint(5.0, 14.5)];
+    
+    // Left Lobe: Curve down-left to far-left (2.0) and down-right to bottom-left (5.0, 3.5)
+    [path curveToPoint:NSMakePoint(5.0, 3.5)
+          controlPoint1:NSMakePoint(2.0, 13.5)
+          controlPoint2:NSMakePoint(2.0, 4.5)];
+          
+    // Crossing 1: Diagonal fluid S-curve from bottom-left to top-right (13.0, 14.5)
+    [path curveToPoint:NSMakePoint(13.0, 14.5)
+          controlPoint1:NSMakePoint(7.0, 5.5)
+          controlPoint2:NSMakePoint(11.0, 12.5)];
+          
+    // Right Lobe: Curve down-right to far-right (16.0) and down-left to bottom-right (13.0, 3.5)
+    [path curveToPoint:NSMakePoint(13.0, 3.5)
+          controlPoint1:NSMakePoint(16.0, 13.5)
+          controlPoint2:NSMakePoint(16.0, 4.5)];
+          
+    // Crossing 2: Diagonal fluid S-curve from bottom-right to top-left (5.0, 14.5)
+    [path curveToPoint:NSMakePoint(5.0, 14.5)
+          controlPoint1:NSMakePoint(11.0, 5.5)
+          controlPoint2:NSMakePoint(7.0, 12.5)];
 
     [path stroke];
 
@@ -106,6 +119,12 @@ void FlowShowMenuBar(void) {
             action:nil keyEquivalent:@""];
         [hotkeyMenuItem setEnabled:NO];
         [statusMenu addItem:hotkeyMenuItem];
+
+        grammarHotkeyMenuItem = [[NSMenuItem alloc]
+            initWithTitle:@"Double-tap to fix grammar"
+            action:nil keyEquivalent:@""];
+        [grammarHotkeyMenuItem setEnabled:NO];
+        [statusMenu addItem:grammarHotkeyMenuItem];
         [statusMenu addItem:[NSMenuItem separatorItem]];
 
         NSMenuItem *showItem = [[NSMenuItem alloc]
@@ -132,6 +151,7 @@ void FlowHideMenuBar(void) {
             statusItem = nil;
             statusMenu = nil;
             hotkeyMenuItem = nil;
+            grammarHotkeyMenuItem = nil;
             statusMenuItem = nil;
         }
     });
@@ -142,6 +162,15 @@ void FlowSetMenuBarHotkeyLabel(const char *label) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (hotkeyMenuItem) {
             [hotkeyMenuItem setTitle:str];
+        }
+    });
+}
+
+void FlowSetMenuBarGrammarHotkeyLabel(const char *label) {
+    NSString *str = [NSString stringWithUTF8String:label];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (grammarHotkeyMenuItem) {
+            [grammarHotkeyMenuItem setTitle:str];
         }
     });
 }
