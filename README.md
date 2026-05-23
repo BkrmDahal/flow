@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  Built with Go + Svelte via Wails, <strong>Flow</strong> is a native desktop command center that seamlessly fuses a multi-turn agentic AI chat workspace (<strong>Cowork</strong>) and instantaneous, push-to-talk disfluency-free dictation refinement (<strong>Flow</strong>) directly into your daily macOS workflow. Designed with a strict <strong>privacy-first philosophy</strong>, Flow is engineered to run <strong>100% locally on-device</strong> using local voice transcription (Whisper.cpp) and local LLMs (managed llama.cpp, LM Studio, Ollama)—keeping all your voice logs, transcripts, workspace files, and code strictly on your machine, while giving you the full flexibility to connect cloud LLMs and remote transcription APIs as you wish.
+  <strong>Flow</strong> is a native desktop command center that seamlessly fuses a multi-turn agentic AI chat workspace (<strong>Cowork</strong>) and instantaneous, push-to-talk disfluency-free dictation refinement (<strong>Flow</strong>) directly into your daily macOS workflow. Designed with a strict <strong>privacy-first philosophy</strong>, Flow is engineered to run <strong>100% locally on-device</strong> using local voice transcription (Whisper.cpp) and local LLMs (managed llama.cpp, LM Studio, Ollama)—keeping all your voice logs, transcripts, workspace files, and code strictly on your machine, while giving you the full flexibility to connect cloud LLMs and remote transcription APIs as you wish.
 </p>
 
 ---
@@ -30,7 +30,7 @@ A powerful, multi-turn chat workspace powered by LLMs with robust agentic tool-c
 </p>
 
 ### 🎙️ Flow — Voice Recorder & Refiner
-A sleek, premium dark-themed dictation workspace showing real-time audio statistics, live word counters, inline transcript editing, and instant LLM-powered refinement actions:
+Use it in any app! Just press the global hotkey to instantly record, transcribe, and refine text. Features real-time audio statistics, live word counters, inline transcript editing, and instant LLM-powered refinement actions:
 <p align="center">
   <img src="docs/images/main_window.png" alt="Flow Voice Dictation" width="90%" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);" />
 </p>
