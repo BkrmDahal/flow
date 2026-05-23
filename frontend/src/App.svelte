@@ -56,7 +56,7 @@
 
     <section class="body">
       {#if activeTab === 'flow'}
-        <FlowPanel onOpenSettings={() => settingsOpen = true} />
+        <FlowPanel onOpenSettings={() => settingsOpen = true} onOpenToolkit={openToolkit} />
       {:else}
         <CoworkWorkspace onOpenSettings={() => settingsOpen = true} onOpenToolkit={openToolkit} />
       {/if}

@@ -15,7 +15,7 @@
   let isResizing = false;
 
   onMount(() => {
-    const saved = localStorage.getItem('flow-agent-sidebar-width');
+    const saved = localStorage.getItem('flow-sidebar-width');
     if (saved) {
       sidebarWidth = Math.max(160, Math.min(450, parseInt(saved, 10)));
     }
@@ -37,7 +37,7 @@
     isResizing = false;
     window.removeEventListener('mousemove', handleResize);
     window.removeEventListener('mouseup', stopResize);
-    localStorage.setItem('flow-agent-sidebar-width', sidebarWidth.toString());
+    localStorage.setItem('flow-sidebar-width', sidebarWidth.toString());
   }
 
   $: filtered = searchQuery
