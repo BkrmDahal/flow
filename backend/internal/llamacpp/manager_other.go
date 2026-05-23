@@ -19,6 +19,8 @@ type Status struct {
 
 type Manager struct{}
 
+func KillStrayServers() {}
+
 func NewManager(baseDir string) *Manager { return &Manager{} }
 
 func BaseURL(port int) string {

@@ -154,6 +154,12 @@ func (m *Manager) Start(modelPath string, port, contextSize int) error {
 	return nil
 }
 
+// KillStrayServers kills any running llama-server processes on the system to ensure a clean state.
+func KillStrayServers() {
+	_ = exec.Command("pkill", "llama-server").Run()
+	_ = exec.Command("killall", "llama-server").Run()
+}
+
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 	cmd := m.cmd
@@ -163,23 +169,27 @@ func (m *Manager) Stop() error {
 	}
 	m.mu.Unlock()
 
-	if cmd == nil || cmd.Process == nil {
-		return nil
-	}
-	if err := cmd.Process.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		_ = cmd.Process.Kill()
-		return err
-	}
-
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		_ = cmd.Process.Kill()
-		if done != nil {
-			<-done
+	var stopErr error
+	if cmd != nil && cmd.Process != nil {
+		if err := cmd.Process.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			_ = cmd.Process.Kill()
+			stopErr = err
+		} else {
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				_ = cmd.Process.Kill()
+				if done != nil {
+					<-done
+				}
+			}
 		}
 	}
-	return nil
+
+	// Always ensure any running llama-server processes on the system are terminated
+	KillStrayServers()
+
+	return stopErr
 }
 
 func (m *Manager) Status() Status {

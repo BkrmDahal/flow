@@ -54,13 +54,45 @@ func (t *UseSkillTool) Execute(_ context.Context, input json.RawMessage) (string
 		return "Error: skill name cannot be empty", nil
 	}
 
-	skillPath := filepath.Join(t.baseDir, "plugins", "skills", name+".md")
-	data, err := os.ReadFile(skillPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Sprintf("Error: skill %q not found. Check the Available Skills list for valid names.", name), nil
+	// Dynamic multi-path resolution
+	var searchPaths []string
+	
+	// 1. Exact name in plugins/skills/
+	searchPaths = append(searchPaths, filepath.Join(t.baseDir, "plugins", "skills", name+".md"))
+
+	// 2. Try adding or stripping "skill-" prefix in plugins/skills/
+	if strings.HasPrefix(name, "skill-") {
+		cleanName := strings.TrimPrefix(name, "skill-")
+		searchPaths = append(searchPaths, filepath.Join(t.baseDir, "plugins", "skills", cleanName+".md"))
+	} else {
+		searchPaths = append(searchPaths, filepath.Join(t.baseDir, "plugins", "skills", "skill-"+name+".md"))
+	}
+
+	// 3. Exact name in memory/
+	searchPaths = append(searchPaths, filepath.Join(t.baseDir, "memory", name+".md"))
+
+	// 4. Try adding or stripping "skill-" prefix in memory/
+	if strings.HasPrefix(name, "skill-") {
+		cleanName := strings.TrimPrefix(name, "skill-")
+		searchPaths = append(searchPaths, filepath.Join(t.baseDir, "memory", cleanName+".md"))
+	} else {
+		searchPaths = append(searchPaths, filepath.Join(t.baseDir, "memory", "skill-"+name+".md"))
+	}
+
+	var data []byte
+	var err error
+	resolvedPath := ""
+
+	for _, path := range searchPaths {
+		data, err = os.ReadFile(path)
+		if err == nil {
+			resolvedPath = path
+			break
 		}
-		return fmt.Sprintf("Error reading skill %q: %v", name, err), nil
+	}
+
+	if resolvedPath == "" {
+		return fmt.Sprintf("Error: skill %q not found. Check the Available Skills list for valid names.", name), nil
 	}
 
 	content := strings.TrimSpace(string(data))

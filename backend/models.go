@@ -29,6 +29,21 @@ func (a *App) ListLocalModels(baseURL, apiKey string) ([]ModelInfo, error) {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	if apiKey != "" {
+		if strings.Contains(apiKey, "****") && a.cfg != nil {
+			if strings.Contains(url, "openrouter.ai") {
+				apiKey = a.cfg.OpenRouterKey
+			} else if strings.Contains(url, "api.openai.com") {
+				apiKey = a.cfg.OpenAIKey
+			} else if strings.Contains(url, "api.anthropic.com") {
+				apiKey = a.cfg.AnthropicKey
+			} else {
+				if a.cfg.CustomCloudKey != "" {
+					apiKey = a.cfg.CustomCloudKey
+				} else if a.cfg.APIKey != "" {
+					apiKey = a.cfg.APIKey
+				}
+			}
+		}
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/user/flow/backend/internal/parser"
 )
 
 const maxReadBytes = 10 * 1024 // 10KB
@@ -73,7 +75,7 @@ type ReadFileTool struct{}
 func (t *ReadFileTool) Name() string { return "read_file" }
 
 func (t *ReadFileTool) Description() string {
-	return "Read the contents of a file at the given path. Relative paths resolve within the session workspace (~/.flow/cowork/{session_id}/). Absolute paths to external files are also allowed (except sensitive dirs like ~/.ssh). Output is truncated to 10KB. TIP: Always read a file before attempting to overwrite it."
+	return "Read the contents of a file at the given path. Supports plain text files as well as formatted documents (.pdf, .xlsx, .docx, .pptx). Relative paths resolve within the session workspace (~/.flow/cowork/{session_id}/). Absolute paths to external files are also allowed (except sensitive dirs like ~/.ssh). Output is truncated to 10KB. TIP: Always read a file before attempting to overwrite it."
 }
 
 func (t *ReadFileTool) Schema() map[string]interface{} {
@@ -117,10 +119,42 @@ func (t *ReadFileTool) Execute(ctx context.Context, input json.RawMessage) (stri
 
 	data, err := os.ReadFile(readPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			if sessionDir := SessionDirFromContext(ctx); sessionDir != "" {
+				entries, errDir := os.ReadDir(sessionDir)
+				if errDir == nil && len(entries) > 0 {
+					var fileNames []string
+					for _, entry := range entries {
+						if !entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") && !strings.HasSuffix(entry.Name(), ".jsonl") {
+							fileNames = append(fileNames, entry.Name())
+						}
+					}
+					if len(fileNames) > 0 {
+						return fmt.Sprintf("Error: file %q not found. The files currently in your workspace are: %s. Please correct the path or name.", in.Path, strings.Join(fileNames, ", ")), nil
+					}
+				}
+			}
+		}
 		return fmt.Sprintf("Error reading file: %v", err), nil
 	}
 
-	content := string(data)
+	ext := strings.ToLower(readPath)
+	isRichDoc := strings.HasSuffix(ext, ".pdf") ||
+		strings.HasSuffix(ext, ".xlsx") ||
+		strings.HasSuffix(ext, ".docx") ||
+		strings.HasSuffix(ext, ".pptx")
+
+	var content string
+	if isRichDoc {
+		extracted, err := parser.ExtractText(filepath.Base(readPath), data)
+		if err != nil {
+			return fmt.Sprintf("Error extracting text from document: %v", err), nil
+		}
+		content = extracted
+	} else {
+		content = string(data)
+	}
+
 	if len(content) > maxReadBytes {
 		content = content[:maxReadBytes] + "\n... [file truncated at 10KB]"
 	}
@@ -232,4 +266,69 @@ func (t *WriteFileTool) Execute(ctx context.Context, input json.RawMessage) (str
 	}
 
 	return fmt.Sprintf("Successfully wrote %d bytes to %s", len(in.Content), writePath), nil
+}
+
+// --- list_dir ---
+
+// ListDirTool lists all files and directories within the session workspace.
+type ListDirTool struct{}
+
+func (t *ListDirTool) Name() string { return "list_dir" }
+
+func (t *ListDirTool) Description() string {
+	return "List all files and subdirectories in the session workspace (~/.flow/cowork/{session_id}/). Use this tool to explore the workspace files instead of running bash 'ls' commands."
+}
+
+func (t *ListDirTool) Schema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":       "object",
+		"properties": map[string]interface{}{},
+	}
+}
+
+type listDirItem struct {
+	Name  string `json:"name"`
+	IsDir bool   `json:"is_dir"`
+	Size  int64  `json:"size"`
+}
+
+func (t *ListDirTool) Execute(ctx context.Context, input json.RawMessage) (string, error) {
+	sessionDir := SessionDirFromContext(ctx)
+	if sessionDir == "" {
+		return "Error: no active workspace session directory configured.", nil
+	}
+
+	entries, err := os.ReadDir(sessionDir)
+	if err != nil {
+		return fmt.Sprintf("Error reading workspace directory: %v", err), nil
+	}
+
+	var items []listDirItem
+	for _, entry := range entries {
+		// Ignore hidden files and session log files (.jsonl)
+		if strings.HasPrefix(entry.Name(), ".") || strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+		info, err := entry.Info()
+		var size int64
+		if err == nil {
+			size = info.Size()
+		}
+		items = append(items, listDirItem{
+			Name:  entry.Name(),
+			IsDir: entry.IsDir(),
+			Size:  size,
+		})
+	}
+
+	if len(items) == 0 {
+		return "The workspace directory is currently empty.", nil
+	}
+
+	raw, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("Error encoding result: %v", err), nil
+	}
+
+	return string(raw), nil
 }

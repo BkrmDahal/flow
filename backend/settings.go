@@ -30,6 +30,7 @@ type SettingsPayload struct {
 	GeminiKey     string `json:"geminiKey"`
 	OpenRouterKey string `json:"openRouterKey"`
 	DeepgramKey   string `json:"deepgramKey"`
+	TavilyKey     string `json:"tavilyKey"`
 
 	// Provider mode and cloud-tab selection
 	ProviderMode   string `json:"providerMode"` // "local" | "cloud"
@@ -85,6 +86,7 @@ func (a *App) SaveSettings(p SettingsPayload) error {
 		preserveKeyIfMasked(&cfg.GeminiKey, a.cfg.GeminiKey)
 		preserveKeyIfMasked(&cfg.OpenRouterKey, a.cfg.OpenRouterKey)
 		preserveKeyIfMasked(&cfg.DeepgramKey, a.cfg.DeepgramKey)
+		preserveKeyIfMasked(&cfg.TavilyKey, a.cfg.TavilyKey)
 		preserveKeyIfMasked(&cfg.CustomCloudKey, a.cfg.CustomCloudKey)
 		preserveKeyIfMasked(&cfg.SpeechAPIKey, a.cfg.SpeechAPIKey)
 	}
@@ -259,6 +261,7 @@ func toPayload(c *config.Config) *SettingsPayload {
 		GeminiKey:              maskKey(c.GeminiKey),
 		OpenRouterKey:          maskKey(c.OpenRouterKey),
 		DeepgramKey:            maskKey(c.DeepgramKey),
+		TavilyKey:              maskKey(c.TavilyKey),
 		ProviderMode:           c.ProviderMode,
 		CloudProvider:          c.CloudProvider,
 		CloudModel:             c.CloudModel,
@@ -306,6 +309,7 @@ func fromPayload(p SettingsPayload) *config.Config {
 		GeminiKey:              p.GeminiKey,
 		OpenRouterKey:          p.OpenRouterKey,
 		DeepgramKey:            p.DeepgramKey,
+		TavilyKey:              p.TavilyKey,
 		ProviderMode:           p.ProviderMode,
 		CloudProvider:          p.CloudProvider,
 		CloudModel:             p.CloudModel,

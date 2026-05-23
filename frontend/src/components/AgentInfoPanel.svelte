@@ -5,6 +5,7 @@
   export let files = [];
   export let contextTools = [];
   export let skillsUsed = [];
+  export let activeModel = '';
   const dispatch = createEventDispatcher();
 
   let planOpen = true;
@@ -87,6 +88,16 @@
         {:else}
           <div class="plan-summary">
             <span class="plan-count">{totalTodos} To-do{totalTodos !== 1 ? 's' : ''} · {statusSummary}</span>
+            {#if activeModel}
+              <div class="active-model-tag" title="Active model running this plan">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                  <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+                <span>{activeModel}</span>
+              </div>
+            {/if}
           </div>
           <div class="plan-list">
             {#each progressSteps as step}
@@ -291,8 +302,38 @@
   .empty-text { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
 
   /* Plan */
-  .plan-summary { margin-bottom: 12px; }
+  .plan-summary {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    margin-bottom: 12px;
+  }
   .plan-count { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+  
+  .active-model-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 2px;
+    padding: 3px 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--text-secondary, #d4d4d8);
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .active-model-tag svg {
+    color: var(--accent, #10b981);
+    flex-shrink: 0;
+  }
+  .active-model-tag span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .plan-list {
     display: flex;
     flex-direction: column;

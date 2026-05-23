@@ -77,7 +77,7 @@
   let apiKey = ''
   let preManagedBaseUrl = ''
   let preManagedApiKey = ''
-  let model = ''
+  let model = 'gemma-4-E2B-it-Q4_K_M.gguf'
   let availableModels = []
   let testStatus = ''
   let testMessage = ''
@@ -94,7 +94,7 @@
   let llamaBusy = false
   let llamaMessage = ''
   let llamaError = ''
-  let llamaDownloadURL = ''
+  let llamaDownloadURL = 'https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf?download=true'
   let llamaDownloading = false
   let llamaDownloadFilename = ''
   let llamaDownloadDownloaded = 0
@@ -213,7 +213,7 @@
       providerLabel     = s.providerLabel     || 'Local'
       baseUrl           = s.baseUrl           || DEFAULT_LOCAL_BASE_URL
       apiKey            = s.apiKey            || ''
-      model             = s.model             || ''
+      model             = s.model             || 'gemma-4-E2B-it-Q4_K_M.gguf'
       llamaManagedEnabled = s.llamaManagedEnabled || providerLabel === 'llama.cpp' || providerLabel === LLAMA_MANAGED_LABEL
       // Remember pre-managed values so toggling managed off restores user's URL/key.
       if (!llamaManagedEnabled) {
@@ -221,7 +221,7 @@
         preManagedApiKey = apiKey
       }
       llamaModelPath    = s.llamaModelPath    || ''
-      llamaDownloadURL  = s.llamaDownloadURL  || ''
+      llamaDownloadURL  = s.llamaDownloadURL  || 'https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf?download=true'
       llamaPort         = s.llamaPort         || 8080
       llamaContextSize  = s.llamaContextSize  || 4096
       autoRefineAction  = s.autoRefineAction  || 'off'

@@ -62,6 +62,9 @@ func (a *App) Startup(ctx context.Context) {
 	}
 	a.baseDir = base
 
+	// Clean up any stray/orphaned llama-server processes from previous crashed sessions
+	llamacpp.KillStrayServers()
+
 	cfg, err := config.Load(base)
 	if err != nil {
 		log.Printf("flow: config load failed: %v", err)
@@ -116,6 +119,9 @@ func (a *App) Shutdown(ctx context.Context) {
 		if err := a.llama.Stop(); err != nil {
 			log.Printf("flow: stop llama-server failed: %v", err)
 		}
+	} else {
+		// Fallback cleanup if a.llama was not initialized
+		llamacpp.KillStrayServers()
 	}
 	speech.HideMenuBarIcon()
 	log.Println("flow: shutdown")

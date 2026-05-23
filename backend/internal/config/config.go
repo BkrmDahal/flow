@@ -14,6 +14,7 @@ type AgentConfig struct {
 	PromptPath     string `json:"prompt_path"`
 	SessionPrefix  string `json:"session_prefix"`
 	EnableThinking bool   `json:"enable_thinking"`
+	ThinkingBudget int    `json:"thinking_budget"` // e.g. 10000
 }
 
 // Config is the application configuration persisted to ~/.flow/config.json.
@@ -38,6 +39,7 @@ type Config struct {
 	GeminiKey     string `json:"gemini_key"`     // Google Gemini API key
 	OpenRouterKey string `json:"openrouter_key"` // OpenRouter API key
 	DeepgramKey   string `json:"deepgram_key"`   // Deepgram STT API key
+	TavilyKey     string `json:"tavily_key"`     // Tavily Search API key
 
 	// ── Cloud provider (Settings → General → Cloud) ──────────────────────────
 	ProviderMode   string `json:"provider_mode"`    // "local" (default) | "cloud"
@@ -106,7 +108,8 @@ func Bootstrap() (string, error) {
 			ProviderLabel:    "LM Studio",
 			BaseURL:          "http://localhost:1234/v1",
 			APIKey:           "lm-studio",
-			Model:            "",
+			Model:            "gemma-4-E2B-it-Q4_K_M.gguf",
+			LlamaDownloadURL: "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf?download=true",
 			LlamaPort:        8080,
 			LlamaContextSize: 4096,
 			HotkeyEnabled:    false,
@@ -124,6 +127,7 @@ func Bootstrap() (string, error) {
 					PromptPath:     "workspace/Master_prompt.md",
 					SessionPrefix:  "agent_main",
 					EnableThinking: false,
+					ThinkingBudget: 10000,
 				},
 			},
 		}
@@ -196,6 +200,12 @@ func Load(base string) (*Config, error) {
 	if cfg.ProviderType == "" {
 		cfg.ProviderType = "local-openai"
 	}
+	if cfg.Model == "" {
+		cfg.Model = "gemma-4-E2B-it-Q4_K_M.gguf"
+	}
+	if cfg.LlamaDownloadURL == "" {
+		cfg.LlamaDownloadURL = "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf?download=true"
+	}
 	if cfg.LlamaPort == 0 {
 		cfg.LlamaPort = 8080
 	}
@@ -233,6 +243,15 @@ func Load(base string) (*Config, error) {
 	if cfg.ProviderMode == "" {
 		cfg.ProviderMode = "none"
 	}
+
+	// Set default thinking budget for agents.
+	for k, agent := range cfg.Agents {
+		if agent.ThinkingBudget == 0 {
+			agent.ThinkingBudget = 10000
+			cfg.Agents[k] = agent
+		}
+	}
+
 	return &cfg, nil
 }
 

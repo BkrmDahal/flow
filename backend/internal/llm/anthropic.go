@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/user/flow/backend/internal/config"
 	"github.com/user/flow/backend/internal/session"
 )
 
@@ -23,6 +24,23 @@ const thinkingBudget = 10000
 type ThinkingConfig struct {
 	Type         string `json:"type"`
 	BudgetTokens int    `json:"budget_tokens"`
+}
+
+type cacheControl struct {
+	Type string `json:"type"` // "ephemeral"
+}
+
+type systemBlock struct {
+	Type         string        `json:"type"` // "text"
+	Text         string        `json:"text"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
+}
+
+type anthropicTool struct {
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description"`
+	InputSchema  map[string]interface{} `json:"input_schema"`
+	CacheControl *cacheControl          `json:"cache_control,omitempty"`
 }
 
 // AnthropicClient is the Anthropic Messages API client.
@@ -48,30 +66,73 @@ func (c *AnthropicClient) GetModel() string { return c.Model }
 type anthropicRequest struct {
 	Model     string            `json:"model"`
 	MaxTokens int               `json:"max_tokens"`
-	System    string            `json:"system,omitempty"`
+	System    []systemBlock     `json:"system,omitempty"`
 	Messages  []session.Message `json:"messages"`
-	Tools     []ToolDef         `json:"tools,omitempty"`
+	Tools     []anthropicTool   `json:"tools,omitempty"`
 	Thinking  *ThinkingConfig   `json:"thinking,omitempty"`
 	Stream    bool              `json:"stream,omitempty"`
 }
 
-// SendMessages calls the Anthropic Messages API (non-streaming).
-func (c *AnthropicClient) SendMessages(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool) (*Response, error) {
+func (c *AnthropicClient) getThinkingBudget(enableThinking bool) int {
+	if !enableThinking {
+		return 0
+	}
+	if baseDir, err := config.FlowDir(); err == nil {
+		if cfg, err := config.Load(baseDir); err == nil && cfg != nil {
+			if aCfg, ok := cfg.Agents["main"]; ok && aCfg.ThinkingBudget > 0 {
+				return aCfg.ThinkingBudget
+			}
+		}
+	}
+	return thinkingBudget
+}
+
+func (c *AnthropicClient) buildRequest(system string, messages []session.Message, tools []ToolDef, enableThinking bool, isStream bool) (anthropicRequest, int) {
+	budget := c.getThinkingBudget(enableThinking)
 	maxTok := defaultMaxTokens
 	var thinking *ThinkingConfig
 	if enableThinking {
-		thinking = &ThinkingConfig{Type: "enabled", BudgetTokens: thinkingBudget}
+		thinking = &ThinkingConfig{Type: "enabled", BudgetTokens: budget}
 		maxTok = thinkingMaxTokens
+	}
+
+	var systemBlocks []systemBlock
+	if system != "" {
+		systemBlocks = append(systemBlocks, systemBlock{
+			Type:         "text",
+			Text:         system,
+			CacheControl: &cacheControl{Type: "ephemeral"},
+		})
+	}
+
+	var aTools []anthropicTool
+	for i, t := range tools {
+		at := anthropicTool{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: t.InputSchema,
+		}
+		if i == len(tools)-1 {
+			at.CacheControl = &cacheControl{Type: "ephemeral"}
+		}
+		aTools = append(aTools, at)
 	}
 
 	reqBody := anthropicRequest{
 		Model:     c.Model,
 		MaxTokens: maxTok,
-		System:    system,
+		System:    systemBlocks,
 		Messages:  messages,
-		Tools:     tools,
+		Tools:     aTools,
 		Thinking:  thinking,
+		Stream:    isStream,
 	}
+	return reqBody, budget
+}
+
+// SendMessages calls the Anthropic Messages API (non-streaming).
+func (c *AnthropicClient) SendMessages(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool) (*Response, error) {
+	reqBody, _ := c.buildRequest(system, messages, tools, enableThinking, false)
 
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -85,9 +146,12 @@ func (c *AnthropicClient) SendMessages(ctx context.Context, system string, messa
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", c.APIKey)
 	req.Header.Set("anthropic-version", anthropicVersion)
+
+	betas := []string{"prompt-caching-2024-07-31"}
 	if enableThinking {
-		req.Header.Set("anthropic-beta", "interleaved-thinking-2025-05-14")
+		betas = append(betas, "interleaved-thinking-2025-05-14")
 	}
+	req.Header.Set("anthropic-beta", strings.Join(betas, ","))
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -128,22 +192,7 @@ func (c *AnthropicClient) SendMessages(ctx context.Context, system string, messa
 
 // SendMessagesStream calls the Anthropic Messages API with streaming.
 func (c *AnthropicClient) SendMessagesStream(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool, onDelta func(StreamDelta)) (*Response, error) {
-	maxTok := defaultMaxTokens
-	var thinking *ThinkingConfig
-	if enableThinking {
-		thinking = &ThinkingConfig{Type: "enabled", BudgetTokens: thinkingBudget}
-		maxTok = thinkingMaxTokens
-	}
-
-	reqBody := anthropicRequest{
-		Model:     c.Model,
-		MaxTokens: maxTok,
-		System:    system,
-		Messages:  messages,
-		Tools:     tools,
-		Thinking:  thinking,
-		Stream:    true,
-	}
+	reqBody, _ := c.buildRequest(system, messages, tools, enableThinking, true)
 
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -157,9 +206,12 @@ func (c *AnthropicClient) SendMessagesStream(ctx context.Context, system string,
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", c.APIKey)
 	req.Header.Set("anthropic-version", anthropicVersion)
+
+	betas := []string{"prompt-caching-2024-07-31"}
 	if enableThinking {
-		req.Header.Set("anthropic-beta", "interleaved-thinking-2025-05-14")
+		betas = append(betas, "interleaved-thinking-2025-05-14")
 	}
+	req.Header.Set("anthropic-beta", strings.Join(betas, ","))
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

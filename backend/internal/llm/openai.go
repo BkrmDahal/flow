@@ -304,6 +304,12 @@ func (c *OpenAIClient) SendMessages(ctx context.Context, system string, messages
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 
+	// Set OpenRouter-specific identification headers.
+	if c.ProviderLabel == "OpenRouter" {
+		req.Header.Set("HTTP-Referer", "https://github.com/user/flow")
+		req.Header.Set("X-Title", "Flow Agent")
+	}
+
 	label := c.ProviderLabel
 	if label == "" {
 		label = "OpenAI"
@@ -409,6 +415,12 @@ func (c *OpenAIClient) SendMessagesStream(ctx context.Context, system string, me
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+
+	// Set OpenRouter-specific identification headers.
+	if c.ProviderLabel == "OpenRouter" {
+		req.Header.Set("HTTP-Referer", "https://github.com/user/flow")
+		req.Header.Set("X-Title", "Flow Agent")
+	}
 
 	label := c.ProviderLabel
 	if label == "" {

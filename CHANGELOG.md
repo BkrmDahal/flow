@@ -4,7 +4,33 @@ All notable changes to **Flow** will be documented in this file.
 
 ---
 
+## [0.6.6] - 2026-05-23
+
+### 🔍 Web Search & Bot Loop Protection
+* **Tavily API Integration**: Added support for premium Tavily web search inline next to the web-search toggle. If a Tavily API key is set in settings, Flow will prioritize Tavily for fast, high-quality, and structured web results.
+* **Smart Bot Loop Protection**: Fallback DuckDuckGo search now detects CAPTCHAs, bot protection, and rate-limiting. Instead of retrying indefinitely, the agent is instructed to stop searching and immediately proceed using its existing training knowledge.
+
+### 🧠 Prompt Caching & Dynamic Thinking Budget (Anthropic)
+* **Prompt Caching Beta Support**: Integrated Anthropic prompt caching (`prompt-caching-2024-07-31` beta). System blocks and tool definitions are tagged with `cache_control: { type: "ephemeral" }` to drastically reduce token costs and speed up response times on multi-turn conversations.
+* **Configurable Thinking Budget**: Added customizable thinking budget support for Claude models. The thinking budget token limit is loaded dynamically from the agent configurations.
+
+### 📂 Native Directory Explorer & Rich Document Support
+* **Native `list_dir` Tool**: Added a dedicated `list_dir` tool to list workspace files and folders safely, eliminating the need to run shell `ls` commands.
+* **Smart Rich Document Reading**: Integrated text extraction parser directly into `read_file`. The tool now automatically parses and reads formatting in `.pdf`, `.xlsx`, `.docx`, and `.pptx` files.
+* **Actionable Workspace Error Handling**: When trying to read a non-existent file, the tool lists all files currently in the workspace, making it easier for the agent to recover from filename typos.
+
+### 🧩 Resilient Skill Resolution
+* **Multi-Path Skill Resolution**: The `use_skill` tool now searches for markdown skills in both `plugins/skills/` and `memory/` folders. It also handles name normalization, resolving skills with or without the `skill-` prefix.
+
+### ⏱️ Performance Metrics & UX Polish
+* **Real-Time Generation Metrics**: Added token performance indicators in the chat workspace. Displays live tokens-per-second (t/s) and total response duration next to the message copy button.
+* **Sleek Dynamic Model Selector**: Developed a premium settings-based `ModelSelector` component supporting local, custom, and cloud providers (OpenAI, Anthropic, Gemini, OpenRouter) with dynamic model fetching and managed llama-server auto control.
+
+### 🧹 Llama Server Reliability
+* **Zombie Server Cleanup**: Integrated robust process management to ensure any stray or orphaned `llama-server` processes are completely terminated (`KillStrayServers` via `pkill` and `killall`) on app startup, shutdown, and close, preventing port conflicts.
+
 ## [0.6.5] - 2026-05-23
+
 
 ### 🤖 Cowork Agent Harnessing & Best Practices
 

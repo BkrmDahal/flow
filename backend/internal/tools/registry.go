@@ -62,6 +62,7 @@ func (r *Registry) AllDefs() []llm.ToolDef {
 func RegisterStandard(r *Registry) {
 	r.Register(&ReadFileTool{})
 	r.Register(&WriteFileTool{})
+	r.Register(&ListDirTool{})
 	r.Register(NewRunBashTool(""))
 }
 
@@ -70,6 +71,7 @@ func RegisterStandard(r *Registry) {
 func RegisterStandardTools(r *Registry, baseDir string) {
 	r.Register(&ReadFileTool{})
 	r.Register(&WriteFileTool{})
+	r.Register(&ListDirTool{})
 	r.Register(NewRunBashTool(baseDir))
 
 	memoryDir := filepath.Join(baseDir, "memory")

@@ -8,6 +8,7 @@
 import { writable, get } from 'svelte/store';
 import { formatToolLabel, formatToolName } from '../utils/formatters.js';
 import { Backend, Events } from '../wails.js';
+import { refreshSkills } from './pluginsStore.js';
 
 // ─── Cowork state stores ───
 export const coworkPhase = writable('welcome');        // 'welcome' | 'workspace'
@@ -25,6 +26,7 @@ export const coworkIsStreaming = writable(false);
 export const coworkParseDocuments = writable(true);     // Whether to parse PDF/XLSX text
 export const coworkWebSearchEnabled = writable(false);   // Whether web_search/fetch_url tools are available
 export const coworkScreenCaptureEnabled = writable(false); // Whether capture_screen tool is available
+export const coworkMemoryEnabled = writable(false);       // Whether memory tools are available
 export const backgroundCoworkStreamingSessions = writable(new Set());
 
 
@@ -201,6 +203,15 @@ function handleStreamEvent(data) {
         } else {
           msg.content = (msg.content || '') + data.content;
         }
+        if (msg.startTime) {
+          const elapsed = (Date.now() - msg.startTime) / 1000;
+          if (elapsed > 0) {
+            const charCount = msg.content.length;
+            const estimatedTokens = Math.max(1, charCount / 4);
+            msg.totalTime = elapsed;
+            msg.tokensPerSec = estimatedTokens / elapsed;
+          }
+        }
         break;
 
       case 'tool_call': {
@@ -279,6 +290,15 @@ function handleStreamEvent(data) {
         msg.steps = data.steps || msg.steps;
         msg.isStreaming = false;
         shouldFinish = true;
+        if (msg.startTime) {
+          const elapsed = (Date.now() - msg.startTime) / 1000;
+          if (elapsed > 0) {
+            const charCount = msg.content.length;
+            const estimatedTokens = Math.max(1, charCount / 4);
+            msg.totalTime = elapsed;
+            msg.tokensPerSec = estimatedTokens / elapsed;
+          }
+        }
         break;
 
       case 'error':
@@ -289,6 +309,12 @@ function handleStreamEvent(data) {
         msg.isError = true;
         msg.isStreaming = false;
         shouldFinish = true;
+        if (msg.startTime) {
+          const elapsed = (Date.now() - msg.startTime) / 1000;
+          if (elapsed > 0) {
+            msg.totalTime = elapsed;
+          }
+        }
         break;
     }
 
@@ -324,6 +350,15 @@ function handleBgCoworkStreamEvent(sessionId, data) {
         state.pendingContentReset = false;
       } else {
         msg.content = (msg.content || '') + data.content;
+      }
+      if (msg.startTime) {
+        const elapsed = (Date.now() - msg.startTime) / 1000;
+        if (elapsed > 0) {
+          const charCount = msg.content.length;
+          const estimatedTokens = Math.max(1, charCount / 4);
+          msg.totalTime = elapsed;
+          msg.tokensPerSec = estimatedTokens / elapsed;
+        }
       }
       break;
 
@@ -420,6 +455,15 @@ function handleBgCoworkStreamEvent(sessionId, data) {
       msg.content = data.final_text || msg.content;
       msg.steps = data.steps || msg.steps;
       msg.isStreaming = false;
+      if (msg.startTime) {
+        const elapsed = (Date.now() - msg.startTime) / 1000;
+        if (elapsed > 0) {
+          const charCount = msg.content.length;
+          const estimatedTokens = Math.max(1, charCount / 4);
+          msg.totalTime = elapsed;
+          msg.tokensPerSec = estimatedTokens / elapsed;
+        }
+      }
       state.messages[idx] = msg;
       state.progressSteps = state.progressSteps.map(step =>
         step.status === 'completed' ? step : { ...step, status: 'completed' }
@@ -569,10 +613,19 @@ function getDisabledTools() {
   if (!get(coworkScreenCaptureEnabled)) {
     disabled.push('capture_screen');
   }
+  if (!get(coworkMemoryEnabled)) {
+    disabled.push('save_memory', 'memory_search', 'list_memories', 'delete_memory');
+  }
   return disabled;
 }
 
 export async function startCoworkTask(text, files = [], selectedSkillName = '') {
+  try {
+    await refreshSkills();
+  } catch (e) {
+    console.error('Failed to refresh skills before starting task:', e);
+  }
+
   if ((!text?.trim() && files.length === 0 && !selectedSkillName) || get(coworkLoading)) return;
 
   const newId = await requireBackendMethod('NewCoworkSession')();
@@ -592,7 +645,7 @@ export async function startCoworkTask(text, files = [], selectedSkillName = '') 
 
   coworkMessages.set([
     { role: 'user', content: text, files: files, selectedSkill: selectedSkillName || undefined },
-    { role: 'assistant', content: '', steps: [], isStreaming: true },
+    { role: 'assistant', content: '', steps: [], isStreaming: true, startTime: Date.now(), tokensPerSec: 0, totalTime: 0 },
   ]);
   coworkStreamingIdx.set(1);
   coworkCreatedFiles.set([]);
@@ -623,12 +676,18 @@ export async function startCoworkTask(text, files = [], selectedSkillName = '') 
 }
 
 export async function sendCoworkFollowUp(text, files = [], selectedSkillName = '') {
+  try {
+    await refreshSkills();
+  } catch (e) {
+    console.error('Failed to refresh skills before follow-up:', e);
+  }
+
   if ((!text?.trim() && files.length === 0 && !selectedSkillName) || get(coworkLoading)) return;
 
   coworkMessages.update(msgs => [
     ...msgs,
     { role: 'user', content: text, files: files, selectedSkill: selectedSkillName || undefined },
-    { role: 'assistant', content: '', steps: [], isStreaming: true },
+    { role: 'assistant', content: '', steps: [], isStreaming: true, startTime: Date.now(), tokensPerSec: 0, totalTime: 0 },
   ]);
 
   const msgList = get(coworkMessages);
@@ -690,9 +749,21 @@ export function newCoworkTask() {
   coworkLoading.set(false);
   coworkIsStreaming.set(false);
   activeCoworkTaskId.set(null);
+
+  try {
+    refreshSkills();
+  } catch (e) {
+    console.error('Failed to refresh skills for new task:', e);
+  }
 }
 
 export async function selectCoworkTask(sessionId) {
+  try {
+    await refreshSkills();
+  } catch (e) {
+    console.error('Failed to refresh skills before selecting task:', e);
+  }
+
   if (sessionId === get(activeCoworkTaskId) && get(coworkPhase) === 'workspace') return;
 
   saveCurrentCoworkToBackground();
