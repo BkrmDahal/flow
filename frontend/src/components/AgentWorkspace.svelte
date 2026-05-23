@@ -878,6 +878,14 @@
                     <span>Copy</span>
                   {/if}
                 </button>
+                
+                {#if message.tokensPerSec && message.totalTime}
+                  <span class="generation-stats" title="Generation statistics">
+                    <span class="stat-item speed">{message.tokensPerSec.toFixed(1)} t/s</span>
+                    <span class="stat-dot">•</span>
+                    <span class="stat-item time">{message.totalTime.toFixed(1)}s</span>
+                  </span>
+                {/if}
               </div>
             {/if}
           {/if}
@@ -1701,8 +1709,32 @@
   .message-actions {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
     margin-bottom: 16px;
+  }
+
+  .generation-stats {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-muted, #71717a);
+    font-weight: 500;
+    user-select: none;
+    padding-left: 4px;
+  }
+
+  .generation-stats .speed {
+    color: var(--accent, #10b981);
+    font-weight: 600;
+  }
+
+  .generation-stats .time {
+    color: var(--text-secondary, #d4d4d8);
+  }
+
+  .generation-stats .stat-dot {
+    opacity: 0.4;
   }
 
   .msg-copy-btn {

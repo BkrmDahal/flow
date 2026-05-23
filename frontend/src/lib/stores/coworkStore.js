@@ -202,6 +202,15 @@ function handleStreamEvent(data) {
         } else {
           msg.content = (msg.content || '') + data.content;
         }
+        if (msg.startTime) {
+          const elapsed = (Date.now() - msg.startTime) / 1000;
+          if (elapsed > 0) {
+            const charCount = msg.content.length;
+            const estimatedTokens = Math.max(1, charCount / 4);
+            msg.totalTime = elapsed;
+            msg.tokensPerSec = estimatedTokens / elapsed;
+          }
+        }
         break;
 
       case 'tool_call': {
@@ -280,6 +289,15 @@ function handleStreamEvent(data) {
         msg.steps = data.steps || msg.steps;
         msg.isStreaming = false;
         shouldFinish = true;
+        if (msg.startTime) {
+          const elapsed = (Date.now() - msg.startTime) / 1000;
+          if (elapsed > 0) {
+            const charCount = msg.content.length;
+            const estimatedTokens = Math.max(1, charCount / 4);
+            msg.totalTime = elapsed;
+            msg.tokensPerSec = estimatedTokens / elapsed;
+          }
+        }
         break;
 
       case 'error':
@@ -290,6 +308,12 @@ function handleStreamEvent(data) {
         msg.isError = true;
         msg.isStreaming = false;
         shouldFinish = true;
+        if (msg.startTime) {
+          const elapsed = (Date.now() - msg.startTime) / 1000;
+          if (elapsed > 0) {
+            msg.totalTime = elapsed;
+          }
+        }
         break;
     }
 
@@ -325,6 +349,15 @@ function handleBgCoworkStreamEvent(sessionId, data) {
         state.pendingContentReset = false;
       } else {
         msg.content = (msg.content || '') + data.content;
+      }
+      if (msg.startTime) {
+        const elapsed = (Date.now() - msg.startTime) / 1000;
+        if (elapsed > 0) {
+          const charCount = msg.content.length;
+          const estimatedTokens = Math.max(1, charCount / 4);
+          msg.totalTime = elapsed;
+          msg.tokensPerSec = estimatedTokens / elapsed;
+        }
       }
       break;
 
@@ -421,6 +454,15 @@ function handleBgCoworkStreamEvent(sessionId, data) {
       msg.content = data.final_text || msg.content;
       msg.steps = data.steps || msg.steps;
       msg.isStreaming = false;
+      if (msg.startTime) {
+        const elapsed = (Date.now() - msg.startTime) / 1000;
+        if (elapsed > 0) {
+          const charCount = msg.content.length;
+          const estimatedTokens = Math.max(1, charCount / 4);
+          msg.totalTime = elapsed;
+          msg.tokensPerSec = estimatedTokens / elapsed;
+        }
+      }
       state.messages[idx] = msg;
       state.progressSteps = state.progressSteps.map(step =>
         step.status === 'completed' ? step : { ...step, status: 'completed' }
@@ -596,7 +638,7 @@ export async function startCoworkTask(text, files = [], selectedSkillName = '') 
 
   coworkMessages.set([
     { role: 'user', content: text, files: files, selectedSkill: selectedSkillName || undefined },
-    { role: 'assistant', content: '', steps: [], isStreaming: true },
+    { role: 'assistant', content: '', steps: [], isStreaming: true, startTime: Date.now(), tokensPerSec: 0, totalTime: 0 },
   ]);
   coworkStreamingIdx.set(1);
   coworkCreatedFiles.set([]);
@@ -632,7 +674,7 @@ export async function sendCoworkFollowUp(text, files = [], selectedSkillName = '
   coworkMessages.update(msgs => [
     ...msgs,
     { role: 'user', content: text, files: files, selectedSkill: selectedSkillName || undefined },
-    { role: 'assistant', content: '', steps: [], isStreaming: true },
+    { role: 'assistant', content: '', steps: [], isStreaming: true, startTime: Date.now(), tokensPerSec: 0, totalTime: 0 },
   ]);
 
   const msgList = get(coworkMessages);
