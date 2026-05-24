@@ -253,6 +253,15 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 			if absBase, err := filepath.Abs(t.baseDir); err == nil {
 				allowedWritePaths = append(allowedWritePaths, absBase)
 			}
+			// 1.5. Python virtualenv directory (for package installation)
+			if cfg, err := config.Load(t.baseDir); err == nil && cfg != nil && cfg.PythonPath != "" && cfg.PythonPath != "python" && cfg.PythonPath != "python3" {
+				pyHome := filepath.Dir(filepath.Dir(cfg.PythonPath))
+				if pyHome != "" && pyHome != "." && pyHome != "/" {
+					if absPyHome, err := filepath.Abs(pyHome); err == nil {
+						allowedWritePaths = append(allowedWritePaths, absPyHome)
+					}
+				}
+			}
 		}
 
 		// 2. Session working directory
@@ -282,6 +291,9 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 		// 4. Standard temporary / system storage paths and dev devices
 		allowedWritePaths = append(allowedWritePaths, "/tmp", "/private/tmp", "/var", "/private/var", os.TempDir())
 		allowedWritePaths = append(allowedWritePaths, "/dev/null", "/dev/urandom", "/dev/stdin", "/dev/stdout", "/dev/stderr", "/dev/tty")
+		if homeDir != "" {
+			allowedWritePaths = append(allowedWritePaths, filepath.Join(homeDir, "Library", "Caches", "pip"), filepath.Join(homeDir, ".cache", "pip"))
+		}
 
 		// Clean, absolute, deduplicate, and resolve symlinks for write paths.
 		uniquePaths := make(map[string]bool)
@@ -387,6 +399,11 @@ func (t *RunBashTool) Execute(ctx context.Context, input json.RawMessage) (strin
 	if dir := SessionDirFromContext(ctx); dir != "" {
 		cmd.Dir = dir
 	}
+	if t.baseDir != "" {
+		if cfg, err := config.Load(t.baseDir); err == nil && cfg != nil && cfg.PythonPath != "" {
+			cmd.Env = buildCmdEnv(cfg.PythonPath)
+		}
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -472,12 +489,13 @@ func rewritePythonCommand(cmdStr string, pythonPath string) string {
 		return cmdStr
 	}
 
-	// Match "python3" or "python" only when they act as command names (preceded by spaces, operators, or start of string)
-	rePy3 := regexp.MustCompile(`(^|[|&;(\s])python3\b`)
-	rePy := regexp.MustCompile(`(^|[|&;(\s])python\b`)
+	// Match "python3" or "python" only when they act as command names (preceded by spaces, operators, or start of string,
+	// and followed by spaces, operators, or end of string, rather than a hyphen or other package name characters)
+	rePy3 := regexp.MustCompile(`(^|[|&;(\s])python3(\s|[|&;)]|$)`)
+	rePy := regexp.MustCompile(`(^|[|&;(\s])python(\s|[|&;)]|$)`)
 
-	cmdStr = rePy3.ReplaceAllString(cmdStr, `${1}`+pythonPath)
-	cmdStr = rePy.ReplaceAllString(cmdStr, `${1}`+pythonPath)
+	cmdStr = rePy3.ReplaceAllString(cmdStr, `${1}`+pythonPath+`${2}`)
+	cmdStr = rePy.ReplaceAllString(cmdStr, `${1}`+pythonPath+`${2}`)
 
 	return cmdStr
 }
@@ -553,4 +571,32 @@ func isWritable(path string) bool {
 		return true
 	}
 	return false
+}
+
+// buildCmdEnv returns the environment variables for the command,
+// prepending the Python virtualenv bin directory to PATH if configured.
+func buildCmdEnv(pythonPath string) []string {
+	env := os.Environ()
+	if pythonPath == "" || pythonPath == "python" || pythonPath == "python3" {
+		return env
+	}
+
+	pyDir := filepath.Dir(pythonPath)
+	if pyDir == "" || pyDir == "." || pyDir == "/" {
+		return env
+	}
+
+	// Prepend the virtualenv bin directory to PATH
+	for i, val := range env {
+		if strings.HasPrefix(strings.ToUpper(val), "PATH=") {
+			parts := strings.SplitN(val, "=", 2)
+			if len(parts) == 2 {
+				env[i] = fmt.Sprintf("PATH=%s:%s", pyDir, parts[1])
+				return env
+			}
+		}
+	}
+
+	env = append(env, fmt.Sprintf("PATH=%s", pyDir))
+	return env
 }
