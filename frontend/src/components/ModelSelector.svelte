@@ -17,8 +17,19 @@
   let loadingModels = false;
   let fetchError = '';
   let searchQuery = '';
+  let pinnedModels = [];
 
   onMount(() => {
+    // Load pinned models from localStorage
+    const saved = localStorage.getItem('flow:pinned-models');
+    if (saved) {
+      try {
+        pinnedModels = JSON.parse(saved);
+      } catch (e) {
+        console.error('Failed to parse pinned models:', e);
+      }
+    }
+
     loadSettings();
     window.addEventListener('click', handleOutsideClick);
     window.addEventListener('flow:settings-saved', loadSettings);
@@ -35,6 +46,28 @@
       window.removeEventListener('flow:local-llm-loading', handleLocalLlmLoading);
     };
   });
+
+  let animatingPins = {};
+
+  function isPinned(modelId) {
+    return pinnedModels.includes(modelId);
+  }
+
+  function togglePin(modelId) {
+    if (pinnedModels.includes(modelId)) {
+      pinnedModels = pinnedModels.filter(id => id !== modelId);
+    } else {
+      pinnedModels = [...pinnedModels, modelId];
+    }
+    localStorage.setItem('flow:pinned-models', JSON.stringify(pinnedModels));
+
+    // Tactile animation feedback
+    animatingPins[modelId] = true;
+    setTimeout(() => {
+      animatingPins[modelId] = false;
+      animatingPins = animatingPins; // trigger svelte reactivity
+    }, 300);
+  }
 
   async function loadSettings() {
     try {
@@ -214,6 +247,21 @@
   $: filteredFetchedModels = searchQuery.trim()
     ? fetchedModels.filter(m => m.id.toLowerCase().includes(searchQuery.toLowerCase()))
     : fetchedModels;
+
+  // Sorting: first currently selected, then pinned, then others alphabetically
+  $: sortedFetchedModels = [...filteredFetchedModels].sort((a, b) => {
+    const aSelected = settings?.cloudModel === a.id;
+    const bSelected = settings?.cloudModel === b.id;
+    if (aSelected && !bSelected) return -1;
+    if (!aSelected && bSelected) return 1;
+
+    const aPinned = pinnedModels.includes(a.id);
+    const bPinned = pinnedModels.includes(b.id);
+    if (aPinned && !bPinned) return -1;
+    if (!aPinned && bPinned) return 1;
+
+    return a.id.localeCompare(b.id);
+  });
 </script>
 
 <div class="model-selector-container">
@@ -332,10 +380,18 @@
         </svg>
       </button>
 
-      <!-- PREMIUM SIDE PANEL (SUB-MENU) DRAWING TO THE LEFT -->
+      <!-- PREMIUM SIDE PANEL (SUB-MENU) OVERLAYING -->
       {#if showSubMenu && settings && settings.cloudProvider}
         <div class="sub-menu-container" on:click|stopPropagation>
-          <div class="section-header">Available Cloud Models</div>
+          <div class="sub-menu-header">
+            <button class="back-btn" on:click={() => showSubMenu = false} type="button" title="Back to active configurations">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+            </button>
+            <div class="section-header">Available Cloud Models</div>
+          </div>
           
           <!-- Search bar inside side-panel for premium filtering -->
           {#if fetchedModels.length > 5}
@@ -363,23 +419,31 @@
             {:else if filteredFetchedModels.length === 0}
               <div class="empty-state">No models found</div>
             {:else}
-              {#each filteredFetchedModels as m}
-                <button
-                  class="option-item compact-option"
-                  class:selected={settings.cloudModel === m.id}
-                  on:click={() => selectModel('cloud', m.id)}
-                  type="button"
-                  role="menuitem"
-                >
-                  <div class="option-meta">
-                    <span class="option-label compact-label" title={m.id}>{m.id}</span>
-                  </div>
-                  {#if settings.cloudModel === m.id}
-                    <svg class="check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="20 6 9 17 5 12"></polyline>
+              {#each sortedFetchedModels as m}
+                <div class="option-row-wrapper" class:active-selected={settings.cloudModel === m.id}>
+                  <button
+                    class="option-item compact-option"
+                    class:selected={settings.cloudModel === m.id}
+                    on:click={() => selectModel('cloud', m.id)}
+                    type="button"
+                    role="menuitem"
+                  >
+                    <div class="option-meta">
+                      <span class="option-label compact-label" title={m.id}>{m.id}</span>
+                    </div>
+                    {#if settings.cloudModel === m.id}
+                      <svg class="check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 5 12"></polyline>
+                      </svg>
+                    {/if}
+                  </button>
+                  <button class="pin-btn" class:pinned={pinnedModels.includes(m.id)} class:animating={animatingPins[m.id]} on:click|stopPropagation={() => togglePin(m.id)} type="button" title={pinnedModels.includes(m.id) ? "Unpin model" : "Pin model"}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="17" x2="12" y2="22"></line>
+                      <path d="M5 17h14v-1.76a2 2 0 0 0-.44-1.24l-2.78-3.55A2 2 0 0 1 15 9.24V5a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4.24a2 2 0 0 1-.78 1.57l-2.78-3.55A2 2 0 0 0 5 15.24V17z"></path>
                     </svg>
-                  {/if}
-                </button>
+                  </button>
+                </div>
               {/each}
             {/if}
           </div>
@@ -470,33 +534,66 @@
     animation: menuFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
-  /* Sub-menu Side Panel Drawer aligned to the left */
+  /* Sub-menu Side Panel Drawer overlaying the main menu */
   .sub-menu-container {
     position: absolute;
-    right: calc(100% + 8px);
-    bottom: 0;
-    width: 290px;
-    background: rgba(24, 24, 27, 0.92);
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(24, 24, 27, 0.98);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
-    box-shadow: -10px 20px 40px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
     padding: 8px 6px;
     z-index: 1001;
     display: flex;
     flex-direction: column;
-    animation: subMenuSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    box-sizing: border-box;
+    animation: subMenuFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
-  @keyframes subMenuSlideIn {
+  .sub-menu-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px;
+  }
+
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-muted, #71717a);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .back-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary, #ffffff);
+  }
+
+  .sub-menu-container .scroll-options {
+    flex: 1;
+    max-height: 160px;
+  }
+
+  @keyframes subMenuFadeIn {
     from {
       opacity: 0;
-      transform: translateX(8px);
+      transform: scale(0.97);
     }
     to {
       opacity: 1;
-      transform: translateX(0);
+      transform: scale(1);
     }
   }
 
@@ -804,5 +901,76 @@
   .compact-toggle.toggle-active .toggle-knob {
     left: 18px;
     background: white;
+  }
+
+  /* Model Pinning Premium Layout Styles */
+  .option-row-wrapper {
+    display: flex;
+    align-items: center;
+    position: relative;
+    border-radius: 8px;
+    transition: background 0.15s ease;
+  }
+
+  .option-row-wrapper:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .option-row-wrapper .option-item {
+    background: none;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .option-row-wrapper .option-item:hover {
+    background: none;
+  }
+
+  .pin-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-muted, #71717a);
+    cursor: pointer;
+    margin-right: 6px;
+    opacity: 0;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+  }
+
+  .option-row-wrapper:hover .pin-btn,
+  .pin-btn.pinned {
+    opacity: 1;
+  }
+
+  .pin-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary, #ffffff);
+  }
+
+  .pin-btn.pinned {
+    color: var(--accent, #10b981);
+  }
+
+  .pin-btn.animating {
+    animation: pinPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  @keyframes pinPop {
+    0% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.4);
+      color: var(--accent, #10b981);
+    }
+    100% {
+      transform: scale(1);
+    }
   }
 </style>

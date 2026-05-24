@@ -5,15 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/user/flow/backend/internal/config"
 	"github.com/user/flow/backend/internal/llm"
+	"github.com/user/flow/backend/internal/parser"
 	"github.com/user/flow/backend/internal/session"
 	"github.com/user/flow/backend/internal/tools"
 )
@@ -330,8 +333,43 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 		if err != nil {
 			log.Printf("[agent] ── LLM ERROR ── session=%s iter=%d err=%v elapsed=%s",
 				sessionID, i+1, err, llmDuration)
-			emit(StreamEvent{Type: "error", Content: err.Error()})
-			return nil, fmt.Errorf("llm: %w", err)
+
+			if isVisionUnsupportedError(err) {
+				log.Printf("[agent] detected vision-unsupported error, running macOS Vision OCR fallback...")
+				emit(StreamEvent{Type: "thinking", Content: "\n[Active model does not support images. Running macOS Vision OCR fallback...]\n"})
+
+				updatedHistory, numProcessed, ocrErr := processOCRForHistory(history)
+				if ocrErr == nil && numProcessed > 0 {
+					log.Printf("[agent] successfully processed OCR for %d image(s)", numProcessed)
+					emit(StreamEvent{Type: "thinking", Content: fmt.Sprintf("\n[Successfully OCR'd %d image(s) and added layout metadata to context. Retrying request...]\n", numProcessed)})
+
+					// Save updated history in the database so the images are replaced permanently in session logs.
+					if saveErr := deps.SessionMgr.Overwrite(sessionID, updatedHistory); saveErr != nil {
+						log.Printf("[agent] failed to save updated history with OCR: %v", saveErr)
+					}
+
+					// Update current turn's history in memory
+					history = updatedHistory
+
+					// Retry calling the LLM Client immediately with the updated history!
+					llmStart = time.Now()
+					resp, err = deps.LLMClient.SendMessagesStream(ctx, systemPrompt, history, toolDefs, agentCfg.EnableThinking, onDelta)
+					llmDuration = time.Since(llmStart)
+					if err != nil {
+						log.Printf("[agent] ── LLM ERROR after OCR retry ── session=%s iter=%d err=%v elapsed=%s",
+							sessionID, i+1, err, llmDuration)
+						emit(StreamEvent{Type: "error", Content: err.Error()})
+						return nil, fmt.Errorf("llm: %w", err)
+					}
+				} else {
+					log.Printf("[agent] Vision OCR fallback skipped or failed: processed=%d, err=%v", numProcessed, ocrErr)
+					emit(StreamEvent{Type: "error", Content: err.Error()})
+					return nil, fmt.Errorf("llm: %w", err)
+				}
+			} else {
+				emit(StreamEvent{Type: "error", Content: err.Error()})
+				return nil, fmt.Errorf("llm: %w", err)
+			}
 		}
 		var toolNames []string
 		for _, tb := range resp.ToolUseBlocks() {
@@ -855,4 +893,131 @@ func buildSkillIndex(baseDir string) string {
 	}
 
 	return "\n\n## Available Skills\n\nThe following skills provide specialized instructions for specific tasks. When the user's request matches a skill, use the `use_skill` tool to load it before proceeding.\n\n" + strings.Join(lines, "\n") + "\n"
+}
+
+func isVisionUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "support image") ||
+		strings.Contains(msg, "vision-endpoint") ||
+		strings.Contains(msg, "image input is not supported") ||
+		strings.Contains(msg, "does not support image analysis") ||
+		strings.Contains(msg, "supports images")
+}
+
+func processOCRForHistory(history []session.Message) ([]session.Message, int, error) {
+	updated := make([]session.Message, len(history))
+	copy(updated, history)
+	imagesProcessed := 0
+
+	for i, msg := range updated {
+		if msg.Role != "user" {
+			continue
+		}
+
+		// Try to parse the content as an array of blocks.
+		var blocks []map[string]interface{}
+		if err := json.Unmarshal(msg.Content, &blocks); err != nil || len(blocks) == 0 {
+			// Not a block array (or just plain text), skip.
+			continue
+		}
+
+		modified := false
+		var newBlocks []map[string]interface{}
+
+		for _, block := range blocks {
+			typ, _ := block["type"].(string)
+			if typ != "image" {
+				newBlocks = append(newBlocks, block)
+				continue
+			}
+
+			// We found an image block!
+			source, _ := block["source"].(map[string]interface{})
+			if source == nil {
+				newBlocks = append(newBlocks, block)
+				continue
+			}
+
+			base64Data, _ := source["data"].(string)
+			if base64Data == "" {
+				newBlocks = append(newBlocks, block)
+				continue
+			}
+
+			// Perform Vision OCR!
+			ocrBlocks, err := parser.PerformVisionOCR(base64Data)
+			if err != nil {
+				log.Printf("[agent] OCR failed: %v", err)
+				newBlocks = append(newBlocks, block) // keep original image if OCR fails
+				continue
+			}
+
+			imagesProcessed++
+			modified = true
+
+			// Sort OCR blocks spatially
+			sort.Slice(ocrBlocks, func(i, j int) bool {
+				// Group lines within 1.5% of vertical coordinate together
+				if math.Abs(ocrBlocks[i].Top-ocrBlocks[j].Top) < 0.015 {
+					return ocrBlocks[i].Left < ocrBlocks[j].Left
+				}
+				return ocrBlocks[i].Top < ocrBlocks[j].Top
+			})
+
+			// 1. Reconstruct readable reading flow (merging blocks on the same line)
+			var lines []string
+			if len(ocrBlocks) > 0 {
+				var currentLine []string
+				currentTop := ocrBlocks[0].Top
+
+				for _, b := range ocrBlocks {
+					if math.Abs(b.Top-currentTop) < 0.015 {
+						currentLine = append(currentLine, b.Text)
+					} else {
+						lines = append(lines, strings.Join(currentLine, " "))
+						currentLine = []string{b.Text}
+						currentTop = b.Top
+					}
+				}
+				if len(currentLine) > 0 {
+					lines = append(lines, strings.Join(currentLine, " "))
+				}
+			}
+
+			readingFlow := strings.Join(lines, "\n")
+
+			// 2. Generate detailed coordinate layout
+			var coords []string
+			for _, b := range ocrBlocks {
+				coords = append(coords, fmt.Sprintf("- `[Top: %.1f%%, Left: %.1f%%, Width: %.1f%%, Height: %.1f%%]`: %s",
+					b.Top*100, b.Left*100, b.Width*100, b.Height*100, b.Text))
+			}
+			coordsLayout := strings.Join(coords, "\n")
+
+			// Combine into a beautiful markdown block
+			ocrMarkdown := fmt.Sprintf("### OCR Extracted Text & Layout (via macOS Vision)\n\n"+
+				"**[Readable Content Flow]:**\n```\n%s\n```\n\n"+
+				"**[Detailed Bounding Boxes & Spatial Coordinates]:**\n%s\n",
+				readingFlow, coordsLayout)
+
+			// Replace image block with OCR text block
+			newBlocks = append(newBlocks, map[string]interface{}{
+				"type": "text",
+				"text": ocrMarkdown,
+			})
+		}
+
+		if modified {
+			newRaw, err := json.Marshal(newBlocks)
+			if err != nil {
+				return nil, 0, fmt.Errorf("marshal modified blocks: %w", err)
+			}
+			updated[i].Content = newRaw
+		}
+	}
+
+	return updated, imagesProcessed, nil
 }
