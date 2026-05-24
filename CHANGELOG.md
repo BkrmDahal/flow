@@ -4,6 +4,18 @@ All notable changes to **Flow** will be documented in this file.
 
 ---
 
+## [0.6.8] - 2026-05-23
+
+### 🧠 Google Vision OCR Fallback for Non-Multimodal Models
+* **On-Device Vision OCR Fallback**: Integrated native support for macOS Vision OCR to automatically parse user-attached images when running local GGUF models or cloud models that do not support multimodal image inputs.
+* **Spatial Layout Bounding Boxes**: Reconstructs spatial layout metadata with bounding box coordinates (`[Top, Left, Width, Height]`) and layout-aware Markdown directly in the chat history.
+* **Responsive Model Selector Updates**: Optimized the model selector dropdown in the frontend for smooth handling of OCR and vision configurations.
+
+### 🐍 Hermetic Pyenv Virtualenv & Sandbox Improvements
+* **Precise Python Command Rewriter**: Swapped basic word boundary checks with robust trailing boundary matches (`(\s|[|&;)]|$)`) to prevent false-positive matching of hyphenated Python packages (e.g., `python-pptx`, `python-docx`).
+* **Subprocess Environment Isolation**: Dynamically prepends the active virtualenv's `bin` directory to the subprocess `PATH` environment variable, guaranteeing nested scripts and sub-spawned commands run cleanly in the virtualenv.
+* **Sandbox Write Exception Whitelist**: Whitelisted virtualenv root directories and user pip caches (`~/Library/Caches/pip`, `~/.cache/pip`) in the macOS `sandbox-exec` profile to allow warning-free package installation.
+
 ## [0.6.7] - 2026-05-23
 
 ### 🧠 Native Reasoning & Thinking Support (DeepSeek-R1)
