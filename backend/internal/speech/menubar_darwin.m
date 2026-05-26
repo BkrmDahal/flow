@@ -4,9 +4,11 @@
 #import <ApplicationServices/ApplicationServices.h>
 #import <AudioToolbox/AudioServices.h>
 
-// Go-exported callbacks (defined in dictation_darwin.go).
+// Go-exported callbacks (defined in dictation_darwin.go / menubar_darwin.go).
 extern void goDictationPressed(void);
 extern void goDictationReleased(void);
+extern void goShowApp(void);
+
 
 // ═══════════════════════════════════════════════════════════════════════
 // Menu Bar Status Item (NSStatusItem)
@@ -30,12 +32,7 @@ static NSMenuItem   *statusMenuItem  = nil;
 }
 - (void)showApp:(id)sender {
     [NSApp activateIgnoringOtherApps:YES];
-    for (NSWindow *w in [NSApp windows]) {
-        if ([w isKindOfClass:[NSWindow class]] && w.isVisible) {
-            [w makeKeyAndOrderFront:nil];
-            break;
-        }
-    }
+    goShowApp();
 }
 @end
 

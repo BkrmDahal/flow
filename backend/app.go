@@ -95,6 +95,11 @@ func (a *App) Startup(ctx context.Context) {
 	// Show the Flow pinwheel icon in the macOS menu bar.
 	speech.ShowMenuBarIcon()
 
+	// Register callback to restore window when requested from macOS menu bar/status item.
+	speech.RegisterShowAppCallback(func() {
+		wailsRuntime.Show(a.ctx)
+	})
+
 	// Forward whisper.cpp model-download progress to the frontend.
 	speech.SetLocalProgressCallback(func(stage string, downloaded, total int64) {
 		wailsRuntime.EventsEmit(a.ctx, "flow:model:download:progress", map[string]interface{}{

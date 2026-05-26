@@ -8,7 +8,7 @@ APP_BUNDLE="build/bin/Flow.app"
 DMG_NAME="Flow-Installer"
 DMG_DIR="build/dmg"
 DMG_OUTPUT="build/${DMG_NAME}.dmg"
-VERSION="0.6.8"
+VERSION="0.6.9"
 
 usage() {
     echo "Usage: ./flow.sh <command>"

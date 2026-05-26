@@ -4,6 +4,12 @@ All notable changes to **Flow** will be documented in this file.
 
 ---
 
+## [0.6.9] - 2026-05-25
+
+### 🎙️ Background Voice Execution & Window Close Fix
+* **Minimize on Close**: Configured the application to hide the window instead of quitting when the window close button ("X") is clicked, allowing background voice recording and dictation services to continue uninterrupted.
+* **Mac Status Menu Integration**: Registered a native Go hook linking the Cocoa status bar "Show Flow" action to the Wails runtime window restoration API, ensuring the hidden window is successfully brought back to the foreground and focused.
+
 ## [0.6.8] - 2026-05-23
 
 ### 🧠 Google Vision OCR Fallback for Non-Multimodal Models

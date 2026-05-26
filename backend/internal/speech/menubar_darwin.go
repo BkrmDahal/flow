@@ -74,3 +74,18 @@ func HasAccessibilityPermission(promptUser bool) bool {
 	}
 	return C.FlowCheckAccessibilityPermission(C.int(prompt)) != 0
 }
+
+var showAppCallback func()
+
+// RegisterShowAppCallback registers the callback to show the application window when triggered from the menu bar status item.
+func RegisterShowAppCallback(cb func()) {
+	showAppCallback = cb
+}
+
+//export goShowApp
+func goShowApp() {
+	if showAppCallback != nil {
+		showAppCallback()
+	}
+}
+
