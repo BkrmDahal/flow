@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/BkrmDahal/flow/releases/download/v0.6.8/Flow-Installer.dmg">
+  <a href="https://github.com/BkrmDahal/flow/releases/download/v0.6.9/Flow-Installer.dmg">
     <img src="https://img.shields.io/badge/Download%20for%20macOS-Universal%20DMG-007AFF?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" />
   </a>
 </p>

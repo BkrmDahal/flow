@@ -46,16 +46,17 @@ func main() {
 	app := backend.NewApp()
 
 	err := wails.Run(&options.App{
-		Title:            "Flow",
-		Width:            1100,
-		Height:           780,
-		MinWidth:         800,
-		MinHeight:        560,
-		BackgroundColour: &options.RGBA{R: 28, G: 25, B: 23, A: 255},
-		AssetServer:      &assetserver.Options{Assets: assets},
-		OnStartup:        app.Startup,
-		OnShutdown:       app.Shutdown,
-		Bind:             []interface{}{app},
+		Title:             "Flow",
+		Width:             1100,
+		Height:            780,
+		MinWidth:          800,
+		MinHeight:         560,
+		BackgroundColour:  &options.RGBA{R: 28, G: 25, B: 23, A: 255},
+		AssetServer:       &assetserver.Options{Assets: assets},
+		HideWindowOnClose: true,
+		OnStartup:         app.Startup,
+		OnShutdown:        app.Shutdown,
+		Bind:              []interface{}{app},
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{
 				TitlebarAppearsTransparent: true,
