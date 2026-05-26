@@ -18,10 +18,29 @@
   let isResizing = false;
 
   onMount(() => {
-    const saved = localStorage.getItem('flow-agent-right-sidebar-width');
-    if (saved) {
-      sidebarWidth = Math.max(160, Math.min(450, parseInt(saved, 10)));
-    }
+    // Load UI widths asynchronously from backend, fallback to localStorage
+    (async () => {
+      let loadedFromBackend = false;
+      try {
+        const widths = await Backend.GetUIWidths();
+        if (widths && widths.agentRightSidebarWidth > 0) {
+          sidebarWidth = Math.max(160, Math.min(450, widths.agentRightSidebarWidth));
+          loadedFromBackend = true;
+        }
+      } catch (e) {
+        console.warn('Failed to load UI widths from backend:', e);
+      }
+
+      if (!loadedFromBackend) {
+        const saved = localStorage.getItem('flow-agent-right-sidebar-width');
+        if (saved) {
+          sidebarWidth = Math.max(160, Math.min(450, parseInt(saved, 10)));
+          try {
+            await Backend.SaveUIWidths(0, sidebarWidth);
+          } catch (e) {}
+        }
+      }
+    })();
   });
 
   function startResize(e) {
@@ -37,11 +56,18 @@
     sidebarWidth = Math.max(160, Math.min(450, newWidth));
   }
 
-  function stopResize() {
+  async function stopResize() {
     isResizing = false;
     window.removeEventListener('mousemove', handleResize);
     window.removeEventListener('mouseup', stopResize);
     localStorage.setItem('flow-agent-right-sidebar-width', sidebarWidth.toString());
+    try {
+      const widths = await Backend.GetUIWidths();
+      const leftWidth = widths ? widths.sidebarWidth : 0;
+      await Backend.SaveUIWidths(leftWidth, sidebarWidth);
+    } catch (e) {
+      console.warn('Failed to save UI widths to backend:', e);
+    }
   }
 
   $: totalTodos = progressSteps.length;
