@@ -274,9 +274,11 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 		disabledSet[name] = true
 	}
 	var toolDefs []llm.ToolDef
-	for _, td := range allDefs {
-		if !disabledSet[td.Name] {
-			toolDefs = append(toolDefs, td)
+	if !(deps.DisableSystemPrompt && deps.ChatMode) {
+		for _, td := range allDefs {
+			if !disabledSet[td.Name] {
+				toolDefs = append(toolDefs, td)
+			}
 		}
 	}
 
