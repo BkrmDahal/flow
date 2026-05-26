@@ -14,6 +14,7 @@ void FlowStartHotkeyMonitor(void);
 void FlowStopHotkeyMonitor(void);
 void FlowTypeTextViaClipboard(const char *text);
 char* FlowCopySelectedText(void);
+char* FlowCopySelectedTextAX(void);
 void FlowSaveFocusedApp(void);
 void FlowRestoreFocusedApp(void);
 void FlowPlayDictationSound(int soundType);
@@ -21,7 +22,7 @@ void FlowWarmUpAudioSystem(void);
 
 // Defined in overlay_darwin.m
 void PreCreateDictationOverlay(void);
-void ShowDictationOverlay(int state);
+void ShowDictationOverlay(int state, const char *label);
 void HideDictationOverlay(void);
 */
 import "C"
@@ -68,6 +69,7 @@ var (
 	dictTextTransform    TextTransformer
 	dictGrammarFixer     GrammarFixer
 	dictEnabled          bool
+	dictIsPressed        bool
 	dictPressTime        time.Time
 	dictLastShortRelease time.Time
 )
@@ -188,6 +190,19 @@ func GetDictationState() DictationState {
 	return dictState
 }
 
+// SetDictationOverlayState updates the native dictation overlay.
+// state: 0 = hidden, 1 = recording, 2 = transcribing/thinking.
+// label: optional text to show in thinking/transcribing state.
+func SetDictationOverlayState(state int, label string) {
+	if label == "" {
+		C.ShowDictationOverlay(C.int(state), nil)
+	} else {
+		cLabel := C.CString(label)
+		defer C.free(unsafe.Pointer(cLabel))
+		C.ShowDictationOverlay(C.int(state), cLabel)
+	}
+}
+
 // ─── Hotkey Callbacks (called from ObjC via CGO) ───
 
 //export goDictationPressed
@@ -205,15 +220,57 @@ func goDictationPressed() {
 	now := time.Now()
 	isDoubleTap := !dictLastShortRelease.IsZero() && now.Sub(dictLastShortRelease) < 400*time.Millisecond
 	hasGrammarFixer := dictGrammarFixer != nil
+	
+	dictIsPressed = true
 	dictPressTime = now
-	dictMu.Unlock()
+	pressTime := now
 
-	if isDoubleTap && hasGrammarFixer {
-		go fixSelectedTextGrammar()
-		return
+	if hasGrammarFixer {
+		if isDoubleTap {
+			dictState = DictationFixingGrammar
+			dictMu.Unlock()
+			go fixSelectedTextGrammar("")
+			return
+		}
+
+		// Fast context-aware check:
+		// If text is selected and accessible via Accessibility APIs, trigger grammar fix immediately.
+		// Checking AX takes under 1ms and is completely non-blocking.
+		if HasAccessibilityPermission(false) {
+			cSelectedAX := C.FlowCopySelectedTextAX()
+			if cSelectedAX != nil {
+				selectedText := C.GoString(cSelectedAX)
+				C.free(unsafe.Pointer(cSelectedAX))
+				if len(selectedText) > 0 {
+					dictState = DictationFixingGrammar
+					dictMu.Unlock()
+					go fixSelectedTextGrammar(selectedText)
+					return
+				}
+			}
+		}
 	}
 
-	go startDictation()
+	// Transition to DictationRecording synchronously to block concurrent events!
+	dictState = DictationRecording
+	dictMu.Unlock()
+
+	// No text selected (or AX failed and not a double-tap): Debounce voice dictation recording
+	go func(pTime time.Time) {
+		time.Sleep(200 * time.Millisecond)
+		dictMu.Lock()
+		if dictEnabled && dictIsPressed && dictPressTime.Equal(pTime) && dictState == DictationRecording {
+			dictMu.Unlock()
+			startDictation()
+			return
+		}
+		// If the key was released before 200ms (short press):
+		// Revert the state back to DictationIdle synchronously.
+		if dictState == DictationRecording {
+			dictState = DictationIdle
+		}
+		dictMu.Unlock()
+	}(pressTime)
 }
 
 //export goDictationReleased
@@ -223,12 +280,12 @@ func goDictationReleased() {
 		dictMu.Unlock()
 		return
 	}
+	
+	dictIsPressed = false
 	dur := time.Since(dictPressTime)
 	state := dictState
-	dictMu.Unlock()
 
 	if dur < 300*time.Millisecond {
-		dictMu.Lock()
 		dictLastShortRelease = time.Now()
 		wasRecording := dictState == DictationRecording
 		if wasRecording {
@@ -242,8 +299,12 @@ func goDictationReleased() {
 	}
 
 	if state == DictationRecording {
+		dictState = DictationTranscribing
+		dictMu.Unlock()
 		go stopDictationAndType()
+		return
 	}
+	dictMu.Unlock()
 }
 
 // ─── Internal State Machine ───
@@ -316,7 +377,9 @@ func stopDictationAndType() {
 	onError := dictOnError
 	dictMu.Unlock()
 
-	C.ShowDictationOverlay(2)
+	cLabel := C.CString("Transcribing")
+	defer C.free(unsafe.Pointer(cLabel))
+	C.ShowDictationOverlay(2, cLabel)
 	C.FlowSetMenuBarState(2)
 
 	if onStatus != nil {
@@ -369,11 +432,15 @@ func stopDictationAndType() {
 	}
 
 	audioBase64 := base64.StdEncoding.EncodeToString(data)
+	log.Println("[dictation] sending audio to STT transcriber...")
+	startTranscribe := time.Now()
 	result, err := Transcribe(cfg, audioBase64, "audio/m4a")
 	if err != nil {
 		fail(fmt.Sprintf("Transcription failed: %v", err))
 		return
 	}
+	elapsedTranscribe := time.Since(startTranscribe)
+	log.Printf("[dictation] transcription completed in %v", elapsedTranscribe)
 
 	if result.Text == "" {
 		fail("No speech detected — try speaking louder")
@@ -426,7 +493,7 @@ func stopDictationAndType() {
 	}
 }
 
-func fixSelectedTextGrammar() {
+func fixSelectedTextGrammar(preSelectedText string) {
 	dictMu.Lock()
 	dictState = DictationFixingGrammar
 	dictLastShortRelease = time.Time{}
@@ -435,14 +502,16 @@ func fixSelectedTextGrammar() {
 	onError := dictOnError
 	dictMu.Unlock()
 
-	C.ShowDictationOverlay(2)
+	cLabel := C.CString("Refining")
+	defer C.free(unsafe.Pointer(cLabel))
+	C.ShowDictationOverlay(2, cLabel)
 	C.FlowSetMenuBarState(2)
 
 	if onStatus != nil {
 		onStatus(DictationFixingGrammar, "")
 	}
 
-	log.Println("[dictation] double-tap detected — fixing grammar of selected text")
+	log.Println("[dictation] grammar fix requested")
 
 	fail := func(msg string) {
 		log.Printf("[dictation] grammar fix error: %s", msg)
@@ -468,16 +537,21 @@ func fixSelectedTextGrammar() {
 
 	C.FlowSaveFocusedApp()
 
-	cSelected := C.FlowCopySelectedText()
-	if cSelected == nil {
-		fail("No text selected — select some text and double-tap to fix grammar")
-		return
+	var selectedText string
+	if preSelectedText != "" {
+		selectedText = preSelectedText
+	} else {
+		cSelected := C.FlowCopySelectedText()
+		if cSelected == nil {
+			fail("No text selected — select some text and press/double-tap to fix grammar")
+			return
+		}
+		selectedText = C.GoString(cSelected)
+		C.free(unsafe.Pointer(cSelected))
 	}
-	selectedText := C.GoString(cSelected)
-	C.free(unsafe.Pointer(cSelected))
 
 	if selectedText == "" {
-		fail("No text selected — select some text and double-tap to fix grammar")
+		fail("No text selected — select some text and press/double-tap to fix grammar")
 		return
 	}
 
@@ -504,7 +578,7 @@ func fixSelectedTextGrammar() {
 	C.HideDictationOverlay()
 	C.FlowRestoreFocusedApp()
 
-	log.Println("[dictation] focus restored, pasting corrected text via Cmd+V...")
+	log.Println("[dictation] focus restored, pasting corrected text...")
 
 	cText := C.CString(fixedText)
 	defer C.free(unsafe.Pointer(cText))

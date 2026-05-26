@@ -4,7 +4,7 @@ package speech
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
-#cgo LDFLAGS: -framework Cocoa -framework ApplicationServices -framework AudioToolbox
+#cgo LDFLAGS: -framework Cocoa -framework ApplicationServices -framework AudioToolbox -framework QuartzCore
 
 #include <stdlib.h>
 
@@ -30,7 +30,7 @@ void FlowWarmUpAudioSystem(void);
 
 // Defined in overlay_darwin.m
 void PreCreateDictationOverlay(void);
-void ShowDictationOverlay(int state);
+void ShowDictationOverlay(int state, const char *label);
 void HideDictationOverlay(void);
 */
 import "C"
