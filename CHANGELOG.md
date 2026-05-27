@@ -11,6 +11,21 @@ All notable changes to **Flow** will be documented in this file.
 * **Native Rich Document Reading**: Highlighted native `.pdf`, `.xlsx`, `.docx`, and `.pptx` reading capabilities of the `read_file` tool directly in the builder's prompt context. This discourages the agent from writing custom python parsers and running multiple tool iterations.
 * **Streamlined Bash Tool Tips**: Refactored the `run_bash` tool usage tips to promote self-contained scripts run in a single tool call and suppress raw CLI `python3 -c` one-liners.
 
+### 🎙️ Smooth macOS Dictation Overlay Morphing & Dynamic Labels
+* **Fluid CoreAnimation Morphing**: Redesigned the native macOS dictation overlay in Cocoa (`dictation_darwin.m`) to pre-allocate `recContainer` and `thinkContainer` views, using CoreAnimation (`NSAnimationContext`) with ease-in-ease-out timing functions to smoothly morph panel dimensions and cross-fade container opacities over 220ms.
+* **Dynamic Label Sizing & States**: Replaced the static, hardcoded "Thinking" message with support for custom dynamic label text, automatically calculating precise string widths in Cocoa to seamlessly scale the overlay width on state transitions (e.g., "Translating...", "Refining...").
+
+### 🧠 Local Whisper Transcription Thread & Delay Optimizations
+* **Dynamic Physical Core Detection**: Configured the local Whisper dictation engine (`transcribe_local_darwin.go`) to query performance cores (`hw.perflevel0.physicalcpu`) via `sysctl` to run transcription on dedicated high-performance CPU cores for Apple Silicon, falling back to a safe core count.
+* **Bypassed Temperature Fallbacks**: Appended the `-nf` (no fallback) flag to `whisper-cli` arguments to disable recursive temperature-based retries, ensuring near-instantaneous transcription speed for quick voice inputs.
+
+### ⚙️ Suppressed Tool Definitions in Chat-Only Mode
+* **Drastic Context Footprint Reductions**: Enhanced the Go backend agent execution flow (`backend/internal/agent/agent.go`) to completely bypass compiling and transmitting tool definitions to the LLM when both `DisableSystemPrompt` and `ChatMode` are active. This significantly reduces token overhead and input latency during casual chat sessions.
+
+### 📂 Persistent Local Application Configurations
+* **Decoupled Local App Preferences**: Migrated critical application settings and UI state (such as left sidebar width, right sidebar width, and pinned model selections) from browser-managed `localStorage` to a robust, local backend configuration file managed by the Go service (`app.go`).
+* **Synchronized Backend & Svelte Bridges**: Integrated new Go backend bindings `SavePinnedModels`, `GetPinnedModels`, `SaveUIWidths`, and `GetUIWidths` to dynamically sync preferences across app updates and reinstalls.
+
 ## [0.6.9] - 2026-05-25
 
 ### 🎙️ Background Voice Execution & Window Close Fix

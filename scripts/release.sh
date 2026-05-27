@@ -53,11 +53,34 @@ CURRENT_BRANCH=$(git branch --show-current)
 git push origin "$CURRENT_BRANCH" --tags
 
 # 4. Create GitHub Release and upload DMG
-echo -e "\n${BLUE}==> Creating GitHub Release v${VERSION}...${NC}"
+echo -e "\n${BLUE}==> Extracting release notes from CHANGELOG.md...${NC}"
+NOTES_FILE="build/release-notes-v${VERSION}.md"
+mkdir -p build
+python3 -c "
+import re, sys
+version = '${VERSION}'
+with open('CHANGELOG.md', 'r') as f:
+    content = f.read()
+pattern = re.compile(rf'##\s+\[{re.escape(version)}\].*?(?=\n##\s+\[|\Z)', re.DOTALL)
+match = pattern.search(content)
+if match:
+    lines = match.group(0).strip().split('\n')
+    notes = '\n'.join(lines[1:]).strip()
+    with open('${NOTES_FILE}', 'w') as out:
+        out.write(notes)
+else:
+    print('Error: Release notes for version ' + version + ' not found in CHANGELOG.md')
+    sys.exit(1)
+"
+
+echo -e "${BLUE}==> Creating GitHub Release v${VERSION} with detailed notes...${NC}"
 gh release create "v${VERSION}" "$DMG_OUTPUT" \
     --title "v${VERSION}" \
-    --notes "Release v${VERSION} with macOS Code Signing & Notarization." \
+    --notes-file "$NOTES_FILE" \
     --target "$CURRENT_BRANCH"
+
+# Clean up temporary notes file
+rm -f "$NOTES_FILE"
 
 echo -e "\n${GREEN}${BOLD}🎉 SUCCESS! Version v${VERSION} has been successfully built, signed, notarized, and released to GitHub!${NC}"
 echo -e "Check it out at: ${BOLD}https://github.com/BkrmDahal/flow/releases/tag/v${VERSION}${NC}"
