@@ -4,6 +4,13 @@ All notable changes to **Flow** will be documented in this file.
 
 ---
 
+## [0.7.0] - 2026-05-26
+
+### ⚡ Consolidated Cowork Agent Tool Execution & PDF/Excel Parsing
+* **Efficiency Cognitive Guideline**: Integrated a high-priority system-level prompt rule (`Consolidated Execution`) urging the model to write robust self-contained scripts rather than running sequential chains of terminal one-liners.
+* **Native Rich Document Reading**: Highlighted native `.pdf`, `.xlsx`, `.docx`, and `.pptx` reading capabilities of the `read_file` tool directly in the builder's prompt context. This discourages the agent from writing custom python parsers and running multiple tool iterations.
+* **Streamlined Bash Tool Tips**: Refactored the `run_bash` tool usage tips to promote self-contained scripts run in a single tool call and suppress raw CLI `python3 -c` one-liners.
+
 ## [0.6.9] - 2026-05-25
 
 ### 🎙️ Background Voice Execution & Window Close Fix
