@@ -212,19 +212,21 @@ static uint64_t hotkeyMask = DEV_LALT;
 static BOOL isHotkeyDown  = NO;
 
 static void handleModifierEvent(NSEvent *event) {
-    CGEventRef cgEvt = event.CGEvent;
+    CGEventRef cgEvt = event ? event.CGEvent : NULL;
     if (!cgEvt) return;
 
     CGEventFlags flags = CGEventGetFlags(cgEvt);
-    BOOL keyIsDown = (flags & hotkeyMask) != 0;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL keyIsDown = (flags & hotkeyMask) != 0;
 
-    if (keyIsDown && !isHotkeyDown) {
-        isHotkeyDown = YES;
-        goDictationPressed();
-    } else if (!keyIsDown && isHotkeyDown) {
-        isHotkeyDown = NO;
-        goDictationReleased();
-    }
+        if (keyIsDown && !isHotkeyDown) {
+            isHotkeyDown = YES;
+            goDictationPressed();
+        } else if (!keyIsDown && isHotkeyDown) {
+            isHotkeyDown = NO;
+            goDictationReleased();
+        }
+    });
 }
 
 void FlowSetHotkeyModifier(int keyCode) {
@@ -436,6 +438,15 @@ char* FlowCopySelectedText(void) {
     }
     return NULL;
 }
+
+char* FlowCopySelectedTextAX(void) {
+    NSString *text = getSelectedTextViaAX();
+    if (text && text.length > 0) {
+        return strdup([text UTF8String]);
+    }
+    return NULL;
+}
+
 
 int FlowReplaceSelectedText(const char *newText) {
     NSString *replacement = [NSString stringWithUTF8String:newText];

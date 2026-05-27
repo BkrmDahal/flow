@@ -133,10 +133,10 @@ func buildToolGuidance(disabledSet map[string]bool) string {
 	var sb strings.Builder
 	sb.WriteString("\n## Tool Usage Tips\n\n")
 	sb.WriteString("- **Use your knowledge FIRST.** You already know common facts like tax brackets, programming languages, math formulas, geography, history, science, etc. Do NOT search for things you already know. Only search when you genuinely need very recent data, specific URLs, or niche information you are unsure about.\n")
-	sb.WriteString("- **Limit tool calls.** Prefer fewer, targeted tool calls over many speculative ones. If a search returns no results, do NOT keep searching — use your training knowledge instead.\n")
-	sb.WriteString("- **run_bash**: Prefer single-line commands. Chain with && for multi-step. Check exit codes. For Python, prefer 'python3 -c \"...\"' for one-liners. Commands run in a macOS sandbox with restricted write access and are killed after 60s. When writing output files, save them in the current working directory (the session workspace root).\n")
+	sb.WriteString("- **Limit tool calls & consolidate.** Prefer fewer, targeted tool calls over many speculative or tiny ones. If a task requires complex computation, file parsing, or multiple steps, write a single robust script and execute it once rather than running a long loop of micro-commands. If a search returns no results, do NOT keep searching — use your training knowledge instead.\n")
+	sb.WriteString("- **run_bash**: Consolidate actions. Chain with && for multi-step. Check exit codes. For complex data parsing, file scanning, or math, write a robust, self-contained Python script to `.scratch/` and execute it in one call. Do NOT execute a series of incremental 'python3 -c' one-liners to iteratively parse or print lines. Commands run in a macOS sandbox with restricted write access and are killed after 60s. Save outputs in the workspace root.\n")
 	sb.WriteString("- **write_file**: Save **final deliverables** (reports, documents, outputs the user asked for — any format: .md, .html, .xlsx, .pdf, .csv, .txt, .py, .js, etc.) directly in the workspace root (e.g. 'report.md', 'script.py', 'app.js'). Save **intermediate/scratch files** (helper scripts, temp data, build scripts) under '.scratch/' (e.g. '.scratch/build.py'). Parent directories are created automatically. For edits, read first then write back.\n")
-	sb.WriteString("- **read_file**: Always read a file before attempting to overwrite it. Relative paths resolve within the workspace; absolute paths also work for reading external files.\n")
+	sb.WriteString("- **read_file**: Natively reads and parses plain text files as well as formatted rich documents/spreadsheets (`.pdf`, `.xlsx`, `.docx`, `.pptx`). Always read a file before attempting to overwrite it. Always use this native tool for reading/parsing these formats directly instead of writing custom parser scripts.\n")
 
 	if !disabledSet["web_search"] && !disabledSet["fetch_url"] {
 		sb.WriteString("- **web_search / fetch_url**: ONLY use when you genuinely need current or niche information you don't already know. For common knowledge (tax rates, formulas, code syntax, etc.), just answer directly from your training data. Maximum 3 searches per task — after that, use your knowledge.\n")
@@ -274,9 +274,11 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 		disabledSet[name] = true
 	}
 	var toolDefs []llm.ToolDef
-	for _, td := range allDefs {
-		if !disabledSet[td.Name] {
-			toolDefs = append(toolDefs, td)
+	if !(deps.DisableSystemPrompt && deps.ChatMode) {
+		for _, td := range allDefs {
+			if !disabledSet[td.Name] {
+				toolDefs = append(toolDefs, td)
+			}
 		}
 	}
 
@@ -681,6 +683,7 @@ You have direct macOS terminal access to execute commands, read/write files, and
 
 ## Cognitive Guidelines
 
+- **Consolidated Execution (Efficiency-First)**: Maximize efficiency. Avoid calling tools in small incremental chunks. Never run a flurry of sequential micro-commands (e.g., executing ten separate ` + "`run_bash`" + ` commands to search, modify, and verify files step-by-step, or executing multiple ` + "`python3 -c`" + ` commands to iteratively print arrays or filter text). For any data processing, text extraction, calculations, or multi-step execution tasks, consolidate your workflow. Write a **single cohesive script** (Python or Bash) in the workspace or ` + "`.scratch/`" + ` folder that performs the entire task, execute it, and check the output. Consolidate your steps to minimize the number of tool iterations.
 - **Precision-First**: Use exact file paths and fully qualified parameters. Never guess or speculate about the state of files — read them first to verify their contents.
 - **Production-Ready Deliverables**: When writing code or creating files, write clean, modular, self-documenting, and robustly error-handled code. Do not use placeholders or write incomplete code blocks.
 - **Robust Verification**: Always verify the correctness of your work. After creating or editing code, execute it or write tests/validations to confirm it runs correctly and produces the expected output.

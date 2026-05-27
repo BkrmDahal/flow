@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/user/flow/backend/internal/session"
 	"github.com/user/flow/backend/internal/speech"
@@ -68,10 +69,14 @@ func (a *App) setupDictationIfEnabled() {
 			msgs := []session.Message{
 				{Role: "user", Content: userContent},
 			}
+			log.Println("[dictation] sending grammar fix request to LLM...")
+			start := time.Now()
 			resp, err := a.llm.SendMessages(context.Background(), system, msgs, nil, false)
 			if err != nil {
 				return "", err
 			}
+			elapsed := time.Since(start)
+			log.Printf("[dictation] grammar fix LLM response received in %v", elapsed)
 			return resp.TextContent(), nil
 		}
 	}
@@ -82,11 +87,15 @@ func (a *App) setupDictationIfEnabled() {
 
 		if a.llm != nil && a.cfg != nil && a.cfg.AutoRefineAction != "" && a.cfg.AutoRefineAction != "off" {
 			log.Printf("[dictation] auto-refining transcription with action %q...", a.cfg.AutoRefineAction)
+			speech.SetDictationOverlayState(2, "Refining")
+			start := time.Now()
 			refined, err := a.RefineTextDirect(processed, a.cfg.AutoRefineAction, a.cfg.AutoRefineCustomPrompt)
 			if err != nil {
 				log.Printf("[dictation] auto-refine failed: %v — falling back to snippet-processed text", err)
 				return processed
 			}
+			elapsed := time.Since(start)
+			log.Printf("[dictation] auto-refine completed in %v", elapsed)
 			return refined
 		}
 		return processed

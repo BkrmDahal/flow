@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -117,6 +118,14 @@ func transcribeLocal(cfg TranscribeConfig, audio []byte, mimeType string) (*Tran
 	if cfg.Prompt != "" {
 		args = append(args, "--prompt", cfg.Prompt)
 	}
+
+	// Optimize thread count based on physical performance cores (Apple Silicon)
+	threads := detectOptimalThreads()
+	args = append(args, "-t", fmt.Sprintf("%d", threads))
+
+	// Disable temperature fallback by default for local dictation to guarantee
+	// highly responsive, near-instantaneous transcription speed.
+	args = append(args, "-nf")
 
 	cmd := exec.Command(bin, args...)
 	var stderr bytes.Buffer
@@ -344,4 +353,25 @@ func flowSubdir(sub string) (string, error) {
 		return "", fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 	return dir, nil
+}
+
+// detectOptimalThreads returns the number of physical performance cores on macOS.
+// If querying fails, it falls back to total CPU count divided by 2 (minimum 4).
+func detectOptimalThreads() int {
+	cmd := exec.Command("sysctl", "-n", "hw.perflevel0.physicalcpu")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err == nil {
+		var cores int
+		if _, err := fmt.Sscanf(strings.TrimSpace(out.String()), "%d", &cores); err == nil && cores > 0 {
+			return cores
+		}
+	}
+
+	// Fallback logic
+	totalCPU := runtime.NumCPU()
+	if totalCPU > 4 {
+		return totalCPU / 2
+	}
+	return 4
 }

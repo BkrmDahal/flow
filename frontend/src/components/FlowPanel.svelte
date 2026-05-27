@@ -57,11 +57,18 @@
     sidebarWidth = Math.max(160, Math.min(450, e.clientX));
   }
 
-  function stopResize() {
+  async function stopResize() {
     isResizing = false;
     window.removeEventListener('mousemove', handleResize);
     window.removeEventListener('mouseup', stopResize);
     localStorage.setItem('flow-sidebar-width', sidebarWidth.toString());
+    try {
+      const widths = await Backend.GetUIWidths();
+      const rightWidth = widths ? widths.agentRightSidebarWidth : 0;
+      await Backend.SaveUIWidths(sidebarWidth, rightWidth);
+    } catch (e) {
+      console.warn('Failed to save UI widths to backend:', e);
+    }
   }
 
   // ── Click and Type/Inline Edit variables ──
@@ -332,10 +339,29 @@
 
 
   onMount(() => {
-    const saved = localStorage.getItem('flow-sidebar-width');
-    if (saved) {
-      sidebarWidth = Math.max(160, Math.min(450, parseInt(saved, 10)));
-    }
+    // Load UI widths asynchronously from backend, fallback to localStorage
+    (async () => {
+      let loadedFromBackend = false;
+      try {
+        const widths = await Backend.GetUIWidths();
+        if (widths && widths.sidebarWidth > 0) {
+          sidebarWidth = Math.max(160, Math.min(450, widths.sidebarWidth));
+          loadedFromBackend = true;
+        }
+      } catch (e) {
+        console.warn('Failed to load UI widths from backend:', e);
+      }
+
+      if (!loadedFromBackend) {
+        const saved = localStorage.getItem('flow-sidebar-width');
+        if (saved) {
+          sidebarWidth = Math.max(160, Math.min(450, parseInt(saved, 10)));
+          try {
+            await Backend.SaveUIWidths(sidebarWidth, 0);
+          } catch (e) {}
+        }
+      }
+    })();
     refreshList()
     loadHotkeyStatus()
     checkMicPermission()

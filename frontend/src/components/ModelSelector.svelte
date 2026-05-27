@@ -20,15 +20,32 @@
   let pinnedModels = [];
 
   onMount(() => {
-    // Load pinned models from localStorage
-    const saved = localStorage.getItem('flow:pinned-models');
-    if (saved) {
+    // Load pinned models asynchronously from backend, fallback to localStorage
+    (async () => {
+      let loadedFromBackend = false;
       try {
-        pinnedModels = JSON.parse(saved);
+        const backendPins = await Backend.GetPinnedModels();
+        if (backendPins && backendPins.length > 0) {
+          pinnedModels = backendPins;
+          loadedFromBackend = true;
+        }
       } catch (e) {
-        console.error('Failed to parse pinned models:', e);
+        console.warn('Failed to load pinned models from backend:', e);
       }
-    }
+
+      if (!loadedFromBackend) {
+        const saved = localStorage.getItem('flow:pinned-models');
+        if (saved) {
+          try {
+            pinnedModels = JSON.parse(saved);
+            // Sync to backend so they are backed up
+            await Backend.SavePinnedModels(pinnedModels);
+          } catch (e) {
+            console.error('Failed to parse pinned models:', e);
+          }
+        }
+      }
+    })();
 
     loadSettings();
     window.addEventListener('click', handleOutsideClick);
@@ -60,6 +77,11 @@
       pinnedModels = [...pinnedModels, modelId];
     }
     localStorage.setItem('flow:pinned-models', JSON.stringify(pinnedModels));
+    try {
+      Backend.SavePinnedModels(pinnedModels);
+    } catch (e) {
+      console.warn('Failed to save pinned models to backend:', e);
+    }
 
     // Tactile animation feedback
     animatingPins[modelId] = true;

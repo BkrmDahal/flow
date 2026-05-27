@@ -2,6 +2,7 @@
 
 #import <Cocoa/Cocoa.h>
 #import <ApplicationServices/ApplicationServices.h>
+#import <QuartzCore/QuartzCore.h>
 
 // ═══════════════════════════════════════════════════════════════════════
 // Dictation Overlay — a small floating pill that appears above the text
@@ -204,8 +205,10 @@ static void ensureOverlay(void) {
     ovPanel.collectionBehavior   = NSWindowCollectionBehaviorCanJoinAllSpaces
                                  | NSWindowCollectionBehaviorTransient;
 
+    NSRect initBounds = [[ovPanel contentView] bounds];
+
     // ── Recording container (waveform) ──
-    recContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, OV_REC_W, OV_REC_H)];
+    recContainer = [[NSView alloc] initWithFrame:initBounds];
     recContainer.wantsLayer          = YES;
     recContainer.layer.cornerRadius  = OV_RADIUS;
     recContainer.layer.masksToBounds = YES;
@@ -227,7 +230,7 @@ static void ensureOverlay(void) {
     [recContainer addSubview:waveView];
 
     // ── Thinking container (spinner + label) ──
-    thinkContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, OV_THINK_W, OV_THINK_H)];
+    thinkContainer = [[NSView alloc] initWithFrame:initBounds];
     thinkContainer.wantsLayer          = YES;
     thinkContainer.layer.cornerRadius  = OV_RADIUS;
     thinkContainer.layer.masksToBounds = YES;
@@ -244,14 +247,15 @@ static void ensureOverlay(void) {
     thinkBlur.autoresizingMask  = NSViewWidthSizable | NSViewHeightSizable;
     [thinkContainer addSubview:thinkBlur];
 
-    thinkSpinner = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(12, 9, 16, 16)];
+    thinkSpinner = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(14, 10, 16, 16)];
     thinkSpinner.style                = NSProgressIndicatorStyleSpinning;
     thinkSpinner.controlSize          = NSControlSizeSmall;
     thinkSpinner.displayedWhenStopped = NO;
+    thinkSpinner.wantsLayer           = YES;
     thinkSpinner.appearance           = [NSAppearance appearanceNamed:NSAppearanceNameVibrantDark];
     [thinkContainer addSubview:thinkSpinner];
 
-    thinkLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(34, 9, 96, 18)];
+    thinkLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(38, 9, 96, 18)];
     thinkLabel.stringValue      = @"Thinking";
     thinkLabel.font             = [NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
     thinkLabel.textColor        = [NSColor whiteColor];
@@ -261,11 +265,23 @@ static void ensureOverlay(void) {
     thinkLabel.selectable        = NO;
     thinkLabel.drawsBackground   = NO;
     [thinkContainer addSubview:thinkLabel];
+
+    // Configure both containers to auto-resize with parent window bounds
+    recContainer.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    thinkContainer.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+
+    // Set initial alphas to hidden
+    recContainer.alphaValue = 0.0;
+    thinkContainer.alphaValue = 0.0;
+
+    // Add both containers to the window's contentView immediately
+    [[ovPanel contentView] addSubview:recContainer];
+    [[ovPanel contentView] addSubview:thinkContainer];
 }
 
 // ── Position helper ──────────────────────────────────────────────────
 
-static void positionOverlay(CGFloat panelW, CGFloat panelH) {
+static NSRect calculateOverlayFrame(CGFloat panelW, CGFloat panelH) {
     NSPoint caret = getCaretPosition();
     CGFloat x = caret.x - panelW / 2.0;
     CGFloat y = caret.y + OV_GAP_Y;
@@ -273,14 +289,14 @@ static void positionOverlay(CGFloat panelW, CGFloat panelH) {
     // Clamp to visible screen area.
     NSScreen *scr = [NSScreen mainScreen];
     if (!scr) scr = [[NSScreen screens] firstObject];
-    if (!scr) { [ovPanel setFrameOrigin:NSMakePoint(x, y)]; return; }
+    if (!scr) { return NSMakeRect(x, y, panelW, panelH); }
     NSRect sf = scr.frame;
     if (x < sf.origin.x + 4)           x = sf.origin.x + 4;
     if (x + panelW > NSMaxX(sf) - 4)   x = NSMaxX(sf) - panelW - 4;
     if (y + panelH > NSMaxY(sf) - 4)   y = caret.y - panelH - OV_GAP_Y; // flip below
     if (y < sf.origin.y + 4)           y = sf.origin.y + 4;
 
-    [ovPanel setFrameOrigin:NSMakePoint(x, y)];
+    return NSMakeRect(x, y, panelW, panelH);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -295,53 +311,94 @@ void PreCreateDictationOverlay(void) {
 }
 
 // state: 1 = recording, 2 = thinking
-void ShowDictationOverlay(int state) {
+void ShowDictationOverlay(int state, const char *labelText) {
+    NSString *label = labelText ? [NSString stringWithUTF8String:labelText] : @"Thinking";
     dispatch_async(dispatch_get_main_queue(), ^{
         ensureOverlay();
 
-        // Tear down previous state.
+        // Check if panel is already visible and faded in
+        BOOL wasVisible = ovPanel.isVisible && (ovPanel.alphaValue > 0.1);
+
+        // Stop current animation timers first so they don't leak or conflict
         [waveView stopAnimating];
         [thinkSpinner stopAnimation:nil];
         if (dotsTimer) { [dotsTimer invalidate]; dotsTimer = nil; }
-        [[ovPanel contentView] setSubviews:@[]];
+
+        CGFloat panelW = OV_REC_W;
+        CGFloat panelH = OV_REC_H;
 
         if (state == 1) {
-            // ── Recording ──
-            [ovPanel setContentSize:NSMakeSize(OV_REC_W, OV_REC_H)];
-            recContainer.frame = NSMakeRect(0, 0, OV_REC_W, OV_REC_H);
-            [[ovPanel contentView] addSubview:recContainer];
-            [waveView startAnimating];
-            positionOverlay(OV_REC_W, OV_REC_H);
-
+            panelW = OV_REC_W;
+            panelH = OV_REC_H;
         } else if (state == 2) {
-            // ── Thinking ──
-            [ovPanel setContentSize:NSMakeSize(OV_THINK_W, OV_THINK_H)];
-            thinkContainer.frame = NSMakeRect(0, 0, OV_THINK_W, OV_THINK_H);
-            [[ovPanel contentView] addSubview:thinkContainer];
+            NSDictionary *attrs = @{ NSFontAttributeName : thinkLabel.font };
+            NSSize txtSize = [label sizeWithAttributes:attrs];
+            // Symmetric padding: Left margin (14) + spinner (16) + gap (8) + text + Right margin (14)
+            panelW = 14 + 16 + 8 + txtSize.width + 14;
+            if (panelW < OV_THINK_W) panelW = OV_THINK_W;
+            panelH = OV_THINK_H;
+        }
+
+        NSRect targetFrame = calculateOverlayFrame(panelW, panelH);
+
+        // Set up the state-specific configurations
+        if (state == 1) {
+            [waveView startAnimating];
+        } else if (state == 2) {
+            // Update think label text and layout
+            thinkLabel.stringValue = label;
+            thinkLabel.frame = NSMakeRect(38, 9, panelW - 38 - 14, 18);
             [thinkSpinner startAnimation:nil];
-            thinkLabel.stringValue = @"Thinking";
+
             dotsCount = 0;
             dotsTimer = [NSTimer scheduledTimerWithTimeInterval:0.4 repeats:YES
                                                          block:^(NSTimer * _Nonnull t) {
                 dotsCount = (dotsCount + 1) % 4;
                 NSString *dots = [@"" stringByPaddingToLength:dotsCount
                                                   withString:@"." startingAtIndex:0];
-                thinkLabel.stringValue = [NSString stringWithFormat:@"Thinking%@", dots];
+                thinkLabel.stringValue = [NSString stringWithFormat:@"%@%@", label, dots];
             }];
-            positionOverlay(OV_THINK_W, OV_THINK_H);
-
         } else {
             [ovPanel orderOut:nil];
             return;
         }
 
-        // Fade in.
-        ovPanel.alphaValue = 0;
-        [ovPanel orderFront:nil];
-        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
-            ctx.duration = 0.12;
-            ovPanel.animator.alphaValue = 1.0;
-        }];
+        if (wasVisible) {
+            // Smoothly animate frame, and fade containers in/out
+            [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+                ctx.duration = 0.22;
+                ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+                
+                [[ovPanel animator] setFrame:targetFrame display:YES];
+                
+                if (state == 1) {
+                    [[recContainer animator] setAlphaValue:1.0];
+                    [[thinkContainer animator] setAlphaValue:0.0];
+                } else if (state == 2) {
+                    [[recContainer animator] setAlphaValue:0.0];
+                    [[thinkContainer animator] setAlphaValue:1.0];
+                }
+            } completionHandler:nil];
+        } else {
+            // Position panel instantly, set initial opacity of subviews
+            [ovPanel setFrame:targetFrame display:YES];
+            
+            if (state == 1) {
+                recContainer.alphaValue = 1.0;
+                thinkContainer.alphaValue = 0.0;
+            } else if (state == 2) {
+                recContainer.alphaValue = 0.0;
+                thinkContainer.alphaValue = 1.0;
+            }
+            
+            // Fade in the panel from 0 to 1
+            ovPanel.alphaValue = 0.0;
+            [ovPanel orderFront:nil];
+            [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+                ctx.duration = 0.15;
+                ovPanel.animator.alphaValue = 1.0;
+            } completionHandler:nil];
+        }
     });
 }
 

@@ -101,9 +101,14 @@ func (a *App) SaveSettings(p SettingsPayload) error {
 		cfg.BaseURL = fmt.Sprintf("http://127.0.0.1:%d/v1", cfg.LlamaPort)
 		cfg.APIKey = ""
 	}
-	// Preserve existing agents config — settings panel doesn't touch it.
-	if a.cfg != nil && a.cfg.Agents != nil {
-		cfg.Agents = a.cfg.Agents
+	// Preserve existing agents config and UI states — settings panel doesn't touch them.
+	if a.cfg != nil {
+		if a.cfg.Agents != nil {
+			cfg.Agents = a.cfg.Agents
+		}
+		cfg.PinnedModels = a.cfg.PinnedModels
+		cfg.SidebarWidth = a.cfg.SidebarWidth
+		cfg.AgentRightSidebarWidth = a.cfg.AgentRightSidebarWidth
 	}
 
 	if err := config.Save(a.baseDir, cfg); err != nil {
@@ -331,4 +336,46 @@ func fromPayload(p SettingsPayload) *config.Config {
 		PythonPath:             p.PythonPath,
 		DisableSystemPrompt:    p.DisableSystemPrompt,
 	}
+}
+
+// GetPinnedModels returns the pinned models list from the configuration.
+func (a *App) GetPinnedModels() ([]string, error) {
+	if a.cfg == nil {
+		return nil, fmt.Errorf("config not loaded")
+	}
+	return a.cfg.PinnedModels, nil
+}
+
+// SavePinnedModels persists the pinned models list to the configuration.
+func (a *App) SavePinnedModels(models []string) error {
+	if a.cfg == nil {
+		return fmt.Errorf("config not loaded")
+	}
+	a.cfg.PinnedModels = models
+	return config.Save(a.baseDir, a.cfg)
+}
+
+// GetUIWidths returns the sidebar and right sidebar widths from the configuration.
+func (a *App) GetUIWidths() (map[string]int, error) {
+	if a.cfg == nil {
+		return nil, fmt.Errorf("config not loaded")
+	}
+	return map[string]int{
+		"sidebarWidth":           a.cfg.SidebarWidth,
+		"agentRightSidebarWidth": a.cfg.AgentRightSidebarWidth,
+	}, nil
+}
+
+// SaveUIWidths persists the sidebar and right sidebar widths to the configuration.
+func (a *App) SaveUIWidths(sidebarWidth, agentRightSidebarWidth int) error {
+	if a.cfg == nil {
+		return fmt.Errorf("config not loaded")
+	}
+	if sidebarWidth > 0 {
+		a.cfg.SidebarWidth = sidebarWidth
+	}
+	if agentRightSidebarWidth > 0 {
+		a.cfg.AgentRightSidebarWidth = agentRightSidebarWidth
+	}
+	return config.Save(a.baseDir, a.cfg)
 }

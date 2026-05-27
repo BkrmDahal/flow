@@ -71,6 +71,11 @@ type Config struct {
 
 	// ── Prompt options ───────────────────────────────────────────────────────
 	DisableSystemPrompt bool `json:"disable_system_prompt"`
+
+	// ── Frontend / UI state saved in config.json to survive updates ──────────
+	PinnedModels           []string `json:"pinned_models"`
+	SidebarWidth           int      `json:"sidebar_width"`
+	AgentRightSidebarWidth int      `json:"agent_right_sidebar_width"`
 }
 
 // FlowDir returns the resolved path to ~/.flow/.
@@ -115,14 +120,17 @@ func Bootstrap() (string, error) {
 			LlamaDownloadURL: "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf?download=true",
 			LlamaPort:        8080,
 			LlamaContextSize: 4096,
-			HotkeyEnabled:    false,
+			HotkeyEnabled:    true,
 			HotkeyModifier:   "right_option",
-			SpeechProvider:   "local",
-			SpeechModel:      "base.en",
-			SpeechLanguage:   "en",
-			AutoRefineAction: "off",
-			PythonPath:       "python3",
-			ProviderMode:     "none",
+			SpeechProvider:         "local",
+			SpeechModel:            "base.en",
+			SpeechLanguage:         "en",
+			AutoRefineAction:       "clean",
+			PythonPath:             "python3",
+			ProviderMode:           "none",
+			PinnedModels:           []string{"claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"},
+			SidebarWidth:           220,
+			AgentRightSidebarWidth: 220,
 			Agents: map[string]AgentConfig{
 				"main": {
 					Name:           "Flow",
@@ -238,10 +246,19 @@ func Load(base string) (*Config, error) {
 		cfg.SpeechLanguage = "en"
 	}
 	if cfg.AutoRefineAction == "" {
-		cfg.AutoRefineAction = "off"
+		cfg.AutoRefineAction = "clean"
 	}
 	if cfg.PythonPath == "" {
 		cfg.PythonPath = "python3"
+	}
+	if cfg.SidebarWidth == 0 {
+		cfg.SidebarWidth = 220
+	}
+	if cfg.AgentRightSidebarWidth == 0 {
+		cfg.AgentRightSidebarWidth = 220
+	}
+	if cfg.PinnedModels == nil {
+		cfg.PinnedModels = []string{}
 	}
 	if cfg.ProviderMode == "" {
 		cfg.ProviderMode = "none"
