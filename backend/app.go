@@ -43,6 +43,9 @@ type App struct {
 
 	voiceMu            sync.Mutex
 	voiceRecordingPath string
+
+	// Scheduler
+	schedCancel context.CancelFunc
 }
 
 // NewApp constructs the app instance. Heavy initialisation lives in Startup
@@ -112,11 +115,15 @@ func (a *App) Startup(ctx context.Context) {
 	// Set up dictation hotkey if enabled.
 	a.setupDictationIfEnabled()
 
+	// Start the background task scheduler.
+	a.StartScheduler()
+
 	log.Printf("flow: startup ok (base=%s, model=%q)", base, cfg.Model)
 }
 
 // Shutdown is invoked by Wails just before the window closes.
 func (a *App) Shutdown(ctx context.Context) {
+	a.StopScheduler()
 	if speech.IsDictationEnabled() {
 		speech.TeardownDictation()
 	}

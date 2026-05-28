@@ -4,7 +4,8 @@
   import AgentWelcome from './AgentWelcome.svelte';
   import AgentWorkspace from './AgentWorkspace.svelte';
   import ModelSelector from './ModelSelector.svelte';
-  import { Backend } from '../lib/wails.js';
+  import SchedulesPanel from './SchedulesPanel.svelte';
+  import { Backend, Events } from '../lib/wails.js';
   import { skills, refreshSkills } from '../lib/stores/pluginsStore.js';
 
   import {
@@ -20,6 +21,8 @@
 
   export let onOpenSettings = () => {};
   export let onOpenToolkit = () => {};
+
+  let activeView = 'chat'; // 'chat' | 'scheduled'
 
   let agentInput = '';
   let agentTextareaEl;
@@ -207,13 +210,19 @@
     window.addEventListener('click', handleGlobalClick);
     window.addEventListener('flow:settings-saved', handleSettingsSaved);
     window.addEventListener('flow:local-llm-loading', handleLocalLlmLoading);
+    Events.on('schedule:task:started', handleScheduleTaskStarted);
   });
 
   onDestroy(() => {
     window.removeEventListener('click', handleGlobalClick);
     window.removeEventListener('flow:settings-saved', handleSettingsSaved);
     window.removeEventListener('flow:local-llm-loading', handleLocalLlmLoading);
+    Events.off('schedule:task:started');
   });
+
+  function handleScheduleTaskStarted() {
+    refreshCoworkHistory();
+  }
 
   // ─── Welcome input ───
   function handleWelcomeSend() {
@@ -399,8 +408,32 @@
   function handleCancel() { cancelCowork(); }
 
   function handleNewTask() {
+    activeView = 'chat';
     newCoworkTask();
     tick().then(() => agentTextareaEl?.focus());
+  }
+
+  function handleChangeView(e) {
+    activeView = e.detail.view;
+  }
+
+  function handleSelectTask(e) {
+    activeView = 'chat';
+    selectCoworkTask(e.detail.id);
+  }
+
+  async function handleViewSession(e) {
+    const { sessionId } = e.detail;
+    if (!sessionId) return;
+    activeView = 'chat';
+    // If the session isn't actively streaming (e.g. "View last run"),
+    // load it from disk. If it's streaming (e.g. "Run now"), the
+    // cowork store state was already set up by startScheduledCoworkSession.
+    const currentId = $activeCoworkTaskId;
+    if (currentId !== sessionId) {
+      await refreshCoworkHistory();
+      selectCoworkTask(sessionId);
+    }
   }
 
   function handleOpenFile(e) { Backend.OpenFileInApp?.(e.detail.path); }
@@ -418,8 +451,10 @@
     agentTaskHistory={$coworkTaskHistory}
     activeAgentTaskId={$activeCoworkTaskId}
     bgStreamingAgents={$backgroundCoworkStreamingSessions}
+    {activeView}
     on:newTask={handleNewTask}
-    on:selectTask={(e) => selectCoworkTask(e.detail.id)}
+    on:selectTask={handleSelectTask}
+    on:changeView={handleChangeView}
     on:deleteTask={(e) => deleteCoworkTask(e.detail.id)}
     on:openFolder={handleOpenTaskFolder}
     on:openSettings={() => onOpenSettings()}
@@ -427,6 +462,9 @@
   />
 
   <div class="cowork-main">
+    {#if activeView === 'scheduled'}
+      <SchedulesPanel on:viewSession={handleViewSession} />
+    {:else}
     {#if $coworkPhase === 'welcome'}
       <div class="agent-scroll">
         <div class="agent-welcome-wrap">
@@ -671,6 +709,7 @@
         on:sendFollowUp={handleFollowUp}
         on:cancel={handleCancel}
       />
+    {/if}
     {/if}
   </div>
 </div>

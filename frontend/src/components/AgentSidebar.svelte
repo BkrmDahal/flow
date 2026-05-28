@@ -4,6 +4,7 @@
   export let agentTaskHistory = [];
   export let activeAgentTaskId = null;
   export let bgStreamingAgents = new Set();
+  export let activeView = 'chat'; // 'chat' | 'scheduled'
 
   const dispatch = createEventDispatcher();
 
@@ -109,6 +110,18 @@
       <span>New chat</span>
     </button>
 
+    <button
+      class="nav-scheduled"
+      class:active={activeView === 'scheduled'}
+      on:click={() => dispatch('changeView', { view: 'scheduled' })}
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 16 14" />
+      </svg>
+      <span>Scheduled</span>
+    </button>
+
     <div class="search-wrapper">
       <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
         <circle cx="11" cy="11" r="8" />
@@ -140,6 +153,12 @@
                   <span class="streaming-dot"></span>
                 {/if}
                 <span class="task-title">{task.title}</span>
+                {#if task.id?.startsWith('cowork_sched_')}
+                  <svg class="sched-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                {/if}
                 <button
                   class="action-btn"
                   class:visible={hoveredTaskId === task.id}
@@ -239,6 +258,22 @@
   }
   .nav-new:hover { background: var(--bg-hover); }
 
+  .nav-scheduled {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 8px 12px;
+    background: none; border: none; border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 13.5px; font-weight: 500; font-family: var(--font-sans);
+    cursor: pointer; transition: all 0.15s ease; text-align: left;
+    margin-bottom: 2px;
+  }
+  .nav-scheduled:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .nav-scheduled.active {
+    background: rgba(45, 212, 191, 0.08);
+    color: var(--accent);
+  }
+  .nav-scheduled.active svg { color: var(--accent); }
+
   .search-wrapper {
     display: flex; align-items: center; gap: 8px;
     padding: 4px 12px; border-radius: 8px;
@@ -293,6 +328,13 @@
     min-width: 0;
     -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
     mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+  }
+
+  .sched-icon {
+    flex-shrink: 0;
+    margin-left: auto;
+    margin-right: 4px;
+    color: rgba(45, 212, 191, 0.5);
   }
 
   .streaming-dot {
