@@ -67,6 +67,11 @@ static void ensureHUD(void) {
     hudPanel.hasShadow                = YES;
     hudPanel.movableByWindowBackground = YES;
     hudPanel.hidesOnDeactivate        = NO;
+    hudPanel.floatingPanel            = YES;
+    // Only take key focus when a control that needs the keyboard (the text
+    // field) is actually clicked — so showing the HUD and clicking its buttons
+    // never activates Flow or pulls its main window to the front.
+    hudPanel.becomesKeyOnlyIfNeeded   = YES;
     hudPanel.collectionBehavior       = NSWindowCollectionBehaviorCanJoinAllSpaces
                                       | NSWindowCollectionBehaviorFullScreenAuxiliary;
 
@@ -118,13 +123,16 @@ void FlowShowHUD(const char *curl) {
             // active screen. JS resizes it to fit content shortly after.
             [hudPanel setFrame:hudFrameForSize(HUD_W, HUD_H) display:YES];
             hudPanel.alphaValue = 0.0;
-            [hudPanel makeKeyAndOrderFront:nil];
+            // orderFrontRegardless shows the HUD on top WITHOUT activating Flow
+            // (the main window / dock never jumps forward). The panel only
+            // becomes key when its text field is clicked (becomesKeyOnlyIfNeeded).
+            [hudPanel orderFrontRegardless];
             [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
                 ctx.duration = 0.15;
                 hudPanel.animator.alphaValue = 1.0;
             } completionHandler:nil];
         } else {
-            [hudPanel makeKeyAndOrderFront:nil];
+            [hudPanel orderFrontRegardless];
         }
     });
 }

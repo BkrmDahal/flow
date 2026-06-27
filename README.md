@@ -35,8 +35,14 @@ Use it in any app! Just press the global hotkey to instantly record, transcribe,
   <img src="docs/images/main_window.png" alt="Flow Voice Dictation" width="90%" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);" />
 </p>
 
+### ☁️ Quick Ask — Floating Agent HUD
+Hold a hotkey and **speak** (or type) a request to the agent in a floating popup — without switching apps. It sees your current screen, can act across apps, asks before each step, and streams the answer right where you're working. Tap the hotkey (instead of holding) to open it with context-aware suggestions:
+<p align="center">
+  <img src="docs/images/quick_ask_hud.png" alt="Quick Ask HUD" width="75%" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);" />
+</p>
+
 ### 🍏 Native Menu Bar Integration
-Pinwheel-based status bar widget showing status (idle, recording, or transcribing) and quick commands:
+Pinwheel-based status bar widget showing status (idle, recording, or transcribing) and quick commands — including **Open Quick Ask**:
 <p align="center">
   <img src="docs/images/menubar_menu.png" alt="macOS Menu Bar" width="55%" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);" />
 </p>
@@ -119,6 +125,25 @@ Record voice notes and transcribe them with configurable speech-to-text provider
 - **Double-tap hotkey** — grabs selected text and fixes grammar/spelling via LLM.
 - **Native macOS overlay** — visual recording indicator with live status.
 - **Menu bar icon** — pinwheel status indicator (idle / recording / transcribing).
+
+### ☁️ Quick Ask — Floating Agent HUD
+A second, dedicated push-to-talk hotkey that opens a floating, always-on-top popup (the **HUD**) instead of pasting text. It runs the full Cowork agent right where you are, so you never have to leave your current app.
+
+- **Hold to talk, tap for suggestions** — hold the configurable hotkey to speak a request; a quick tap opens the HUD with context-aware action chips for what's on screen. Also available from the menu bar (**Open Quick Ask**).
+- **One unified popup** — the same window flows smoothly from **Listening** (live waveform, with ✕ cancel / ✓ send) → **Transcribing** → **Thinking** (current-step pill) → **streamed answer**. Pre-warmed so it appears instantly and never steals focus from your current app.
+- **Acts from on-screen context** — reads the frontmost app and your text selection, and attaches a **screenshot** when the request needs to see the screen (e.g. "summarize this page", "what does this error mean?"). Simple questions skip the screenshot for a fast, lightweight reply.
+- **Works across apps** — can drive other apps via macOS automation (`osascript` / `open`) to gather what it needs and bring the result back.
+- **Approve, then keep working** — when a step needs a command, the HUD shows a compact **Needs approval** card; approve and the agent continues. Cross-app automation is pre-allowed per HUD session so multi-step tasks flow with minimal friction.
+- **Conversation, not one-shot** — type follow-ups in the HUD, **copy** any response, start a fresh chat with **+**, or **open in app** to continue the same session in the full Cowork window.
+- **Vision-aware suggestions** — with an image-capable model, the tap-to-open chips reflect what's actually on your screen; otherwise it falls back to a static capability menu.
+
+**What you can ask it:**
+- *Ask about your screen* — "Summarize this page", "Explain this code", "What does this error mean?"
+- *Write & rewrite* — "Reply to this email", "Make this more concise", "Fix grammar and tone"
+- *Do things across apps* — "Save this as a note", "Draft a reply in Mail", "Open this link in my browser"
+- *Quick answers* — "What's 15% of 240?", "Convert 30°C to °F", "Define 'idempotent'"
+
+> Quick Ask needs **Microphone** (to talk), **Screen Recording** (to see the screen), and **Accessibility** (to read the selection and act across apps). Grant them from Settings → **HUD & Quick Ask**.
 
 ### 🧩 Reusable Skills & Snippets
 - **Skills** — reusable instruction sets the agent can load into context at runtime to guide specialized behaviors (customizable via the Toolkit).

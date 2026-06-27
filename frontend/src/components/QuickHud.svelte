@@ -297,18 +297,17 @@
     <header class="hud-head">
       <span class="head-icon" class:busy={phase === 'running'}>{@html cloudSvg}</span>
       <span class="title">{userRequest || 'Quick Ask'}</span>
-      <button class="head-btn icon-btn" on:click={newSession} title="New chat" aria-label="New chat">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      </button>
-      <button class="head-btn open-btn" on:click={openInApp} title="Open in main app" disabled={!sessionId}>open in app</button>
-      {#if answer || phase === 'running'}
-        <button class="head-btn icon-btn" on:click={() => { expanded = false; afterRender(); }} title="Collapse" aria-label="Collapse">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+      <div class="head-actions">
+        <button class="head-btn icon-btn" on:click={newSession} title="New chat" aria-label="New chat">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
-      {/if}
-      <button class="head-btn icon-btn" on:click={dismiss} title="Dismiss (Esc)" aria-label="Dismiss">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
+        <button class="head-btn icon-btn" on:click={openInApp} title="Open in main app" aria-label="Open in main app" disabled={!sessionId}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </button>
+        <button class="head-btn icon-btn" on:click={dismiss} title="Dismiss (Esc)" aria-label="Dismiss">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
     </header>
 
     <div class="hud-body" bind:this={scrollEl}>
@@ -490,16 +489,7 @@
     display: inline-flex; align-items: center; justify-content: center;
   }
   .head-btn.icon-btn svg { display: block; }
-  .head-btn.open-btn {
-    border: 0.5px solid rgba(255,255,255,0.18);
-    border-radius: 7px;
-    padding: 4px 10px;
-    transition: box-shadow 0.15s ease, background 0.15s ease;
-  }
-  .head-btn.open-btn:hover:not(:disabled) {
-    background: rgba(255,255,255,0.1);
-    box-shadow: 0 2px 10px rgba(0,0,0,0.45);
-  }
+  .head-actions { flex: none; display: flex; align-items: center; gap: 2px; }
 
   .hud-body { flex: 1; overflow-y: auto; max-height: 380px; padding: 14px; font-size: 13.5px; line-height: 1.5; }
 
