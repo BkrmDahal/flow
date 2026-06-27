@@ -381,8 +381,15 @@
     </div>
 
     <footer class="hud-foot">
-      <input class="hud-input" placeholder="Type a message…" bind:value={inputText} autocomplete="off" />
-      <button class="send" on:click={submitInput} disabled={!inputText.trim()}>Return ↵</button>
+      <div class="input-wrap">
+        <input class="hud-input" placeholder="Type a message…" bind:value={inputText} autocomplete="off" />
+        <button class="send" on:click={submitInput} disabled={!inputText.trim()} aria-label="Send">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="19" x2="12" y2="5" />
+            <polyline points="5 12 12 5 19 12" />
+          </svg>
+        </button>
+      </div>
     </footer>
   {/if}
 </div>
@@ -537,9 +544,27 @@
   .btn.primary:hover { background: #e8e8ea; }
 
   .hud-foot { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 0.5px solid rgba(255,255,255,0.06); }
-  .hud-input { flex: 1; background: rgba(255,255,255,0.06); border: 0.5px solid rgba(255,255,255,0.1); border-radius: 9px; padding: 9px 12px; color: #f4f4f5; font-size: 13px; outline: none; }
+  .input-wrap { position: relative; flex: 1; display: flex; align-items: center; }
+  .hud-input { flex: 1; background: rgba(255,255,255,0.06); border: 0.5px solid rgba(255,255,255,0.1); border-radius: 9px; padding: 9px 38px 9px 12px; color: #f4f4f5; font-size: 13px; outline: none; }
   .hud-input:focus { border-color: rgba(96,165,250,0.6); }
-  .send { background: transparent; border: none; color: #a1a1aa; font-size: 12px; cursor: pointer; padding: 6px 8px; white-space: nowrap; }
-  .send:disabled { opacity: 0.4; cursor: default; }
-  .send:hover:not(:disabled) { color: #fff; }
+  .send {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: rgba(255,255,255,0.1);
+    border: none;
+    border-radius: 7px;
+    color: #f4f4f5;
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.15s ease;
+  }
+  .send:disabled { opacity: 0.35; cursor: default; background: rgba(255,255,255,0.06); }
+  .send:hover:not(:disabled) { background: rgba(96,165,250,0.9); color: #fff; }
 </style>

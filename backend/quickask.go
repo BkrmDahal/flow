@@ -57,11 +57,15 @@ func (a *App) setupQuickAskIfEnabled() {
 	onState := func(state string) {
 		switch state {
 		case "listening":
+			// Grab the screen NOW, before the HUD covers it, so a request like
+			// "reply to the last email" sees what the user is actually looking at.
+			a.stashScreenshot()
 			speech.ShowHUD(a.hudURL())
 			a.hudBroadcast(map[string]interface{}{"type": "listening"})
 		case "transcribing":
 			a.hudBroadcast(map[string]interface{}{"type": "transcribing"})
 		case "cancelled":
+			a.clearPendingShot()
 			a.hudBroadcast(map[string]interface{}{"type": "cancelled"})
 			speech.HideHUD()
 		}
@@ -132,18 +136,28 @@ func (a *App) quickAskTurn(request string, fresh bool) {
 
 	// Build the agent content. The user message stays exactly what the user
 	// said/typed. Lightweight context (frontmost app, selection) always goes in
-	// the system prompt; the (expensive) screenshot is attached ONLY when the
-	// request actually seems to need the screen.
+	// the system prompt. The screenshot is attached by DEFAULT — skipped only
+	// for clearly self-contained questions (math, conversions, definitions).
 	var content json.RawMessage
 	var ctxNote string
 	if fresh {
 		ctxNote = a.quickAskContextNote()
+		pending := a.takePendingShot() // always consume so it can't leak into a later turn
 		var files []streaming.FileAttachment
-		if requestNeedsScreen(request) {
-			if shot := a.captureScreenshotAttachment(workDir); shot != nil {
-				files = append(files, *shot)
-				ctxNote += "- A screenshot of the current screen is attached to the user's message.\n"
+		if !requestIsSelfContained(request) {
+			// Prefer the clean screenshot captured before the HUD appeared.
+			shot := pending
+			if shot == nil {
+				shot = a.captureScreenshotAttachment(workDir)
 			}
+			if shot != nil {
+				files = append(files, *shot)
+				ctxNote += "- A screenshot of the user's screen (captured the moment they asked) is attached to their message. Read it to answer; it shows what they're looking at.\n"
+			} else {
+				ctxNote += "- No screenshot is available (Screen Recording permission may be off), so you cannot see the screen for this request.\n"
+			}
+		} else {
+			ctxNote += "- No screenshot was attached for this self-contained request; answer from the text alone.\n"
 		}
 		content, err = streaming.BuildContent(request, files, streaming.ContentOptions{WorkDir: workDir})
 		if err != nil {
@@ -156,24 +170,65 @@ func (a *App) quickAskTurn(request string, fresh bool) {
 	go a.runQuickAskStream(sessionID, content, workDir, ctxNote)
 }
 
-// requestNeedsScreen is a cheap, zero-latency heuristic for whether a request
-// likely needs to see the screen. A false positive just attaches an unused
-// screenshot; a false negative means the agent answers from text alone.
-func requestNeedsScreen(request string) bool {
-	r := strings.ToLower(request)
-	cues := []string{
-		"screen", "this ", " this?", " this.", "these", "below", "above",
-		"here", "on my", "current page", "current tab", "what's on", "what is on",
-		"look at", "selected", "highlighted", "visible", "showing", "on the page",
-		"summarize this", "summarise this", "explain this", "fix this", "translate this",
-		"what does this", "what am i", "help me with this", "rewrite this", "reply to this",
+// requestIsSelfContained returns true only for requests that clearly need no
+// screen context (pure math, unit conversions, definitions, general trivia).
+// Everything else attaches a screenshot by default — it's better to over-attach
+// than to leave the agent blind to what the user is looking at.
+func requestIsSelfContained(request string) bool {
+	r := strings.ToLower(strings.TrimSpace(request))
+
+	// Any reference to the screen / current context forces a screenshot.
+	screenRefs := []string{
+		"this", "that", "these", "those", "screen", "page", "tab", "window",
+		"here", "above", "below", "selected", "highlighted", "email", "message",
+		"my ", "current", "open", "visible", "reply", "respond", "draft", "the last",
 	}
-	for _, c := range cues {
-		if strings.Contains(r, c) {
+	for _, s := range screenRefs {
+		if strings.Contains(r, s) {
+			return false
+		}
+	}
+
+	// Self-contained question shapes.
+	prefixes := []string{
+		"what's ", "whats ", "what is ", "convert ", "calculate ", "compute ",
+		"define ", "how many ", "how much ", "translate ", "spell ",
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(r, p) {
 			return true
 		}
 	}
 	return false
+}
+
+// stashScreenshot captures the screen (before the HUD covers it) and stores it
+// for the next fresh quick-ask turn.
+func (a *App) stashScreenshot() {
+	dir := filepath.Join(os.TempDir(), "flow-quickask-shot")
+	shot := a.captureScreenshotAttachment(dir)
+	a.quickAskMu.Lock()
+	a.pendingShot = shot
+	a.pendingShotAt = time.Now()
+	a.quickAskMu.Unlock()
+}
+
+// takePendingShot returns and clears the stashed screenshot if it's recent.
+func (a *App) takePendingShot() *streaming.FileAttachment {
+	a.quickAskMu.Lock()
+	defer a.quickAskMu.Unlock()
+	shot := a.pendingShot
+	a.pendingShot = nil
+	if shot == nil || time.Since(a.pendingShotAt) > 20*time.Second {
+		return nil
+	}
+	return shot
+}
+
+func (a *App) clearPendingShot() {
+	a.quickAskMu.Lock()
+	a.pendingShot = nil
+	a.quickAskMu.Unlock()
 }
 
 // quickAskContextNote builds the lightweight, screenshot-free context note that
@@ -385,6 +440,9 @@ func (a *App) runQuickAskStream(sessionID string, content json.RawMessage, workD
 	}
 
 	result, err := agent.RunTurnStreamWithContent(ctx, sessionID, systemPrompt, content, deps, emit)
+	// The session is now persisted to disk — tell the main window to refresh its
+	// Cowork list so quick-ask chats show up live (not only after a restart).
+	a.notifyCoworkSessionsChanged()
 	if err != nil {
 		a.hudBroadcast(map[string]interface{}{
 			"session_id": sessionID,
@@ -399,6 +457,15 @@ func (a *App) runQuickAskStream(sessionID string, content json.RawMessage, workD
 		"type":       "done",
 		"final_text": result.FinalText,
 	})
+}
+
+// notifyCoworkSessionsChanged asks the main Flow window to reload its Cowork
+// session list (quick-ask sessions are created outside the main-window flow).
+func (a *App) notifyCoworkSessionsChanged() {
+	if a.ctx == nil {
+		return
+	}
+	wailsRuntime.EventsEmit(a.ctx, "cowork:sessions_changed", nil)
 }
 
 // OpenSessionInWindow raises the main Flow window and asks the frontend to load

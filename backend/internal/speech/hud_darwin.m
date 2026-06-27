@@ -26,6 +26,16 @@
 - (BOOL)canBecomeMainWindow { return NO; }
 @end
 
+// The HUD panel is intentionally non-key/non-activating so opening it doesn't
+// pull Flow to the front. Accepting the first mouse means a single click on a
+// HUD button or the text field works immediately, instead of the first click
+// being swallowed just to focus the (non-key) window.
+@interface FlowHUDWebView : WKWebView
+@end
+@implementation FlowHUDWebView
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+@end
+
 static FlowHUDPanel *hudPanel   = nil;
 static WKWebView    *hudWebView = nil;
 static NSString     *hudLoadedURL = nil;
@@ -88,7 +98,7 @@ static void ensureHUD(void) {
     WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
     cfg.suppressesIncrementalRendering = NO;
 
-    hudWebView = [[WKWebView alloc] initWithFrame:root.bounds configuration:cfg];
+    hudWebView = [[FlowHUDWebView alloc] initWithFrame:root.bounds configuration:cfg];
     hudWebView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     // Transparent so the page's own background (and the rounded corners) show.
     @try { [hudWebView setValue:@NO forKey:@"drawsBackground"]; } @catch (__unused NSException *e) {}

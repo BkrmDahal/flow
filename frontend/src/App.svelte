@@ -7,7 +7,7 @@
   import { OpenFileInApp } from '../wailsjs/go/backend/App';
   import { onMount } from 'svelte';
   import { Events } from './lib/wails.js';
-  import { selectCoworkTask } from './lib/stores/coworkStore.js';
+  import { selectCoworkTask, refreshCoworkHistory } from './lib/stores/coworkStore.js';
 
   let activeTab = 'cowork';  // 'cowork' | 'flow' | 'toolkit'
   let previousTab = 'cowork';
@@ -26,7 +26,12 @@
       activeTab = 'cowork';
       selectCoworkTask(id);
     });
-    return () => { try { off?.(); } catch {} };
+    // Quick Ask creates sessions outside the main-window flow — refresh the
+    // Cowork list when one is saved so it shows live (not only after a restart).
+    const offChanged = Events.on('cowork:sessions_changed', () => {
+      refreshCoworkHistory();
+    });
+    return () => { try { off?.(); offChanged?.(); } catch {} };
   });
 
   function openToolkit() {

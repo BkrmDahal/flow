@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/user/flow/backend/internal/config"
 	"github.com/user/flow/backend/internal/llamacpp"
@@ -51,6 +52,10 @@ type App struct {
 	quickAskMu      sync.Mutex
 	quickAskSession string
 	quickAskRunning int // >0 while a HUD-driven agent turn is executing
+	// Screenshot captured at the moment of asking, BEFORE the HUD covers the
+	// screen, so the agent sees what the user was actually looking at.
+	pendingShot   *streaming.FileAttachment
+	pendingShotAt time.Time
 
 	// Scheduler
 	schedCancel context.CancelFunc

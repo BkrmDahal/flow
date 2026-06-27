@@ -249,13 +249,14 @@ func startQuickAskRecording() {
 	qaTempPath = tmp
 	qaMu.Unlock()
 
-	// Show the unified HUD in its "listening" state (no separate native pill).
 	qaMu.Lock()
 	qaListening = true
 	qaMu.Unlock()
-	notifyQuickAskState("listening")
 	log.Printf("[quickask] recording → %s", tmp)
 
+	// Start capturing audio FIRST so nothing is clipped, then signal "listening"
+	// — the handler grabs a clean screenshot (before the HUD covers the screen)
+	// and shows the unified HUD.
 	StartRecording(tmp, func(errMsg string) {
 		log.Printf("[quickask] recording error: %s", errMsg)
 		qaMu.Lock()
@@ -268,6 +269,8 @@ func startQuickAskRecording() {
 			onErr(errMsg)
 		}
 	})
+
+	notifyQuickAskState("listening")
 }
 
 func cancelQuickAskRecording() {
