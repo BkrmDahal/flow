@@ -77,16 +77,34 @@
     stepTitle = ''; stepSubtitle = ''; status = '';
   }
 
+  const voiceActive = () => phase === 'listening' || phase === 'transcribing' || phase === 'running';
+
   function handleEvent(ev) {
     switch (ev.type) {
+      case 'listening':
+        resetForNew();
+        phase = 'listening';
+        expanded = false;
+        break;
+      case 'transcribing':
+        phase = 'transcribing';
+        expanded = false;
+        break;
+      case 'cancelled':
+        resetForNew();
+        phase = 'idle';
+        break;
       case 'session':
         sessionId = ev.session_id || sessionId;
-        resetForNew();
-        // Only show the suggestions loader when suggestions are actually coming
-        // (tap). A plain "Open Quick Ask" sends suggest:false → show chat/help.
-        suggestionsLoading = !ev.session_id && ev.suggest !== false;
-        phase = 'idle';
-        expanded = true;
+        // Don't reset the UI mid-voice-flow (would flash help/empty). Only a
+        // tap / plain-open (no active voice flow) resets to idle.
+        if (!voiceActive()) {
+          resetForNew();
+          // Suggestions loader only when suggestions are actually coming (tap).
+          suggestionsLoading = !ev.session_id && ev.suggest !== false;
+          phase = 'idle';
+          expanded = true;
+        }
         break;
       case 'user':
         userRequest = ev.content || '';
@@ -180,6 +198,19 @@
   }
   const openInApp = () => post('/api/hud/open', { session_id: sessionId });
   const dismiss = () => post('/api/hud/dismiss', {});
+  const voiceCancel = () => post('/api/hud/voice-cancel', {});
+  const voiceConfirm = () => post('/api/hud/voice-confirm', {});
+
+  let copied = false;
+  let copiedTimer;
+  async function copyAnswer() {
+    try {
+      await navigator.clipboard.writeText(answer);
+      copied = true;
+      clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => (copied = false), 1500);
+    } catch (e) { console.warn('copy failed', e); }
+  }
 
   function onKeydown(e) {
     if (e.key === 'Escape') { dismiss(); return; }
@@ -196,7 +227,8 @@
     { title: 'Quick answers', examples: ["What's 15% of 240?", 'Convert 30°C to °F', 'Define “idempotent”'] },
   ];
 
-  $: showHelp = expanded && !answer && !errorMsg && !approval && !suggestionsLoading && suggestions.length === 0;
+  $: showHelp = expanded && phase !== 'listening' && phase !== 'transcribing'
+    && !answer && !errorMsg && !approval && !suggestionsLoading && suggestions.length === 0;
 
   onMount(() => {
     connect();
@@ -209,7 +241,28 @@
 </script>
 
 <div class="hud" class:compact={!expanded} bind:this={rootEl}>
-  {#if !expanded && approval}
+  {#if !expanded && phase === 'listening'}
+    <!-- Listening: cloud + live waveform + cancel / send -->
+    <div class="pill listening-pill">
+      <span class="pill-icon busy">{@html cloudSvg}</span>
+      <div class="wave">
+        {#each Array(9) as _, i}<span style="--i:{i}"></span>{/each}
+      </div>
+      <div class="pill-actions">
+        <button class="round-btn cancel" title="Cancel (Esc)" on:click={voiceCancel}>✕</button>
+        <button class="round-btn confirm" title="Send" on:click={voiceConfirm}>✓</button>
+      </div>
+    </div>
+
+  {:else if !expanded && phase === 'transcribing'}
+    <!-- Transcribing -->
+    <div class="pill">
+      <span class="pill-icon busy">{@html cloudSvg}</span>
+      <div class="pill-text"><div class="pill-title">Transcribing…</div></div>
+      <span class="spinner"></span>
+    </div>
+
+  {:else if !expanded && approval}
     <!-- Compact approval card -->
     <div class="pill approval-pill">
       <span class="pill-icon">{@html cloudSvg}</span>
@@ -224,14 +277,18 @@
     </div>
 
   {:else if !expanded}
-    <!-- Compact current-step pill -->
+    <!-- Compact pill: current step while running, or a collapsed result when done -->
     <button class="pill step-pill" on:click={() => { expanded = true; afterRender(); }} title="Show details">
-      <span class="pill-icon busy">{@html cloudSvg}</span>
+      <span class="pill-icon" class:busy={phase === 'running'}>{@html cloudSvg}</span>
       <div class="pill-text">
-        <div class="pill-title">{stepTitle || 'Working on it'}</div>
-        {#if stepSubtitle}<div class="pill-sub">{stepSubtitle}</div>{/if}
+        <div class="pill-title">{stepTitle || (phase === 'done' ? (userRequest || 'Response ready') : 'Working on it')}</div>
+        {#if stepSubtitle}
+          <div class="pill-sub">{stepSubtitle}</div>
+        {:else if phase === 'done'}
+          <div class="pill-sub">Tap to show response</div>
+        {/if}
       </div>
-      <span class="active-dot"></span>
+      {#if phase === 'running'}<span class="active-dot"></span>{/if}
     </button>
 
   {:else}
@@ -239,11 +296,15 @@
     <header class="hud-head">
       <span class="head-icon" class:busy={phase === 'running'}>{@html cloudSvg}</span>
       <span class="title">{userRequest || 'Quick Ask'}</span>
-      <button class="head-btn" on:click={openInApp} title="Open in main app" disabled={!sessionId}>open in app</button>
+      <button class="head-btn open-btn" on:click={openInApp} title="Open in main app" disabled={!sessionId}>open in app</button>
       {#if answer || phase === 'running'}
-        <button class="head-btn chev" on:click={() => { expanded = false; afterRender(); }} title="Collapse">⌃</button>
+        <button class="head-btn icon-btn" on:click={() => { expanded = false; afterRender(); }} title="Collapse" aria-label="Collapse">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+        </button>
       {/if}
-      <button class="head-btn close" on:click={dismiss} title="Dismiss (Esc)">✕</button>
+      <button class="head-btn icon-btn" on:click={dismiss} title="Dismiss (Esc)" aria-label="Dismiss">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     </header>
 
     <div class="hud-body" bind:this={scrollEl}>
@@ -286,6 +347,12 @@
 
       {#if answer}
         <div class="answer">{@html renderMarkdown(answer)}</div>
+        {#if phase !== 'running'}
+          <button class="copy-btn" on:click={copyAnswer} title="Copy response">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        {/if}
       {/if}
 
       {#if status && phase === 'running'}
@@ -365,6 +432,30 @@
   .active-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #4ade80; animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 
+  /* ── Listening waveform ── */
+  .listening-pill { gap: 14px; }
+  .wave { flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px; height: 28px; }
+  .wave span {
+    width: 3px; border-radius: 2px; background: #f4f4f5;
+    height: 30%;
+    animation: wave 0.9s ease-in-out infinite;
+    animation-delay: calc(var(--i) * 0.08s);
+  }
+  @keyframes wave { 0%,100% { height: 18%; opacity: .6; } 50% { height: 92%; opacity: 1; } }
+
+  .round-btn {
+    flex: none; width: 30px; height: 30px; border-radius: 15px; border: none;
+    font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .round-btn.cancel { background: rgba(255,255,255,0.14); color: #f4f4f5; }
+  .round-btn.cancel:hover { background: rgba(255,255,255,0.24); }
+  .round-btn.confirm { background: #fff; color: #18181b; font-weight: 700; }
+  .round-btn.confirm:hover { background: #e8e8ea; }
+
+  /* Cross-fade between states */
+  .pill, .hud-head, .hud-body, .hud-foot { animation: fadein 0.18s ease; }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
   .pill-actions { flex: none; display: flex; align-items: center; gap: 6px; }
   .approve-btn {
     background: #fff; color: #18181b; border: none;
@@ -390,8 +481,21 @@
   .head-btn { background: transparent; border: none; color: #a1a1aa; font-size: 12px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
   .head-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: #fff; }
   .head-btn:disabled { opacity: 0.4; cursor: default; }
-  .head-btn.chev { font-size: 14px; line-height: 1; }
-  .head-btn.close { font-size: 13px; }
+  .head-btn.icon-btn {
+    width: 28px; height: 28px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .head-btn.icon-btn svg { display: block; }
+  .head-btn.open-btn {
+    border: 0.5px solid rgba(255,255,255,0.18);
+    border-radius: 7px;
+    padding: 4px 10px;
+    transition: box-shadow 0.15s ease, background 0.15s ease;
+  }
+  .head-btn.open-btn:hover:not(:disabled) {
+    background: rgba(255,255,255,0.1);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+  }
 
   .hud-body { flex: 1; overflow-y: auto; max-height: 380px; padding: 14px; font-size: 13.5px; line-height: 1.5; }
 
@@ -414,6 +518,14 @@
   .answer :global(a) { color: #7dd3fc; }
   .answer :global(pre) { background: rgba(0,0,0,0.4); padding: 10px; border-radius: 8px; overflow-x: auto; font-size: 12px; }
   .answer :global(code) { font-family: ui-monospace, SFMono-Regular, monospace; }
+
+  .copy-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    margin-top: 6px; padding: 4px 9px;
+    background: rgba(255,255,255,0.06); border: 0.5px solid rgba(255,255,255,0.1);
+    border-radius: 7px; color: #a1a1aa; font-size: 12px; cursor: pointer;
+  }
+  .copy-btn:hover { background: rgba(255,255,255,0.12); color: #f4f4f5; }
 
   .status { display: flex; align-items: center; gap: 8px; color: #a1a1aa; font-size: 12.5px; margin-top: 8px; }
   .spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); border-top-color: #fff; animation: spin 0.7s linear infinite; }

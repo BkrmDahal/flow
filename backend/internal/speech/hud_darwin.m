@@ -30,7 +30,7 @@ static FlowHUDPanel *hudPanel   = nil;
 static WKWebView    *hudWebView = nil;
 static NSString     *hudLoadedURL = nil;
 
-static const CGFloat HUD_W       = 460;
+static const CGFloat HUD_W       = 540;
 static const CGFloat HUD_H       = 120;   // initial/compact height; JS drives the rest
 static const CGFloat HUD_TOP_GAP = 12;    // distance below the top of the screen
 
@@ -148,7 +148,33 @@ void FlowResizeHUD(int height) {
             CGFloat minY = NSMinY(scr.visibleFrame) + 8;
             if (nf.origin.y < minY) nf.origin.y = minY;
         }
-        [hudPanel setFrame:nf display:YES];
+
+        // Skip tiny deltas to avoid jitter during streaming.
+        if (fabs(NSHeight(f) - h) < 2.0) return;
+
+        // Animate the height change so listening → thinking → answer grows/
+        // shrinks smoothly as one panel.
+        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+            ctx.duration = 0.17;
+            ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+            [[hudPanel animator] setFrame:nf display:YES];
+        } completionHandler:nil];
+    });
+}
+
+// Pre-create the panel and load the web content while leaving it hidden, so the
+// first real show (the "Listening" state) appears instantly.
+void FlowPreloadHUD(const char *curl) {
+    NSString *url = curl ? [NSString stringWithUTF8String:curl] : @"";
+    dispatch_async(dispatch_get_main_queue(), ^{
+        ensureHUD();
+        if (url.length > 0 && ![url isEqualToString:hudLoadedURL]) {
+            NSURL *u = [NSURL URLWithString:url];
+            if (u) {
+                [hudWebView loadRequest:[NSURLRequest requestWithURL:u]];
+                hudLoadedURL = [url copy];
+            }
+        }
     });
 }
 

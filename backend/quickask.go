@@ -52,7 +52,22 @@ func (a *App) setupQuickAskIfEnabled() {
 		a.hudBroadcast(map[string]interface{}{"type": "error", "content": msg})
 	}
 
-	speech.SetupQuickAsk(modifier, cfgLoader, a.StartQuickAsk, a.OpenQuickAskSuggestions, onError)
+	// Recording-state changes drive the unified HUD (one window: listening →
+	// transcribing → answer) instead of a separate native pill.
+	onState := func(state string) {
+		switch state {
+		case "listening":
+			speech.ShowHUD(a.hudURL())
+			a.hudBroadcast(map[string]interface{}{"type": "listening"})
+		case "transcribing":
+			a.hudBroadcast(map[string]interface{}{"type": "transcribing"})
+		case "cancelled":
+			a.hudBroadcast(map[string]interface{}{"type": "cancelled"})
+			speech.HideHUD()
+		}
+	}
+
+	speech.SetupQuickAsk(modifier, cfgLoader, a.StartQuickAsk, a.OpenQuickAskSuggestions, onState, onError)
 	speech.UpdateMenuBarQuickAskLabel(modifier, true)
 }
 

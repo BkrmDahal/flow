@@ -73,10 +73,22 @@ var (
 	qaCfgLoader func() (TranscribeConfig, error)
 	qaHandler   QuickAskHandler
 	qaOnTap     func()
+	qaOnState   func(string) // "listening" | "transcribing" | "cancelled"
 	qaOnError   func(string)
 	qaIsPressed bool
+	qaListening bool // true once recording actually started (debounce passed)
 	qaPressTime time.Time
 )
+
+// notifyQuickAskState fires the recording-state callback (used to drive the HUD).
+func notifyQuickAskState(state string) {
+	qaMu.Lock()
+	cb := qaOnState
+	qaMu.Unlock()
+	if cb != nil {
+		cb(state)
+	}
+}
 
 // IsQuickAskEnabled reports whether the quick-ask hotkey is active.
 func IsQuickAskEnabled() bool {
@@ -87,7 +99,7 @@ func IsQuickAskEnabled() bool {
 
 // SetupQuickAsk registers the quick-ask hotkey. It shares the global modifier
 // monitor with dictation (starting it if necessary).
-func SetupQuickAsk(modifier string, cfgLoader func() (TranscribeConfig, error), handler QuickAskHandler, onTap func(), onError func(string)) {
+func SetupQuickAsk(modifier string, cfgLoader func() (TranscribeConfig, error), handler QuickAskHandler, onTap func(), onState func(string), onError func(string)) {
 	if modifier == "" {
 		modifier = "left_option"
 	}
@@ -97,6 +109,7 @@ func SetupQuickAsk(modifier string, cfgLoader func() (TranscribeConfig, error), 
 	qaCfgLoader = cfgLoader
 	qaHandler = handler
 	qaOnTap = onTap
+	qaOnState = onState
 	qaOnError = onError
 	qaEnabled = true
 	qaState = quickAskIdle
@@ -182,6 +195,12 @@ func goOverlayConfirm() {
 	}
 }
 
+// CancelQuickAskRecording / ConfirmQuickAskRecording let the HUD's ✕ / ✓
+// buttons control the in-progress recording over HTTP (twins of the overlay
+// button callbacks).
+func CancelQuickAskRecording()  { goOverlayCancel() }
+func ConfirmQuickAskRecording() { goOverlayConfirm() }
+
 //export goQuickAskReleased
 func goQuickAskReleased() {
 	qaMu.Lock()
@@ -193,10 +212,12 @@ func goQuickAskReleased() {
 	dur := time.Since(qaPressTime)
 	state := qaState
 
-	// Short press → treat as a "tap": cancel any partial recording and open the
-	// HUD in suggestions mode (press to open, hold to talk).
+	// Short press → "tap". Cancel any partial recording. Only open suggestions
+	// if recording never actually started (a pure tap) — if the HUD already
+	// showed "Listening", just cancel so suggestions don't flash over it.
 	if dur < 300*time.Millisecond {
 		wasRecording := state == quickAskRecording
+		listening := qaListening
 		if wasRecording {
 			qaState = quickAskIdle
 		}
@@ -205,7 +226,7 @@ func goQuickAskReleased() {
 		if wasRecording {
 			go cancelQuickAskRecording()
 		}
-		if onTap != nil {
+		if onTap != nil && !listening {
 			go onTap()
 		}
 		return
@@ -228,17 +249,21 @@ func startQuickAskRecording() {
 	qaTempPath = tmp
 	qaMu.Unlock()
 
-	// Reuse the dictation recording-pill overlay as mic feedback.
-	SetDictationOverlayState(1, "")
+	// Show the unified HUD in its "listening" state (no separate native pill).
+	qaMu.Lock()
+	qaListening = true
+	qaMu.Unlock()
+	notifyQuickAskState("listening")
 	log.Printf("[quickask] recording → %s", tmp)
 
 	StartRecording(tmp, func(errMsg string) {
 		log.Printf("[quickask] recording error: %s", errMsg)
-		SetDictationOverlayState(0, "")
 		qaMu.Lock()
 		qaState = quickAskIdle
+		qaListening = false
 		onErr := qaOnError
 		qaMu.Unlock()
+		notifyQuickAskState("cancelled")
 		if onErr != nil {
 			onErr(errMsg)
 		}
@@ -247,14 +272,15 @@ func startQuickAskRecording() {
 
 func cancelQuickAskRecording() {
 	StopRecording()
-	SetDictationOverlayState(0, "")
 	qaMu.Lock()
 	path := qaTempPath
 	qaTempPath = ""
+	qaListening = false
 	if qaState == quickAskRecording {
 		qaState = quickAskIdle
 	}
 	qaMu.Unlock()
+	notifyQuickAskState("cancelled")
 	if path != "" {
 		os.Remove(path)
 	}
@@ -273,10 +299,12 @@ func stopQuickAskAndDispatch() {
 	defer func() {
 		qaMu.Lock()
 		qaState = quickAskIdle
+		qaListening = false
 		qaMu.Unlock()
 	}()
 
-	SetDictationOverlayState(0, "")
+	// HUD transitions from "Listening" to "Transcribing" in the same window.
+	notifyQuickAskState("transcribing")
 
 	fail := func(msg string) {
 		log.Printf("[quickask] %s", msg)

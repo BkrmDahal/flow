@@ -144,6 +144,8 @@ func (a *App) Startup(ctx context.Context) {
 			// Forward tool approval requests to the HUD while a HUD-driven turn
 			// is active (the HUD can't receive Wails events directly).
 			tools.ApprovalBroadcaster = a.forwardApprovalToHUD
+			// Warm the HUD webview so the first "Listening" state is instant.
+			speech.PreloadHUD(a.hudURL())
 			a.setupQuickAskIfEnabled()
 		}
 	}
