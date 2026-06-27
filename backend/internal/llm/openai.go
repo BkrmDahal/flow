@@ -102,12 +102,22 @@ type oaiToolFunctionDef struct {
 }
 
 type oaiRequest struct {
-	Model               string         `json:"model"`
-	Messages            []oaiMessage   `json:"messages"`
-	Tools               []oaiTool      `json:"tools,omitempty"`
-	MaxCompletionTokens int            `json:"max_completion_tokens,omitempty"`
-	Stream              bool           `json:"stream,omitempty"`
+	Model               string          `json:"model"`
+	Messages            []oaiMessage    `json:"messages"`
+	Tools               []oaiTool       `json:"tools,omitempty"`
+	MaxCompletionTokens int             `json:"max_completion_tokens,omitempty"`
+	Stream              bool            `json:"stream,omitempty"`
 	StreamOptions       *oaiStreamOpts `json:"stream_options,omitempty"`
+	// ReasoningEffort is the native OpenAI reasoning_effort param (o1/o3/o4).
+	ReasoningEffort *string `json:"reasoning_effort,omitempty"`
+	// Reasoning is the OpenRouter-shaped reasoning object.
+	Reasoning *oaiReasoning `json:"reasoning,omitempty"`
+}
+
+// oaiReasoning is the OpenRouter reasoning parameter shape.
+type oaiReasoning struct {
+	Effort  string `json:"effort,omitempty"`
+	Enabled *bool  `json:"enabled,omitempty"`
 }
 
 type oaiStreamOpts struct {
@@ -354,10 +364,47 @@ func (c *OpenAIClient) supportsReasoning() bool {
 	return strings.Contains(modelLower, "r1") || strings.Contains(modelLower, "reasoning")
 }
 
+// supportsReasoningEffort returns true if the current model accepts a reasoning
+// effort parameter (OpenAI o-series, or any model via OpenRouter).
+func (c *OpenAIClient) supportsReasoningEffort() bool {
+	if c.ProviderLabel == "OpenRouter" {
+		return true
+	}
+	modelLower := strings.ToLower(c.Model)
+	return strings.Contains(modelLower, "o1") ||
+		strings.Contains(modelLower, "o3") ||
+		strings.Contains(modelLower, "o4") ||
+		strings.Contains(modelLower, "r1") ||
+		strings.Contains(modelLower, "reasoning")
+}
+
+// applyReasoningEffort sets the appropriate reasoning field on the request body
+// based on the provider: OpenRouter uses the nested `reasoning` object, while
+// native OpenAI uses the top-level `reasoning_effort` string.
+func (c *OpenAIClient) applyReasoningEffort(req *oaiRequest, effort string) {
+	if !c.supportsReasoningEffort() {
+		return
+	}
+	if c.ProviderLabel == "OpenRouter" {
+		if effort == "" || effort == "none" {
+			off := false
+			req.Reasoning = &oaiReasoning{Enabled: &off}
+			return
+		}
+		req.Reasoning = &oaiReasoning{Effort: effort}
+		return
+	}
+	if effort == "" || effort == "none" {
+		return
+	}
+	e := effort
+	req.ReasoningEffort = &e
+}
+
 // --- API Calls ---
 
 // SendMessages calls the OpenAI Chat Completions API (non-streaming).
-func (c *OpenAIClient) SendMessages(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool) (*Response, error) {
+func (c *OpenAIClient) SendMessages(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool, reasoningEffort string) (*Response, error) {
 	oaiMsgs := c.convertMessages(system, messages)
 	oaiTools := oaiConvertTools(tools)
 
@@ -367,6 +414,7 @@ func (c *OpenAIClient) SendMessages(ctx context.Context, system string, messages
 		Tools:               oaiTools,
 		MaxCompletionTokens: openaiDefaultMaxTokens,
 	}
+	c.applyReasoningEffort(&reqBody, reasoningEffort)
 
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -467,7 +515,7 @@ func (c *OpenAIClient) parseResponse(body []byte) (*Response, error) {
 }
 
 // SendMessagesStream calls the OpenAI Chat Completions API with streaming.
-func (c *OpenAIClient) SendMessagesStream(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool, onDelta func(StreamDelta)) (*Response, error) {
+func (c *OpenAIClient) SendMessagesStream(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool, reasoningEffort string, onDelta func(StreamDelta)) (*Response, error) {
 	oaiMsgs := c.convertMessages(system, messages)
 	oaiTools := oaiConvertTools(tools)
 
@@ -479,6 +527,7 @@ func (c *OpenAIClient) SendMessagesStream(ctx context.Context, system string, me
 		Stream:              true,
 		StreamOptions:       &oaiStreamOpts{IncludeUsage: true},
 	}
+	c.applyReasoningEffort(&reqBody, reasoningEffort)
 
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -689,7 +738,7 @@ func (c *OpenAIClient) Summarize(ctx context.Context, system string, messages []
 		Content: summaryRequest,
 	})
 
-	resp, err := c.SendMessages(ctx, system, allMsgs, nil, false)
+	resp, err := c.SendMessages(ctx, system, allMsgs, nil, false, "")
 	if err != nil {
 		return "", err
 	}

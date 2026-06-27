@@ -71,7 +71,7 @@ func (a *App) setupDictationIfEnabled() {
 			}
 			log.Println("[dictation] sending grammar fix request to LLM...")
 			start := time.Now()
-			resp, err := a.llm.SendMessages(context.Background(), system, msgs, nil, false)
+			resp, err := a.llm.SendMessages(context.Background(), system, msgs, nil, false, "none")
 			if err != nil {
 				return "", err
 			}

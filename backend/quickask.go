@@ -337,7 +337,7 @@ func (a *App) generateSuggestions(files []streaming.FileAttachment) {
 	}
 	msgs := []session.Message{{Role: "user", Content: content}}
 
-	resp, err := a.llm.SendMessages(a.ctx, "", msgs, nil, false)
+	resp, err := a.llm.SendMessages(a.ctx, "", msgs, nil, false, "none")
 	if err != nil {
 		log.Printf("[quickask] suggestions failed: %v", err)
 		// Clear the loader so the HUD falls back to the help text.

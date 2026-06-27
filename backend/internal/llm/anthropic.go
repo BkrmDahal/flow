@@ -20,6 +20,14 @@ const defaultMaxTokens = 8192
 const thinkingMaxTokens = 16000
 const thinkingBudget = 10000
 
+// effortBudgetMap maps a reasoning effort level to an Anthropic thinking budget.
+// When effort is non-empty it overrides the configured ThinkingBudget.
+var effortBudgetMap = map[string]int{
+	"low":    5000,
+	"medium": 10000,
+	"high":   20000,
+}
+
 // ThinkingConfig controls extended thinking in the API request.
 type ThinkingConfig struct {
 	Type         string `json:"type"`
@@ -73,9 +81,13 @@ type anthropicRequest struct {
 	Stream    bool              `json:"stream,omitempty"`
 }
 
-func (c *AnthropicClient) getThinkingBudget(enableThinking bool) int {
+func (c *AnthropicClient) getThinkingBudget(enableThinking bool, reasoningEffort string) int {
 	if !enableThinking {
 		return 0
+	}
+	// Effort level overrides the configured budget when set.
+	if b, ok := effortBudgetMap[reasoningEffort]; ok {
+		return b
 	}
 	if baseDir, err := config.FlowDir(); err == nil {
 		if cfg, err := config.Load(baseDir); err == nil && cfg != nil {
@@ -87,11 +99,26 @@ func (c *AnthropicClient) getThinkingBudget(enableThinking bool) int {
 	return thinkingBudget
 }
 
-func (c *AnthropicClient) buildRequest(system string, messages []session.Message, tools []ToolDef, enableThinking bool, isStream bool) (anthropicRequest, int) {
-	budget := c.getThinkingBudget(enableThinking)
+// thinkingEnabled decides whether to attach a ThinkingConfig block.
+// Effort "none" explicitly disables thinking; a non-empty effort (low/medium/high)
+// enables it even if the legacy enableThinking flag is false. Empty effort falls
+// back to the legacy enableThinking flag for backward compatibility.
+func thinkingEnabled(enableThinking bool, reasoningEffort string) bool {
+	if reasoningEffort == "none" {
+		return false
+	}
+	if reasoningEffort == "low" || reasoningEffort == "medium" || reasoningEffort == "high" {
+		return true
+	}
+	return enableThinking
+}
+
+func (c *AnthropicClient) buildRequest(system string, messages []session.Message, tools []ToolDef, enableThinking bool, reasoningEffort string, isStream bool) (anthropicRequest, int) {
+	thinkingOn := thinkingEnabled(enableThinking, reasoningEffort)
+	budget := c.getThinkingBudget(thinkingOn, reasoningEffort)
 	maxTok := defaultMaxTokens
 	var thinking *ThinkingConfig
-	if enableThinking {
+	if thinkingOn {
 		thinking = &ThinkingConfig{Type: "enabled", BudgetTokens: budget}
 		maxTok = thinkingMaxTokens
 	}
@@ -183,8 +210,8 @@ func (c *AnthropicClient) sanitizeMessages(messages []session.Message) []session
 }
 
 // SendMessages calls the Anthropic Messages API (non-streaming).
-func (c *AnthropicClient) SendMessages(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool) (*Response, error) {
-	reqBody, _ := c.buildRequest(system, messages, tools, enableThinking, false)
+func (c *AnthropicClient) SendMessages(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool, reasoningEffort string) (*Response, error) {
+	reqBody, _ := c.buildRequest(system, messages, tools, enableThinking, reasoningEffort, false)
 
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -200,7 +227,7 @@ func (c *AnthropicClient) SendMessages(ctx context.Context, system string, messa
 	req.Header.Set("anthropic-version", anthropicVersion)
 
 	betas := []string{"prompt-caching-2024-07-31"}
-	if enableThinking {
+	if thinkingEnabled(enableThinking, reasoningEffort) {
 		betas = append(betas, "interleaved-thinking-2025-05-14")
 	}
 	req.Header.Set("anthropic-beta", strings.Join(betas, ","))
@@ -243,8 +270,8 @@ func (c *AnthropicClient) SendMessages(ctx context.Context, system string, messa
 }
 
 // SendMessagesStream calls the Anthropic Messages API with streaming.
-func (c *AnthropicClient) SendMessagesStream(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool, onDelta func(StreamDelta)) (*Response, error) {
-	reqBody, _ := c.buildRequest(system, messages, tools, enableThinking, true)
+func (c *AnthropicClient) SendMessagesStream(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool, reasoningEffort string, onDelta func(StreamDelta)) (*Response, error) {
+	reqBody, _ := c.buildRequest(system, messages, tools, enableThinking, reasoningEffort, true)
 
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -260,7 +287,7 @@ func (c *AnthropicClient) SendMessagesStream(ctx context.Context, system string,
 	req.Header.Set("anthropic-version", anthropicVersion)
 
 	betas := []string{"prompt-caching-2024-07-31"}
-	if enableThinking {
+	if thinkingEnabled(enableThinking, reasoningEffort) {
 		betas = append(betas, "interleaved-thinking-2025-05-14")
 	}
 	req.Header.Set("anthropic-beta", strings.Join(betas, ","))
@@ -286,7 +313,7 @@ func (c *AnthropicClient) Summarize(ctx context.Context, system string, messages
 		Role:    "user",
 		Content: summaryRequest,
 	})
-	resp, err := c.SendMessages(ctx, system, allMsgs, nil, false)
+	resp, err := c.SendMessages(ctx, system, allMsgs, nil, false, "")
 	if err != nil {
 		return "", err
 	}

@@ -357,6 +357,22 @@ void FlowTypeTextViaClipboard(const char *text) {
     [pb clearContents];
     [pb setString:str forType:NSPasteboardTypeString];
 
+    // Wait for the pasteboard server to propagate the new content. Poll until
+    // the clipboard actually reflects our text (up to 200ms) — this prevents
+    // a race where a stale clipboard restore or slow propagation causes the
+    // old clipboard content to be pasted instead of our text.
+    int maxWaitMs = 200;
+    while (maxWaitMs > 0) {
+        NSString *current = [pb stringForType:NSPasteboardTypeString];
+        if ([current isEqualToString:str]) break;
+        usleep(10000); // 10ms
+        maxWaitMs -= 10;
+        // Re-set in case a stale restore overwrote us.
+        [pb clearContents];
+        [pb setString:str forType:NSPasteboardTypeString];
+    }
+
+    // Small additional settle delay before issuing Cmd+V.
     usleep(50000); // 50 ms
 
     CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
@@ -492,14 +508,13 @@ static NSString* getSelectedTextViaCmdC(void) {
 
     NSString *selectedText = [pb stringForType:NSPasteboardTypeString];
 
-    // Restore the old pasteboard content after we've read the copied text
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        NSPasteboard *rpb = [NSPasteboard generalPasteboard];
-        [rpb clearContents];
-        if (savedText) {
-            [rpb setString:savedText forType:NSPasteboardTypeString];
-        }
-    });
+    // Restore the old pasteboard content immediately. We've already read what
+    // we need, so there's no reason to defer this — a deferred restore can race
+    // with a subsequent FlowTypeTextViaClipboard call and overwrite its content.
+    [pb clearContents];
+    if (savedText) {
+        [pb setString:savedText forType:NSPasteboardTypeString];
+    }
 
     return (selectedText && selectedText.length > 0) ? selectedText : nil;
 }

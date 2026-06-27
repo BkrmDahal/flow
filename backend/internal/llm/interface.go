@@ -11,10 +11,10 @@ import (
 // allowing the agent to work with either provider.
 type LLMClient interface {
 	// SendMessages calls the LLM API with the given conversation.
-	SendMessages(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool) (*Response, error)
+	SendMessages(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool, reasoningEffort string) (*Response, error)
 
 	// SendMessagesStream calls the LLM API with streaming enabled.
-	SendMessagesStream(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool, onDelta func(StreamDelta)) (*Response, error)
+	SendMessagesStream(ctx context.Context, system string, messages []session.Message, tools []ToolDef, enableThinking bool, reasoningEffort string, onDelta func(StreamDelta)) (*Response, error)
 
 	// Summarize asks the model to summarize a conversation (for context compaction).
 	Summarize(ctx context.Context, system string, messages []session.Message) (string, error)
