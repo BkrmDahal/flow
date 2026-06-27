@@ -1,8 +1,10 @@
 package backend
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -454,6 +456,14 @@ func (a *App) runQuickAskStream(sessionID string, content json.RawMessage, workD
 	// Cowork list so quick-ask chats show up live (not only after a restart).
 	a.notifyCoworkSessionsChanged()
 	if err != nil {
+		// A user-initiated cancel should reset the HUD cleanly, not show an error.
+		if ctx.Err() == context.Canceled || errors.Is(err, context.Canceled) {
+			a.hudBroadcast(map[string]interface{}{
+				"session_id": sessionID,
+				"type":       "cancelled",
+			})
+			return
+		}
 		a.hudBroadcast(map[string]interface{}{
 			"session_id": sessionID,
 			"type":       "error",
@@ -467,6 +477,19 @@ func (a *App) runQuickAskStream(sessionID string, content json.RawMessage, workD
 		"type":       "done",
 		"final_text": result.FinalText,
 	})
+}
+
+// CancelQuickAskStream cancels the active Quick Ask agent stream (if any).
+// Called from the HUD cancel button. The cancelled context causes
+// runQuickAskStream to emit a "cancelled" event so the HUD resets cleanly.
+func (a *App) CancelQuickAskStream() {
+	a.quickAskMu.Lock()
+	sid := a.quickAskSession
+	a.quickAskMu.Unlock()
+	if sid == "" {
+		return
+	}
+	a.streams.Cancel(sid)
 }
 
 // notifyCoworkSessionsChanged asks the main Flow window to reload its Cowork

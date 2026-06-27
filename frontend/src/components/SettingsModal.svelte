@@ -6,6 +6,14 @@
   export let open = false
   export let onClose = () => {}
 
+  // ── Update state ──
+  let appVersion = ''
+  let updateInfo = null       // { latestVersion, downloadUrl, releaseNotes, releaseUrl }
+  let updateChecking = false
+  let updateDownloading = false
+  let updateProgress = { downloaded: 0, total: 0, message: '' }
+  let showUpdatePanel = false
+
   const LLAMA_MANAGED_LABEL = 'llama.cpp (managed)'
   const DEFAULT_LOCAL_BASE_URL = 'http://localhost:1234/v1'
 
@@ -554,17 +562,83 @@
   $: if (open) {
     loadSettings()
     loadApprovals()
+    loadAppVersion()
     activeTab = 'general'
     Events.on('flow:llama:download:progress', handleDownloadProgress)
+    Events.on('flow:update:available', handleUpdateAvailable)
+    Events.on('flow:update:progress', handleUpdateProgress)
   }
   $: if (!open) {
     Events.off?.('flow:llama:download:progress')
+    Events.off?.('flow:update:available')
+    Events.off?.('flow:update:progress')
   }
 
   onDestroy(() => {
     window.removeEventListener('keydown', windowHotkeyHandler, true)
     Events.off?.('flow:llama:download:progress')
+    Events.off?.('flow:update:available')
+    Events.off?.('flow:update:progress')
   })
+
+  async function loadAppVersion() {
+    try {
+      appVersion = await Backend.GetAppVersion()
+    } catch (e) {
+      appVersion = ''
+    }
+  }
+
+  function handleUpdateAvailable(payload) {
+    if (!payload) return
+    updateInfo = {
+      latestVersion: payload.latestVersion || '',
+      downloadUrl: payload.downloadUrl || '',
+      releaseNotes: payload.releaseNotes || '',
+      releaseUrl: payload.releaseUrl || '',
+    }
+  }
+
+  function handleUpdateProgress(payload) {
+    if (!payload) return
+    updateProgress = {
+      downloaded: payload.downloaded || 0,
+      total: payload.total || 0,
+      message: payload.message || '',
+    }
+  }
+
+  async function checkForUpdates() {
+    updateChecking = true
+    try {
+      const info = await Backend.CheckForUpdates()
+      if (info && info.available) {
+        updateInfo = {
+          latestVersion: info.latestVersion,
+          downloadUrl: info.downloadUrl,
+          releaseNotes: info.releaseNotes,
+          releaseUrl: info.releaseUrl,
+        }
+      } else {
+        updateInfo = null
+      }
+    } catch (e) {
+      console.warn('Update check failed:', e)
+    }
+    updateChecking = false
+  }
+
+  async function installUpdate() {
+    if (!updateInfo?.downloadUrl) return
+    updateDownloading = true
+    updateProgress = { downloaded: 0, total: 0, message: 'Starting…' }
+    try {
+      await Backend.DownloadAndInstallUpdate(updateInfo.downloadUrl)
+    } catch (e) {
+      updateDownloading = false
+      updateProgress.message = `Error: ${e?.message || e}`
+    }
+  }
 </script>
 
 {#if open}
@@ -643,16 +717,59 @@
           <!-- Divider line to separate Bash Approvals from App Info -->
           <div style="height: 1px; background: var(--border-subtle); margin: 24px 0 16px;"></div>
 
-          <!-- Small premium compact About/Info footer -->
-          <div class="about-section" style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <img src={appIcon} alt="Flow" style="width: 22px; height: 22px; border-radius: 4px; object-fit: cover;" />
-              <div style="display: flex; flex-direction: column; line-height: 1.2;">
-                <span style="font-size: 11px; font-weight: 600; color: var(--text-primary);">Flow Developer Agent</span>
-                <span style="font-size: 10px; color: var(--text-muted);">Version 0.8.2</span>
+          <!-- About / Update section -->
+          <div class="about-section" style="padding: 4px 0;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <img src={appIcon} alt="Flow" style="width: 22px; height: 22px; border-radius: 4px; object-fit: cover;" />
+                <div style="display: flex; flex-direction: column; line-height: 1.2;">
+                  <span style="font-size: 11px; font-weight: 600; color: var(--text-primary);">Flow Developer Agent</span>
+                  <span style="font-size: 10px; color: var(--text-muted);">
+                    Version {appVersion || '…'}
+                    {#if updateInfo}
+                      <span style="color: #4ade80; margin-left: 6px;">→ v{updateInfo.latestVersion} available</span>
+                    {/if}
+                  </span>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                {#if updateInfo}
+                  <button class="update-badge" on:click={() => showUpdatePanel = !showUpdatePanel}>
+                    Update available
+                  </button>
+                {:else if updateChecking}
+                  <span style="font-size: 10px; color: var(--text-muted);">Checking…</span>
+                {:else}
+                  <button class="check-update-btn" on:click={checkForUpdates}>Check for updates</button>
+                {/if}
+                <span style="font-size: 10px; color: var(--text-muted); opacity: 0.85;">© 2026 Flow</span>
               </div>
             </div>
-            <span style="font-size: 10px; color: var(--text-muted); opacity: 0.85;">© 2026 Flow. All rights reserved.</span>
+
+            {#if showUpdatePanel && updateInfo}
+              <div class="update-panel">
+                <div class="update-panel-header">
+                  <span class="update-panel-title">Flow v{updateInfo.latestVersion}</span>
+                  <span style="font-size: 10px; color: var(--text-muted);">from v{appVersion}</span>
+                </div>
+                {#if updateInfo.releaseNotes}
+                  <div class="update-notes">{updateInfo.releaseNotes}</div>
+                {/if}
+                {#if updateDownloading}
+                  <div class="update-progress">
+                    <div class="update-progress-bar">
+                      <div class="update-progress-fill" style="width: {updateProgress.total > 0 ? (updateProgress.downloaded / updateProgress.total * 100) : 0}%"></div>
+                    </div>
+                    <span class="update-progress-text">{updateProgress.message}</span>
+                  </div>
+                {:else}
+                  <div class="update-actions">
+                    <button class="update-install-btn" on:click={installUpdate}>Download & Install</button>
+                    <button class="update-release-link" on:click={() => updateInfo.releaseUrl && window.open(updateInfo.releaseUrl, '_blank')}>View on GitHub</button>
+                  </div>
+                {/if}
+              </div>
+            {/if}
           </div>
         {/if}
 
@@ -1708,4 +1825,109 @@
     border: 1px solid var(--border-subtle);
   }
   .perm-grant-btn.secondary:hover { color: var(--text-primary, #f4f4f5); }
+
+  /* ── Update badge & panel ── */
+  .update-badge {
+    background: rgba(74, 222, 128, 0.14);
+    border: 1px solid rgba(74, 222, 128, 0.4);
+    color: #4ade80;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .update-badge:hover {
+    background: rgba(74, 222, 128, 0.22);
+  }
+  .check-update-btn {
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .check-update-btn:hover {
+    color: var(--text-primary);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+  .update-panel {
+    margin-top: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .update-panel-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .update-panel-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #f4f4f5);
+  }
+  .update-notes {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary, #d4d4d8);
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+  }
+  .update-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .update-install-btn {
+    background: #4ade80;
+    color: #0a0a0b;
+    border: none;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 16px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .update-install-btn:hover { background: #36d96e; }
+  .update-release-link {
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .update-release-link:hover { color: var(--text-primary); }
+  .update-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .update-progress-bar {
+    height: 5px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .update-progress-fill {
+    height: 100%;
+    background: #4ade80;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+  .update-progress-text {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
 </style>

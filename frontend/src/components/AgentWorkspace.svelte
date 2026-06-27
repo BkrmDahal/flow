@@ -9,7 +9,7 @@
   import TypingIndicator from './TypingIndicator.svelte';
   import LoadingSpinner from './LoadingSpinner.svelte';
   import { skills, refreshSkills } from '../lib/stores/pluginsStore.js';
-  import { renameCoworkTask, activeCoworkTaskId, coworkWebSearchEnabled, coworkScreenCaptureEnabled, coworkMemoryEnabled } from '../lib/stores/coworkStore.js';
+  import { renameCoworkTask, activeCoworkTaskId, coworkWebSearchEnabled, coworkScreenCaptureEnabled, coworkMemoryEnabled, persistToolToggles } from '../lib/stores/coworkStore.js';
 
   let editingTitle = false;
   let newTitleValue = '';
@@ -1032,6 +1032,7 @@
                               } else if (item.id === 'memory') {
                                 $coworkMemoryEnabled = e.target.checked;
                               }
+                              persistToolToggles();
                             }}
                           />
                           <span class="toggle-slider"></span>

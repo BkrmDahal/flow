@@ -81,6 +81,12 @@ type Config struct {
 	PinnedModels           []string `json:"pinned_models"`
 	SidebarWidth           int      `json:"sidebar_width"`
 	AgentRightSidebarWidth int      `json:"agent_right_sidebar_width"`
+
+	// ── Cowork tool toggles (persisted so they survive app updates) ──────────
+	ToolParseDocuments bool `json:"tool_parse_documents"`
+	ToolWebSearch      bool `json:"tool_web_search"`
+	ToolScreenCapture  bool `json:"tool_screen_capture"`
+	ToolMemory         bool `json:"tool_memory"`
 }
 
 // FlowDir returns the resolved path to ~/.flow/.
@@ -136,6 +142,7 @@ func Bootstrap() (string, error) {
 			PinnedModels:           []string{"claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"},
 			SidebarWidth:           220,
 			AgentRightSidebarWidth: 220,
+			ToolParseDocuments:     true,
 			Agents: map[string]AgentConfig{
 			"main": {
 				Name:            "Flow",
@@ -272,6 +279,11 @@ func Load(base string) (*Config, error) {
 	}
 	if cfg.ProviderMode == "" {
 		cfg.ProviderMode = "none"
+	}
+
+	// Migrate tool toggles — default parse-document on (matches old hardcoded default).
+	if !cfg.ToolParseDocuments && !cfg.ToolWebSearch && !cfg.ToolScreenCapture && !cfg.ToolMemory {
+		cfg.ToolParseDocuments = true
 	}
 
 	// Set default thinking budget for agents.

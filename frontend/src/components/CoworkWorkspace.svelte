@@ -17,6 +17,7 @@
     backgroundCoworkStreamingSessions,
     refreshCoworkHistory, startCoworkTask, sendCoworkFollowUp,
     cancelCowork, newCoworkTask, selectCoworkTask, deleteCoworkTask,
+    persistToolToggles, loadToolToggles,
   } from '../lib/stores/coworkStore.js';
 
   export let onOpenSettings = () => {};
@@ -207,6 +208,7 @@
     refreshSkills();
     loadActiveModelForPlan();
     loadTavilyKey();
+    loadToolToggles();
     window.addEventListener('click', handleGlobalClick);
     window.addEventListener('flow:settings-saved', handleSettingsSaved);
     window.addEventListener('flow:local-llm-loading', handleLocalLlmLoading);
@@ -549,6 +551,7 @@
                                 } else if (item.id === 'memory') {
                                   $coworkMemoryEnabled = e.target.checked;
                                 }
+                                persistToolToggles();
                               }}
                             />
                             <span class="toggle-slider"></span>

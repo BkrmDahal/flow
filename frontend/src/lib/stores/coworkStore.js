@@ -29,6 +29,32 @@ export const coworkScreenCaptureEnabled = writable(false); // Whether capture_sc
 export const coworkMemoryEnabled = writable(false);       // Whether memory tools are available
 export const backgroundCoworkStreamingSessions = writable(new Set());
 
+// ─── Tool toggle persistence ───
+// Load saved toggles from the backend config so they survive app updates.
+export async function loadToolToggles() {
+  try {
+    const s = await Backend.GetSettings();
+    if (s) {
+      coworkParseDocuments.set(s.toolParseDocuments ?? true);
+      coworkWebSearchEnabled.set(s.toolWebSearch ?? false);
+      coworkScreenCaptureEnabled.set(s.toolScreenCapture ?? false);
+      coworkMemoryEnabled.set(s.toolMemory ?? false);
+    }
+  } catch (e) {
+    console.warn('Failed to load tool toggles:', e);
+  }
+}
+
+// Persist the current toggle states to the backend config.
+export function persistToolToggles() {
+  Backend.SaveToolToggles(
+    get(coworkParseDocuments),
+    get(coworkWebSearchEnabled),
+    get(coworkScreenCaptureEnabled),
+    get(coworkMemoryEnabled)
+  ).catch((e) => console.warn('Failed to save tool toggles:', e));
+}
+
 
 // Internal state
 let _streamCleanup = null;
