@@ -228,7 +228,7 @@
     { title: 'Quick answers', examples: ["What's 15% of 240?", 'Convert 30°C to °F', 'Define “idempotent”'] },
   ];
 
-  $: showHelp = expanded && phase !== 'listening' && phase !== 'transcribing'
+  $: showHelp = expanded && phase === 'idle'
     && !answer && !errorMsg && !approval && !suggestionsLoading && suggestions.length === 0;
 
   onMount(() => {
@@ -358,7 +358,10 @@
         {/if}
       {/if}
 
-      {#if status && phase === 'running'}
+      {#if phase === 'running' && !answer && !approval}
+        <div class="status"><span class="spinner"></span>{stepTitle || 'Working on it'}</div>
+        {#if stepSubtitle}<div class="status-sub">{stepSubtitle}</div>{/if}
+      {:else if status && phase === 'running'}
         <div class="status"><span class="spinner"></span>{status}</div>
       {/if}
 
@@ -529,6 +532,7 @@
   .copy-btn:hover { background: rgba(255,255,255,0.12); color: #f4f4f5; }
 
   .status { display: flex; align-items: center; gap: 8px; color: #a1a1aa; font-size: 12.5px; margin-top: 8px; }
+  .status-sub { color: #71717a; font-size: 12px; margin-top: 4px; padding-left: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); border-top-color: #fff; animation: spin 0.7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 

@@ -57,11 +57,16 @@ func (a *App) setupQuickAskIfEnabled() {
 	onState := func(state string) {
 		switch state {
 		case "listening":
+			// Remember the user's app so we can hand focus back — otherwise the
+			// audio/screen-capture work activates Flow and pulls its window
+			// forward (the HUD should float like dictation, not raise the app).
+			speech.SaveFocusedApp()
 			// Grab the screen NOW, before the HUD covers it, so a request like
 			// "reply to the last email" sees what the user is actually looking at.
 			a.stashScreenshot()
 			speech.ShowHUD(a.hudURL())
 			a.hudBroadcast(map[string]interface{}{"type": "listening"})
+			speech.RestoreFocusedApp()
 		case "transcribing":
 			a.hudBroadcast(map[string]interface{}{"type": "transcribing"})
 		case "cancelled":
@@ -287,6 +292,11 @@ func (a *App) OpenQuickAskSuggestions() {
 	a.quickAskMu.Lock()
 	a.quickAskSession = "" // a tap starts a clean slate
 	a.quickAskMu.Unlock()
+
+	// Hand focus back to the user's app after the screenshot work, so opening
+	// the HUD doesn't pull the Flow window forward (the popup floats above).
+	speech.SaveFocusedApp()
+	defer speech.RestoreFocusedApp()
 
 	speech.ShowHUD(a.hudURL())
 	a.hudBroadcast(map[string]interface{}{"type": "session", "session_id": "", "suggest": true})
