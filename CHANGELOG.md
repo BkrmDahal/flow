@@ -4,6 +4,13 @@ All notable changes to **Flow** will be documented in this file.
 
 ---
 
+## [0.8.1] - 2026-06-27
+
+### 🐛 Quick Ask Fixes & Polish
+* **Don't raise the Flow window on the hotkey**: Triggering Quick Ask by hotkey no longer pulls the main Flow window to the front. It now mirrors dictation — saving and restoring the user's frontmost app around the screen-capture/audio work — so the popup floats over the current app like a true HUD.
+* **HUD running-state polish**: The expanded HUD shows the current step title and detail while the agent is working.
+* **Settings version**: Corrected the version shown in Settings (was stuck at 0.7.0).
+
 ## [0.8.0] - 2026-06-27
 
 ### ☁️ Quick Ask — Floating Agent HUD

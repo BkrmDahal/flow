@@ -69,6 +69,14 @@ func UpdateMenuBarHotkeyLabel(modifier string) {
 	C.FlowSetMenuBarGrammarHotkeyLabel(cGrammarLabel)
 }
 
+// SaveFocusedApp records the currently frontmost application so it can be
+// re-activated later (so showing the HUD doesn't leave Flow in front).
+func SaveFocusedApp() { C.FlowSaveFocusedApp() }
+
+// RestoreFocusedApp re-activates the app saved by SaveFocusedApp, returning
+// focus to the user's app (the HUD floats above it).
+func RestoreFocusedApp() { C.FlowRestoreFocusedApp() }
+
 // HasAccessibilityPermission checks whether the app has macOS Accessibility permission.
 func HasAccessibilityPermission(promptUser bool) bool {
 	prompt := 0
