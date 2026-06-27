@@ -331,7 +331,7 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 		log.Printf("[agent] ── LLM CALL ── session=%s iter=%d/%d history_msgs=%d model=%s",
 			sessionID, i+1, maxToolIterations, len(history), modelName)
 
-		resp, err := deps.LLMClient.SendMessagesStream(ctx, systemPrompt, history, toolDefs, agentCfg.EnableThinking, onDelta)
+		resp, err := deps.LLMClient.SendMessagesStream(ctx, systemPrompt, history, toolDefs, agentCfg.EnableThinking, agentCfg.ReasoningEffort, onDelta)
 		llmDuration := time.Since(llmStart)
 		if err != nil {
 			log.Printf("[agent] ── LLM ERROR ── session=%s iter=%d err=%v elapsed=%s",
@@ -356,7 +356,7 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 
 					// Retry calling the LLM Client immediately with the updated history!
 					llmStart = time.Now()
-					resp, err = deps.LLMClient.SendMessagesStream(ctx, systemPrompt, history, toolDefs, agentCfg.EnableThinking, onDelta)
+					resp, err = deps.LLMClient.SendMessagesStream(ctx, systemPrompt, history, toolDefs, agentCfg.EnableThinking, agentCfg.ReasoningEffort, onDelta)
 					llmDuration = time.Since(llmStart)
 					if err != nil {
 						log.Printf("[agent] ── LLM ERROR after OCR retry ── session=%s iter=%d err=%v elapsed=%s",
@@ -386,7 +386,7 @@ func runStreamInternal(ctx context.Context, sessionID, systemPrompt string, user
 			sessionID, i+1, llmDuration, len(resp.Content), resp.HasToolUse(), toolsLog)
 		if len(resp.Content) == 0 {
 			log.Printf("[agent] streaming response was empty for %s; retrying without stream", sessionID)
-			resp, err = deps.LLMClient.SendMessages(ctx, systemPrompt, history, toolDefs, agentCfg.EnableThinking)
+			resp, err = deps.LLMClient.SendMessages(ctx, systemPrompt, history, toolDefs, agentCfg.EnableThinking, agentCfg.ReasoningEffort)
 			if err != nil {
 				emit(StreamEvent{Type: "error", Content: err.Error()})
 				return nil, fmt.Errorf("llm fallback: %w", err)

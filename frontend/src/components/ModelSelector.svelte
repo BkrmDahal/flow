@@ -117,11 +117,13 @@
   }
 
   let showSubMenu = false;
+  let effortDropdownOpen = false;
 
   function handleOutsideClick(e) {
     if (isOpen && dropdownEl && !dropdownEl.contains(e.target) && triggerBtnEl && !triggerBtnEl.contains(e.target)) {
       isOpen = false;
       showSubMenu = false;
+      effortDropdownOpen = false;
     }
   }
 
@@ -129,6 +131,7 @@
     if (isLoadingLocalModel) return;
     isOpen = !isOpen;
     showSubMenu = false;
+    effortDropdownOpen = false;
     if (isOpen) {
       searchQuery = '';
       fetchCloudModels();
@@ -265,6 +268,29 @@
     }
   }
 
+  // Returns true when the active provider/model accepts a reasoning effort
+  // parameter. Shown for all cloud providers; hidden only for local GGUF.
+  function effortSupported() {
+    if (!settings) return false;
+    if (settings.providerMode !== 'cloud') return false;
+    const provider = settings.cloudProvider;
+    return provider === 'anthropic' || provider === 'openai' ||
+      provider === 'openrouter' || provider === 'custom';
+  }
+
+  async function setEffort(level) {
+    if (!settings) return;
+    try {
+      const current = await Backend.GetSettings();
+      current.reasoningEffort = current.reasoningEffort === level ? '' : level;
+      await Backend.SaveSettings(current);
+      settings = current;
+      window.dispatchEvent(new CustomEvent('flow:settings-saved'));
+    } catch (err) {
+      console.error('Failed to set reasoning effort:', err);
+    }
+  }
+
   // Reactive options filtering
   $: filteredFetchedModels = searchQuery.trim()
     ? fetchedModels.filter(m => m.id.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -309,6 +335,17 @@
         {activeModel}
       {/if}
     </span>
+    {#if !isLoadingLocalModel && effortSupported() && settings?.reasoningEffort && settings.reasoningEffort !== 'none'}
+      <span class="reasoning-badge" title={`Reasoning effort: ${settings.reasoningEffort}`}>
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9.5 2A4.5 4.5 0 0 0 5 6.5c0 .9.3 1.7.7 2.4"></path>
+          <path d="M14.5 2A4.5 4.5 0 0 1 19 6.5c0 .9-.3 1.7-.7 2.4"></path>
+          <path d="M8 14a4 4 0 0 1 8 0"></path>
+          <path d="M12 18v3"></path>
+        </svg>
+        {settings.reasoningEffort}
+      </span>
+    {/if}
     <svg class="chevron" class:open={isOpen} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
       <polyline points="6 9 12 15 18 9"></polyline>
     </svg>
@@ -393,6 +430,50 @@
           <span class="toggle-knob"></span>
         </button>
       </div>
+
+      {#if effortSupported()}
+        <div class="effort-row">
+          <div class="option-meta">
+            <span class="option-label">Effort</span>
+            <span class="option-desc">Reasoning depth</span>
+          </div>
+          <div class="effort-dropdown-wrap">
+            <button
+              class="effort-select"
+              on:click|stopPropagation={() => (effortDropdownOpen = !effortDropdownOpen)}
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded={effortDropdownOpen}
+            >
+              <span class="effort-select-value">{settings.reasoningEffort || 'none'}</span>
+              <svg class="effort-chevron" class:open={effortDropdownOpen} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            {#if effortDropdownOpen}
+              <div class="effort-options" role="listbox">
+                {#each ['none', 'low', 'medium', 'high'] as level}
+                  <button
+                    class="effort-option"
+                    class:selected={(settings.reasoningEffort || 'none') === level}
+                    on:click|stopPropagation={() => { setEffort(level); effortDropdownOpen = false; }}
+                    type="button"
+                    role="option"
+                    aria-selected={(settings.reasoningEffort || 'none') === level}
+                  >
+                    {level}
+                    {#if (settings.reasoningEffort || 'none') === level}
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 5 12"></polyline>
+                      </svg>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        </div>
+      {/if}
 
       <!-- Footer More Models Link -->
       <button class="more-models-btn" class:active-more={showSubMenu} on:click|stopPropagation={() => showSubMenu = !showSubMenu} type="button">
@@ -497,9 +578,9 @@
     align-items: center;
     gap: 6px;
     padding: 6px 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
     color: var(--text-secondary, #a1a1aa);
     font-size: 12px;
     font-weight: 500;
@@ -510,8 +591,8 @@
 
   .selector-trigger:hover,
   .selector-trigger.active {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.22);
     color: var(--text-primary, #ffffff);
   }
 
@@ -527,6 +608,25 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .reasoning-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    background: rgba(99, 102, 241, 0.14);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #a5b4fc;
+    text-transform: capitalize;
+    line-height: 1.4;
+  }
+  .reasoning-badge svg {
+    color: #818cf8;
+    flex-shrink: 0;
   }
 
   .chevron {
@@ -923,6 +1023,107 @@
   .compact-toggle.toggle-active .toggle-knob {
     left: 18px;
     background: white;
+  }
+
+  /* Effort Dropdown */
+  .effort-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    margin: 0 4px;
+    border-radius: 8px;
+    background: none;
+    color: var(--text-secondary, #d4d4d8);
+    transition: background 0.15s ease;
+  }
+
+  .effort-row:hover {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .effort-dropdown-wrap {
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .effort-select {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    color: var(--text-secondary, #d4d4d8);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-transform: capitalize;
+  }
+
+  .effort-select:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary, #ffffff);
+  }
+
+  .effort-select-value {
+    text-transform: capitalize;
+  }
+
+  .effort-chevron {
+    color: var(--text-muted, #71717a);
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .effort-chevron.open {
+    transform: rotate(180deg);
+  }
+
+  .effort-options {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    right: 0;
+    min-width: 100%;
+    background: rgba(24, 24, 27, 0.98);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    padding: 4px;
+    z-index: 1002;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    animation: menuFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .effort-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: none;
+    border: none;
+    border-radius: 5px;
+    color: var(--text-secondary, #d4d4d8);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 5px 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-transform: capitalize;
+    text-align: left;
+    gap: 6px;
+  }
+
+  .effort-option:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary, #ffffff);
+  }
+
+  .effort-option.selected {
+    color: var(--accent, #10b981);
   }
 
   /* Model Pinning Premium Layout Styles */

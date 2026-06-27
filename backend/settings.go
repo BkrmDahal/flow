@@ -64,6 +64,10 @@ type SettingsPayload struct {
 
 	// Prompt option
 	DisableSystemPrompt bool `json:"disableSystemPrompt"`
+
+	// Reasoning effort (mirrors Agents["main"].ReasoningEffort for the ModelSelector UI)
+	// "" | "low" | "medium" | "high"
+	ReasoningEffort string `json:"reasoningEffort"`
 }
 
 // GetSettings returns the current persisted configuration.
@@ -116,6 +120,19 @@ func (a *App) SaveSettings(p SettingsPayload) error {
 		cfg.SidebarWidth = a.cfg.SidebarWidth
 		cfg.AgentRightSidebarWidth = a.cfg.AgentRightSidebarWidth
 	}
+
+	// Sync reasoning effort from the payload into the "main" agent config so the
+	// ModelSelector dropdown's selection persists and is read by the agent loop.
+	if cfg.Agents == nil {
+		cfg.Agents = map[string]config.AgentConfig{}
+	}
+	main := cfg.Agents["main"]
+	if p.ReasoningEffort == "" {
+		main.ReasoningEffort = "none"
+	} else {
+		main.ReasoningEffort = p.ReasoningEffort
+	}
+	cfg.Agents["main"] = main
 
 	if err := config.Save(a.baseDir, cfg); err != nil {
 		return err
@@ -270,7 +287,7 @@ func maskKey(key string) string {
 }
 
 func toPayload(c *config.Config) *SettingsPayload {
-	return &SettingsPayload{
+	p := &SettingsPayload{
 		ProviderType:           c.ProviderType,
 		ProviderLabel:          c.ProviderLabel,
 		BaseURL:                c.BaseURL,
@@ -306,6 +323,18 @@ func toPayload(c *config.Config) *SettingsPayload {
 		PythonPath:             c.PythonPath,
 		DisableSystemPrompt:    c.DisableSystemPrompt,
 	}
+
+	// Surface the "main" agent's reasoning effort for the ModelSelector UI.
+	if c.Agents != nil {
+		if ac, ok := c.Agents["main"]; ok {
+			if ac.ReasoningEffort == "" {
+				p.ReasoningEffort = "none"
+			} else {
+				p.ReasoningEffort = ac.ReasoningEffort
+			}
+		}
+	}
+	return p
 }
 
 // isMasked returns true if the value is a masked placeholder from maskKey().

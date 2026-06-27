@@ -649,7 +649,7 @@
               <img src={appIcon} alt="Flow" style="width: 22px; height: 22px; border-radius: 4px; object-fit: cover;" />
               <div style="display: flex; flex-direction: column; line-height: 1.2;">
                 <span style="font-size: 11px; font-weight: 600; color: var(--text-primary);">Flow Developer Agent</span>
-                <span style="font-size: 10px; color: var(--text-muted);">Version 0.8.1</span>
+                <span style="font-size: 10px; color: var(--text-muted);">Version 0.8.2</span>
               </div>
             </div>
             <span style="font-size: 10px; color: var(--text-muted); opacity: 0.85;">© 2026 Flow. All rights reserved.</span>

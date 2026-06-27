@@ -4,6 +4,19 @@ All notable changes to **Flow** will be documented in this file.
 
 ---
 
+## [0.8.2] - 2026-06-27
+
+### 🧠 Reasoning Effort Control
+* **Configurable reasoning effort**: Added a reasoning effort selector (none / low / medium / high) to the model picker in the composer. The active level is shown as a badge next to the model name so you can see thinking depth at a glance.
+* **OpenRouter explicit-disable**: Setting effort to **none** now sends `reasoning: { enabled: false }` to OpenRouter, so reasoning models (e.g. MiniMax) no longer burn thinking tokens by default.
+* **Dictation stays lean**: Refine, grammar-fix, auto-refine, and Quick Ask suggestions now default to **none** reasoning — these are simple jobs that don't need a chain-of-thought.
+
+### 🎨 Composer Model Picker Polish
+* **Lighter, bordered trigger**: The chat model name pill is now lighter with a clearer border and rounded-rectangle corners instead of the flat pill.
+
+### 🐛 Clipboard Paste Race Fix
+* **Reliable paste after LLM refine/fix**: Fixed a race where the original clipboard contents could be pasted instead of the LLM's response. The selected-text reader now restores the prior clipboard immediately (no deferred restore), and the paste helper polls/verifies the clipboard holds our text before issuing Cmd+V.
+
 ## [0.8.1] - 2026-06-27
 
 ### 🐛 Quick Ask Fixes & Polish

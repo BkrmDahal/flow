@@ -9,12 +9,13 @@ import (
 
 // AgentConfig defines the configuration for a single named agent persona.
 type AgentConfig struct {
-	Name           string `json:"name"`
-	Model          string `json:"model"`
-	PromptPath     string `json:"prompt_path"`
-	SessionPrefix  string `json:"session_prefix"`
-	EnableThinking bool   `json:"enable_thinking"`
-	ThinkingBudget int    `json:"thinking_budget"` // e.g. 10000
+	Name            string `json:"name"`
+	Model           string `json:"model"`
+	PromptPath      string `json:"prompt_path"`
+	SessionPrefix   string `json:"session_prefix"`
+	EnableThinking  bool   `json:"enable_thinking"`
+	ThinkingBudget  int    `json:"thinking_budget"`     // e.g. 10000
+	ReasoningEffort string `json:"reasoning_effort"`    // "" | "low" | "medium" | "high"
 }
 
 // Config is the application configuration persisted to ~/.flow/config.json.
@@ -136,14 +137,15 @@ func Bootstrap() (string, error) {
 			SidebarWidth:           220,
 			AgentRightSidebarWidth: 220,
 			Agents: map[string]AgentConfig{
-				"main": {
-					Name:           "Flow",
-					Model:          "claude-sonnet-4-5-20250929",
-					PromptPath:     "workspace/Master_prompt.md",
-					SessionPrefix:  "agent_main",
-					EnableThinking: false,
-					ThinkingBudget: 10000,
-				},
+			"main": {
+				Name:            "Flow",
+				Model:           "claude-sonnet-4-5-20250929",
+				PromptPath:      "workspace/Master_prompt.md",
+				SessionPrefix:   "agent_main",
+				EnableThinking:  false,
+				ThinkingBudget:  10000,
+				ReasoningEffort: "none",
+			},
 			},
 		}
 		data, _ := json.MarshalIndent(def, "", "  ")

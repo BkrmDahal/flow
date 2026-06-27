@@ -73,7 +73,7 @@ func (a *App) RefineFlowText(transcriptID, action, customPrompt string) (string,
 
 	emit("start", "")
 
-	resp, err := a.llm.SendMessagesStream(ctx, systemPrompt, messages, nil, false, func(d llm.StreamDelta) {
+	resp, err := a.llm.SendMessagesStream(ctx, systemPrompt, messages, nil, false, "none", func(d llm.StreamDelta) {
 		if d.Type == "text" && d.Content != "" {
 			emit("delta", d.Content)
 		}
@@ -142,7 +142,7 @@ func (a *App) RefineTextDirect(text, action, customPrompt string) (string, error
 	ctx, cancel := context.WithTimeout(a.ctx, 45*time.Second)
 	defer cancel()
 
-	resp, err := a.llm.SendMessages(ctx, systemPrompt, messages, nil, false)
+	resp, err := a.llm.SendMessages(ctx, systemPrompt, messages, nil, false, "none")
 	if err != nil {
 		return "", fmt.Errorf("LLM error: %w", err)
 	}
