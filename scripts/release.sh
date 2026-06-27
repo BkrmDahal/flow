@@ -11,7 +11,7 @@ BLUE='\033[0;34m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
 
-VERSION="0.7.0"
+VERSION="0.8.0"
 DMG_OUTPUT="build/Flow-Installer.dmg"
 
 echo -e "${BLUE}${BOLD}===================================================${NC}"

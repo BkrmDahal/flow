@@ -341,3 +341,61 @@ func (a *App) OpenMicrophoneSettings() {
 	}
 }
 
+// CheckScreenPermission reports whether Flow has macOS Screen Recording access.
+// Used by the Quick Agent HUD, which captures the screen for on-screen context.
+func (a *App) CheckScreenPermission() bool {
+	return speech.HasScreenRecordingPermission()
+}
+
+// RequestScreenPermission triggers the system Screen Recording prompt the first
+// time. If access was previously denied, macOS won't re-prompt, so it falls back
+// to opening System Settings. Returns whether access is granted now.
+func (a *App) RequestScreenPermission() bool {
+	if speech.HasScreenRecordingPermission() {
+		return true
+	}
+	granted := speech.RequestScreenRecordingPermission()
+	if !granted {
+		a.OpenScreenRecordingSettings()
+	}
+	return granted
+}
+
+// OpenScreenRecordingSettings opens macOS System Settings to the Screen
+// Recording privacy pane.
+func (a *App) OpenScreenRecordingSettings() {
+	log.Println("[flow] opening macOS screen recording settings")
+	cmd := exec.Command("open", "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+	if err := cmd.Run(); err != nil {
+		log.Printf("[flow] failed to open screen recording settings: %v", err)
+	}
+}
+
+// CheckAccessibilityPermission reports whether Flow has macOS Accessibility
+// access. The Quick Agent HUD uses it to read the selection / drive other apps.
+func (a *App) CheckAccessibilityPermission() bool {
+	return speech.HasAccessibilityPermission(false)
+}
+
+// RequestAccessibilityPermission triggers the system Accessibility prompt. macOS
+// only ever shows the prompt itself, so this also opens System Settings so the
+// user can flip the toggle. Returns whether access is granted now.
+func (a *App) RequestAccessibilityPermission() bool {
+	if speech.HasAccessibilityPermission(false) {
+		return true
+	}
+	speech.HasAccessibilityPermission(true) // prompt
+	a.OpenAccessibilitySettings()
+	return speech.HasAccessibilityPermission(false)
+}
+
+// OpenAccessibilitySettings opens macOS System Settings to the Accessibility
+// privacy pane.
+func (a *App) OpenAccessibilitySettings() {
+	log.Println("[flow] opening macOS accessibility settings")
+	cmd := exec.Command("open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+	if err := cmd.Run(); err != nil {
+		log.Printf("[flow] failed to open accessibility settings: %v", err)
+	}
+}
+

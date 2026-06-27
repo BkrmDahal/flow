@@ -4,6 +4,20 @@ All notable changes to **Flow** will be documented in this file.
 
 ---
 
+## [0.8.0] - 2026-06-27
+
+### ☁️ Quick Ask — Floating Agent HUD
+* **Hotkey-invoked floating agent**: A new dedicated push-to-talk hotkey opens a floating, always-on-top popup (the **HUD**) that runs the full Cowork agent without leaving the current app. Hold to speak a request, or tap to open it with context-aware suggestions; also reachable from the menu bar (**Open Quick Ask**).
+* **One unified, smooth popup**: The same window flows through **Listening** (live waveform with ✕ cancel / ✓ send) → **Transcribing** → **Thinking** (current-step pill) → **streamed answer**, with an animated, content-fitting panel. Implemented as a native `NSPanel` hosting a `WKWebView`, served by an internal localhost HUD server over SSE (Go→JS) and fetch (JS→Go); pre-warmed at startup for an instant first show.
+* **Acts from on-screen context**: Reads the frontmost app and text selection, and attaches a **screenshot captured the moment you ask** (before the HUD covers the screen) so the agent sees what you're looking at. Self-contained questions (math, conversions, definitions) skip the screenshot for a fast reply. Vision-capable models also power the tap-to-open suggestion chips.
+* **Cross-app actions & in-HUD approvals**: Can drive other apps via macOS automation (`osascript` / `open`); when a step needs a command, the HUD shows a compact **Needs approval** card. Cross-app automation is pre-allowed per HUD session for low-friction multi-step tasks.
+* **Conversational**: Type follow-ups, **Copy** any response, start a fresh chat with **+**, or **open in app** to continue the same session in the full Cowork window. Quick Ask chats now appear live in the Cowork list (no restart needed).
+* **Non-intrusive window**: The HUD floats over your current app without stealing focus (non-activating panel) while still responding to a single click.
+* **Settings & permissions**: New **HUD & Quick Ask** settings section with a configurable hotkey and inline **Screen Recording** and **Accessibility** permission checks (grant buttons).
+
+### ⏰ Cron-based Task Scheduling
+* **Scheduled agent tasks**: Added a cron-based scheduling system so Cowork agent tasks can run automatically on a recurring schedule.
+
 ## [0.7.0] - 2026-05-26
 
 ### ⚡ Consolidated Cowork Agent Tool Execution & PDF/Excel Parsing

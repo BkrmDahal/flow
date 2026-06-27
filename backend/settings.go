@@ -7,6 +7,7 @@ import (
 
 	"github.com/user/flow/backend/internal/config"
 	"github.com/user/flow/backend/internal/llm"
+	"github.com/user/flow/backend/internal/speech"
 )
 
 // SettingsPayload is the data shape exchanged with the frontend.
@@ -43,6 +44,10 @@ type SettingsPayload struct {
 	HotkeyEnabled  bool   `json:"hotkeyEnabled"`
 	HotkeyModifier string `json:"hotkeyModifier"`
 
+	// Quick Agent HUD hotkey
+	QuickAskHotkeyEnabled  bool   `json:"quickAskHotkeyEnabled"`
+	QuickAskHotkeyModifier string `json:"quickAskHotkeyModifier"`
+
 	// STT
 	SpeechProvider string `json:"speechProvider"`
 	SpeechAPIKey   string `json:"speechApiKey"`
@@ -76,6 +81,7 @@ func (a *App) SaveSettings(p SettingsPayload) error {
 	}
 
 	oldHotkeyEnabled := a.cfg != nil && a.cfg.HotkeyEnabled
+	oldQuickAskEnabled := a.cfg != nil && a.cfg.QuickAskHotkeyEnabled
 
 	cfg := fromPayload(p)
 
@@ -129,6 +135,17 @@ func (a *App) SaveSettings(p SettingsPayload) error {
 		// Re-setup with new settings (modifier/API key may have changed).
 		a.ToggleDictation(false)
 		a.setupDictationIfEnabled()
+	}
+
+	// Toggle the quick-ask (HUD) hotkey if its state or modifier changed.
+	if cfg.QuickAskHotkeyEnabled {
+		if oldQuickAskEnabled {
+			speech.TeardownQuickAsk() // re-apply in case the modifier changed
+		}
+		a.setupQuickAskIfEnabled()
+	} else if oldQuickAskEnabled {
+		speech.TeardownQuickAsk()
+		speech.UpdateMenuBarQuickAskLabel("", false)
 	}
 
 	return nil
@@ -277,6 +294,8 @@ func toPayload(c *config.Config) *SettingsPayload {
 		CustomCloudKey:         maskKey(c.CustomCloudKey),
 		HotkeyEnabled:          c.HotkeyEnabled,
 		HotkeyModifier:         c.HotkeyModifier,
+		QuickAskHotkeyEnabled:  c.QuickAskHotkeyEnabled,
+		QuickAskHotkeyModifier: c.QuickAskHotkeyModifier,
 		SpeechProvider:         c.SpeechProvider,
 		SpeechAPIKey:           maskKey(c.SpeechAPIKey),
 		SpeechModel:            c.SpeechModel,
@@ -326,6 +345,8 @@ func fromPayload(p SettingsPayload) *config.Config {
 		CustomCloudKey:         p.CustomCloudKey,
 		HotkeyEnabled:          p.HotkeyEnabled,
 		HotkeyModifier:         p.HotkeyModifier,
+		QuickAskHotkeyEnabled:  p.QuickAskHotkeyEnabled,
+		QuickAskHotkeyModifier: p.QuickAskHotkeyModifier,
 		SpeechProvider:         p.SpeechProvider,
 		SpeechAPIKey:           p.SpeechAPIKey,
 		SpeechModel:            p.SpeechModel,

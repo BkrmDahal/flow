@@ -696,6 +696,44 @@ export async function startCoworkTask(text, files = [], selectedSkillName = '') 
   }
 }
 
+/**
+ * Set up frontend state for a scheduled task that was already dispatched
+ * by the backend via RunScheduleNow. The backend has already called
+ * runCoworkStream, so we just need to prepare the UI to receive the
+ * stream events.
+ */
+export function startScheduledCoworkSession(sessionId, taskName, instructions) {
+  saveCurrentCoworkToBackground();
+
+  activeCoworkTaskId.set(sessionId);
+
+  let title = taskName;
+  coworkTaskTitle.set(title);
+
+  // Add to sidebar immediately.
+  coworkTaskHistory.update(history => [
+    { id: sessionId, title, timestamp: Date.now() },
+    ...history,
+  ]);
+
+  coworkMessages.set([
+    { role: 'user', content: instructions },
+    { role: 'assistant', content: '', steps: [], isStreaming: true, startTime: Date.now(), tokensPerSec: 0, totalTime: 0 },
+  ]);
+  coworkStreamingIdx.set(1);
+  coworkCreatedFiles.set([]);
+  coworkContextTools.set([]);
+  resetPlanState();
+  coworkSkillsUsed.set([]);
+  coworkLoading.set(true);
+  coworkIsStreaming.set(true);
+  _pendingContentReset = false;
+  _lastSeenSeq = 0;
+  coworkPhase.set('workspace');
+
+  ensureListener();
+}
+
 export async function sendCoworkFollowUp(text, files = [], selectedSkillName = '') {
   try {
     await refreshSkills();

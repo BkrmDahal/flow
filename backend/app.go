@@ -2,10 +2,12 @@ package backend
 
 import (
 	"context"
+	"io/fs"
 	"log"
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/user/flow/backend/internal/config"
 	"github.com/user/flow/backend/internal/llamacpp"
@@ -43,6 +45,26 @@ type App struct {
 
 	voiceMu            sync.Mutex
 	voiceRecordingPath string
+
+	// Quick Agent HUD
+	hud             *HUDServer
+	hudAssets       fs.FS
+	quickAskMu      sync.Mutex
+	quickAskSession string
+	quickAskRunning int // >0 while a HUD-driven agent turn is executing
+	// Screenshot captured at the moment of asking, BEFORE the HUD covers the
+	// screen, so the agent sees what the user was actually looking at.
+	pendingShot   *streaming.FileAttachment
+	pendingShotAt time.Time
+
+	// Scheduler
+	schedCancel context.CancelFunc
+}
+
+// SetHUDAssets supplies the embedded frontend dist subtree used by the floating
+// HUD's localhost server. Called from main.go before Wails starts.
+func (a *App) SetHUDAssets(assets fs.FS) {
+	a.hudAssets = assets
 }
 
 // NewApp constructs the app instance. Heavy initialisation lives in Startup
@@ -100,6 +122,12 @@ func (a *App) Startup(ctx context.Context) {
 		wailsRuntime.Show(a.ctx)
 	})
 
+	// "Open Quick Ask" menu bar item opens the HUD as a plain chat window
+	// (no screenshot / suggestions).
+	speech.RegisterOpenQuickAskCallback(func() {
+		a.OpenQuickAskWindow()
+	})
+
 	// Forward whisper.cpp model-download progress to the frontend.
 	speech.SetLocalProgressCallback(func(stage string, downloaded, total int64) {
 		wailsRuntime.EventsEmit(a.ctx, "flow:model:download:progress", map[string]interface{}{
@@ -112,13 +140,38 @@ func (a *App) Startup(ctx context.Context) {
 	// Set up dictation hotkey if enabled.
 	a.setupDictationIfEnabled()
 
+	// Start the localhost server backing the floating Quick Agent HUD, then
+	// wire its push-to-talk hotkey.
+	if a.hudAssets != nil {
+		if err := a.startHUDServer(a.hudAssets); err != nil {
+			log.Printf("flow: HUD server failed to start: %v", err)
+		} else {
+			// Forward tool approval requests to the HUD while a HUD-driven turn
+			// is active (the HUD can't receive Wails events directly).
+			tools.ApprovalBroadcaster = a.forwardApprovalToHUD
+			// Warm the HUD webview so the first "Listening" state is instant.
+			speech.PreloadHUD(a.hudURL())
+			a.setupQuickAskIfEnabled()
+		}
+	}
+
+	// Start the background task scheduler.
+	a.StartScheduler()
+
 	log.Printf("flow: startup ok (base=%s, model=%q)", base, cfg.Model)
 }
 
 // Shutdown is invoked by Wails just before the window closes.
 func (a *App) Shutdown(ctx context.Context) {
+	a.StopScheduler()
+	if speech.IsQuickAskEnabled() {
+		speech.TeardownQuickAsk()
+	}
 	if speech.IsDictationEnabled() {
 		speech.TeardownDictation()
+	}
+	if a.hud != nil && a.hud.srv != nil {
+		_ = a.hud.srv.Close()
 	}
 	if a.llama != nil {
 		if err := a.llama.Stop(); err != nil {
