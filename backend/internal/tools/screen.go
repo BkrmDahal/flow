@@ -34,11 +34,16 @@ func (t *CaptureScreenTool) Execute(ctx context.Context, input json.RawMessage) 
 	filename := fmt.Sprintf("screenshot_%d.png", time.Now().Unix())
 	destPath := filepath.Join(sessionDir, filename)
 
-	// -x flag captures quietly without screenshot sound
-	cmd := exec.CommandContext(ctx, "screencapture", "-x", destPath)
-	if err := cmd.Run(); err != nil {
+	if err := CaptureScreenshot(ctx, destPath); err != nil {
 		return fmt.Sprintf("Error capturing screen: %v (make sure Flow has Screen Recording permissions in System Settings)", err), nil
 	}
 
 	return fmt.Sprintf("Screenshot successfully captured and saved to session workspace as %s.\nAbsolute Path: %s", filename, destPath), nil
+}
+
+// CaptureScreenshot quietly captures the full macOS screen to destPath as PNG.
+// Shared by the capture_screen tool and the Quick Agent HUD's on-screen context.
+func CaptureScreenshot(ctx context.Context, destPath string) error {
+	// -x captures silently (no shutter sound).
+	return exec.CommandContext(ctx, "screencapture", "-x", destPath).Run()
 }

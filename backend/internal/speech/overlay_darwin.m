@@ -4,21 +4,30 @@
 #import <ApplicationServices/ApplicationServices.h>
 #import <QuartzCore/QuartzCore.h>
 
+// Go-exported callbacks (defined in quickask_darwin.go) for the overlay's
+// cancel / confirm buttons.
+extern void goOverlayCancel(void);
+extern void goOverlayConfirm(void);
+
 // ═══════════════════════════════════════════════════════════════════════
-// Dictation Overlay — a small floating pill that appears above the text
-// cursor to give visual feedback while recording / transcribing.
+// Dictation / Quick Ask Overlay — a floating pill that gives visual feedback
+// while recording / transcribing.
 //
-//   state 1  →  ┌──────┐   waveform bars (recording)
-//               └──────┘
+//   state 1 (recording):   ┌─────────────────┐
+//                          │       ☁︎         │   cloud mascot
+//                          │  ✕  ▁▃▅▇▅▃▁  ✓  │   cancel · waveform · confirm
+//                          └─────────────────┘
 //
-//   state 2  →  ┌───────────────┐  ● Thinking…  (API call in progress)
-//               └───────────────┘
+//   state 2 (thinking):    ┌───────────────┐  ◌ Thinking…
+//                          └───────────────┘
 // ═══════════════════════════════════════════════════════════════════════
 
-// ── Waveform View (5 animated bars) ──────────────────────────────────
+#define WAVE_BARS 9
+
+// ── Waveform View (animated bars) ────────────────────────────────────
 
 @interface DictationWaveformView : NSView {
-    CGFloat _bars[5];
+    CGFloat _bars[WAVE_BARS];
 }
 @property (nonatomic, strong) NSTimer *animTimer;
 @end
@@ -28,8 +37,8 @@
 - (instancetype)initWithFrame:(NSRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        CGFloat seed[] = {0.35, 0.55, 0.75, 0.55, 0.35};
-        for (int i = 0; i < 5; i++) _bars[i] = seed[i];
+        CGFloat seed[WAVE_BARS] = {0.25, 0.45, 0.65, 0.85, 0.70, 0.85, 0.55, 0.40, 0.25};
+        for (int i = 0; i < WAVE_BARS; i++) _bars[i] = seed[i];
     }
     return self;
 }
@@ -42,10 +51,10 @@
                                                       block:^(NSTimer * _Nonnull t) {
         DictationWaveformView *ss = weakSelf;
         if (!ss) { [t invalidate]; return; }
-        // Bias: middle bars tend to be taller.
-        CGFloat bias[] = {0.30, 0.50, 0.70, 0.50, 0.30};
-        for (int i = 0; i < 5; i++) {
-            CGFloat target = bias[i] + (arc4random_uniform(60)) / 100.0;
+        // Bias: middle bars tend to be taller, ends stay small (dot-like).
+        CGFloat bias[WAVE_BARS] = {0.15, 0.35, 0.55, 0.70, 0.60, 0.70, 0.45, 0.30, 0.15};
+        for (int i = 0; i < WAVE_BARS; i++) {
+            CGFloat target = bias[i] + (arc4random_uniform(55)) / 100.0;
             if (target > 1.0) target = 1.0;
             ss->_bars[i] += (target - ss->_bars[i]) * 0.55;
         }
@@ -59,15 +68,15 @@
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
-    CGFloat barW = 3.0, gap = 2.5;
-    int n = 5;
+    CGFloat barW = 3.0, gap = 3.5;
+    int n = WAVE_BARS;
     CGFloat totalW = n * barW + (n - 1) * gap;
     CGFloat startX = (NSWidth(self.bounds) - totalW) / 2.0;
-    CGFloat maxH   = NSHeight(self.bounds) * 0.7;
+    CGFloat maxH   = NSHeight(self.bounds) * 0.85;
 
     [[NSColor whiteColor] setFill];
     for (int i = 0; i < n; i++) {
-        CGFloat h = MAX(3.0, maxH * _bars[i]);
+        CGFloat h = MAX(barW, maxH * _bars[i]);
         CGFloat x = startX + i * (barW + gap);
         CGFloat y = (NSHeight(self.bounds) - h) / 2.0;
         NSRect r = NSMakeRect(x, y, barW, h);
@@ -77,10 +86,50 @@
 
 @end
 
+// ── Cloud Mascot View ────────────────────────────────────────────────
+
+@interface DictationCloudView : NSView
+@end
+
+@implementation DictationCloudView
+- (void)drawRect:(NSRect)dirtyRect {
+    CGFloat w = NSWidth(self.bounds), h = NSHeight(self.bounds);
+
+    // Cloud body: a rounded base with two overlapping puffs.
+    NSBezierPath *cloud = [NSBezierPath bezierPath];
+    [cloud appendBezierPathWithRoundedRect:NSMakeRect(w*0.08, h*0.20, w*0.84, h*0.40)
+                                   xRadius:h*0.20 yRadius:h*0.20];
+    [cloud appendBezierPathWithOvalInRect:NSMakeRect(w*0.16, h*0.30, w*0.36, h*0.46)];
+    [cloud appendBezierPathWithOvalInRect:NSMakeRect(w*0.46, h*0.34, w*0.40, h*0.50)];
+    [[NSColor colorWithCalibratedWhite:0.96 alpha:1.0] setFill];
+    [cloud fill];
+
+    // Two friendly eyes.
+    [[NSColor colorWithCalibratedWhite:0.12 alpha:1.0] setFill];
+    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(w*0.42, h*0.44, w*0.07, h*0.16)] fill];
+    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(w*0.56, h*0.44, w*0.07, h*0.16)] fill];
+}
+@end
+
+// ── Button action handler ────────────────────────────────────────────
+
+@interface OverlayBtnHandler : NSObject
+- (void)onCancel:(id)sender;
+- (void)onConfirm:(id)sender;
+@end
+@implementation OverlayBtnHandler
+- (void)onCancel:(id)sender  { goOverlayCancel(); }
+- (void)onConfirm:(id)sender { goOverlayConfirm(); }
+@end
+
 // ── Overlay Panel (singleton) ────────────────────────────────────────
 
 static NSPanel              *ovPanel       = nil;
 static DictationWaveformView *waveView     = nil;
+static DictationCloudView   *cloudView     = nil;
+static NSButton             *cancelBtn     = nil;
+static NSButton             *confirmBtn    = nil;
+static OverlayBtnHandler    *ovBtnHandler  = nil;
 static NSProgressIndicator  *thinkSpinner  = nil;
 static NSTextField          *thinkLabel    = nil;
 static NSView               *recContainer  = nil;
@@ -88,9 +137,9 @@ static NSView               *thinkContainer = nil;
 static NSTimer              *dotsTimer     = nil;
 static int                   dotsCount     = 0;
 
-static const CGFloat OV_REC_W   = 52,  OV_REC_H   = 34;
+static const CGFloat OV_REC_W   = 184, OV_REC_H   = 92;
 static const CGFloat OV_THINK_W = 138, OV_THINK_H = 36;
-static const CGFloat OV_RADIUS  = 16;
+static const CGFloat OV_RADIUS  = 20;
 static const CGFloat OV_GAP_Y   = 8;   // pixels above the caret
 
 // ── Caret Position via Accessibility API ─────────────────────────────
@@ -201,7 +250,9 @@ static void ensureOverlay(void) {
     ovPanel.hasShadow            = YES;
     ovPanel.movableByWindowBackground = NO;
     ovPanel.hidesOnDeactivate    = NO;
-    ovPanel.ignoresMouseEvents   = YES;
+    // Interactive so the cancel / confirm buttons are clickable. The panel is a
+    // non-activating panel, so clicks don't steal key focus from the user's app.
+    ovPanel.ignoresMouseEvents   = NO;
     ovPanel.collectionBehavior   = NSWindowCollectionBehaviorCanJoinAllSpaces
                                  | NSWindowCollectionBehaviorTransient;
 
@@ -225,8 +276,51 @@ static void ensureOverlay(void) {
     recBlur.autoresizingMask  = NSViewWidthSizable | NSViewHeightSizable;
     [recContainer addSubview:recBlur];
 
-    waveView = [[DictationWaveformView alloc] initWithFrame:recContainer.bounds];
-    waveView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    // Layout for the OV_REC_W × OV_REC_H recording pill (origin bottom-left):
+    //   • cloud mascot, top-center
+    //   • bottom row: [✕]   waveform   [✓]
+    ovBtnHandler = [[OverlayBtnHandler alloc] init];
+
+    cloudView = [[DictationCloudView alloc] initWithFrame:NSMakeRect((OV_REC_W-40)/2.0, OV_REC_H-8-28, 40, 28)];
+    [recContainer addSubview:cloudView];
+
+    cancelBtn = [[NSButton alloc] initWithFrame:NSMakeRect(16, 14, 30, 30)];
+    cancelBtn.bordered            = NO;
+    cancelBtn.wantsLayer          = YES;
+    cancelBtn.layer.cornerRadius  = 15;
+    cancelBtn.layer.backgroundColor = [NSColor colorWithCalibratedWhite:1.0 alpha:0.16].CGColor;
+    cancelBtn.imagePosition       = NSImageOnly;
+    cancelBtn.target              = ovBtnHandler;
+    cancelBtn.action              = @selector(onCancel:);
+    cancelBtn.toolTip             = @"Cancel";
+    if (@available(macOS 11.0, *)) {
+        cancelBtn.image           = [NSImage imageWithSystemSymbolName:@"xmark" accessibilityDescription:@"Cancel"];
+        cancelBtn.contentTintColor = [NSColor whiteColor];
+    } else {
+        cancelBtn.title           = @"✕";
+    }
+    [recContainer addSubview:cancelBtn];
+
+    confirmBtn = [[NSButton alloc] initWithFrame:NSMakeRect(OV_REC_W-16-30, 14, 30, 30)];
+    confirmBtn.bordered           = NO;
+    confirmBtn.wantsLayer         = YES;
+    confirmBtn.layer.cornerRadius = 15;
+    confirmBtn.layer.backgroundColor = [NSColor whiteColor].CGColor;
+    confirmBtn.imagePosition      = NSImageOnly;
+    confirmBtn.target             = ovBtnHandler;
+    confirmBtn.action             = @selector(onConfirm:);
+    confirmBtn.toolTip            = @"Send";
+    if (@available(macOS 11.0, *)) {
+        confirmBtn.image          = [NSImage imageWithSystemSymbolName:@"checkmark" accessibilityDescription:@"Send"];
+        confirmBtn.contentTintColor = [NSColor colorWithCalibratedWhite:0.10 alpha:1.0];
+    } else {
+        confirmBtn.title          = @"✓";
+    }
+    [recContainer addSubview:confirmBtn];
+
+    CGFloat waveX = NSMaxX(cancelBtn.frame) + 8;
+    CGFloat waveW = confirmBtn.frame.origin.x - 8 - waveX;
+    waveView = [[DictationWaveformView alloc] initWithFrame:NSMakeRect(waveX, 16, waveW, 26)];
     [recContainer addSubview:waveView];
 
     // ── Thinking container (spinner + label) ──
@@ -299,6 +393,23 @@ static NSRect calculateOverlayFrame(CGFloat panelW, CGFloat panelH) {
     return NSMakeRect(x, y, panelW, panelH);
 }
 
+// Top-center of the active screen (the screen under the mouse), mirroring the
+// Quick Ask HUD's notch-style anchoring.
+static NSRect overlayTopFrame(CGFloat panelW, CGFloat panelH) {
+    NSScreen *scr = nil;
+    NSPoint mouse = [NSEvent mouseLocation];
+    for (NSScreen *s in [NSScreen screens]) {
+        if (NSPointInRect(mouse, s.frame)) { scr = s; break; }
+    }
+    if (!scr) scr = [NSScreen mainScreen];
+    if (!scr) scr = [[NSScreen screens] firstObject];
+
+    NSRect vf = scr ? scr.visibleFrame : NSMakeRect(0, 0, 1440, 900);
+    CGFloat x = vf.origin.x + (vf.size.width - panelW) / 2.0;
+    CGFloat y = NSMaxY(vf) - panelH - 8;   // small gap below the top
+    return NSMakeRect(x, y, panelW, panelH);
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Public C API (called from dictation_darwin.go via CGO)
 // ═══════════════════════════════════════════════════════════════════════
@@ -339,7 +450,12 @@ void ShowDictationOverlay(int state, const char *labelText) {
             panelH = OV_THINK_H;
         }
 
-        NSRect targetFrame = calculateOverlayFrame(panelW, panelH);
+        // The recording pill (state 1) anchors to the top-center of the screen
+        // like the Quick Ask HUD; the transcribing pill (state 2) follows the
+        // text caret where dictation is happening.
+        NSRect targetFrame = (state == 1)
+            ? overlayTopFrame(panelW, panelH)
+            : calculateOverlayFrame(panelW, panelH);
 
         // Set up the state-specific configurations
         if (state == 1) {

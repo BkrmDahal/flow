@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -44,6 +45,13 @@ func main() {
 	}
 
 	app := backend.NewApp()
+
+	// Hand the floating HUD server the built frontend assets (dist subtree).
+	if distFS, err := fs.Sub(assets, "frontend/dist"); err != nil {
+		log.Printf("warning: HUD assets unavailable: %v", err)
+	} else {
+		app.SetHUDAssets(distFS)
+	}
 
 	err := wails.Run(&options.App{
 		Title:             "Flow",

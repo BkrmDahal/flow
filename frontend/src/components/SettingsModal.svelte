@@ -124,6 +124,60 @@
   let hotkeyModifier = 'right_option'
   let hotkeyListening = false
 
+  // ── Quick Agent HUD hotkey ──
+  let quickAskHotkeyEnabled = false
+  let quickAskHotkeyModifier = 'left_option'
+  let screenPermission = null   // null = unknown, true/false = checked
+  let checkingScreenPerm = false
+  let axPermission = null        // Accessibility permission
+  let checkingAxPerm = false
+
+  async function refreshScreenPermission() {
+    try {
+      screenPermission = await Backend.CheckScreenPermission()
+    } catch (e) {
+      console.warn('screen permission check failed', e)
+    }
+  }
+
+  async function grantScreenPermission() {
+    checkingScreenPerm = true
+    try {
+      // Triggers the system prompt the first time, or opens System Settings if
+      // previously denied.
+      screenPermission = await Backend.RequestScreenPermission()
+    } catch (e) {
+      console.warn('screen permission request failed', e)
+    } finally {
+      checkingScreenPerm = false
+    }
+  }
+
+  async function refreshAxPermission() {
+    try {
+      axPermission = await Backend.CheckAccessibilityPermission()
+    } catch (e) {
+      console.warn('accessibility permission check failed', e)
+    }
+  }
+
+  async function grantAxPermission() {
+    checkingAxPerm = true
+    try {
+      axPermission = await Backend.RequestAccessibilityPermission()
+    } catch (e) {
+      console.warn('accessibility permission request failed', e)
+    } finally {
+      checkingAxPerm = false
+    }
+  }
+
+  // Check both permissions the Quick Agent HUD relies on.
+  function refreshHudPermissions() {
+    refreshScreenPermission()
+    refreshAxPermission()
+  }
+
   // ── Command Approvals settings ──
   let allowedCommands = []
   let blockedCommands = []
@@ -229,6 +283,9 @@
       lastAutoRefineAction = autoRefineAction
       hotkeyEnabled     = s.hotkeyEnabled     || false
       hotkeyModifier    = s.hotkeyModifier    || 'right_option'
+      quickAskHotkeyEnabled  = s.quickAskHotkeyEnabled  || false
+      quickAskHotkeyModifier = s.quickAskHotkeyModifier || 'left_option'
+      if (quickAskHotkeyEnabled) refreshHudPermissions()
       speechProvider    = s.speechProvider    || 'local'
       speechApiKey      = s.speechApiKey      || ''
       speechModel       = s.speechModel       || (speechProvider === 'local' ? 'base.en' : 'gpt-4o-mini-transcribe')
@@ -443,6 +500,8 @@
         llamaContextSize: Number(llamaContextSize) || 4096,
         hotkeyEnabled,
         hotkeyModifier,
+        quickAskHotkeyEnabled,
+        quickAskHotkeyModifier,
         speechProvider,
         speechApiKey,
         speechModel,
@@ -936,7 +995,102 @@
             {/if}
           </div>
 
-          <!-- Divider line to separate Dictation from Auto-Refine -->
+          <!-- Divider line to separate Dictation from Quick Agent HUD -->
+          <div style="height: 1px; background: var(--border-subtle); margin: 20px 0;"></div>
+
+          <!-- ── Quick Agent HUD Section ── -->
+          <div class="hotkeys-section">
+            <h3 class="section-title">Quick Agent HUD</h3>
+            <p class="section-desc">
+              Hold a key to speak a request to the agent in a floating window — it reads your current screen, can act across apps, and asks before each step. Tap (don't hold) to open it with context-aware suggestions.
+            </p>
+
+            <div class="dictation-toggle-row">
+              <span class="dictation-toggle-label">Enable quick-ask hotkey</span>
+              <button
+                class="toggle-switch"
+                class:toggle-active={quickAskHotkeyEnabled}
+                on:click={() => { quickAskHotkeyEnabled = !quickAskHotkeyEnabled; if (quickAskHotkeyEnabled) refreshHudPermissions(); }}
+                type="button"
+                role="switch"
+                aria-checked={quickAskHotkeyEnabled}
+              >
+                <span class="toggle-knob"></span>
+              </button>
+            </div>
+
+            {#if quickAskHotkeyEnabled}
+              <!-- Screen Recording permission status -->
+              <div class="perm-row" style="margin-top: 18px;">
+                <div class="perm-info">
+                  <span class="perm-status-dot" class:granted={screenPermission === true} class:denied={screenPermission === false}></span>
+                  <div>
+                    <div class="perm-title">Screen Recording</div>
+                    <div class="perm-desc">
+                      {#if screenPermission === true}
+                        Granted — Flow can read your screen for on-screen context.
+                      {:else if screenPermission === false}
+                        Not granted. The HUD can't see your screen until you allow it.
+                      {:else}
+                        Required so the HUD can act on what's on your screen.
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+                {#if screenPermission !== true}
+                  <button class="perm-grant-btn" type="button" on:click={grantScreenPermission} disabled={checkingScreenPerm}>
+                    {checkingScreenPerm ? 'Opening…' : 'Grant'}
+                  </button>
+                {:else}
+                  <button class="perm-grant-btn secondary" type="button" on:click={refreshScreenPermission}>Re-check</button>
+                {/if}
+              </div>
+
+              <!-- Accessibility permission status -->
+              <div class="perm-row" style="margin-top: 10px;">
+                <div class="perm-info">
+                  <span class="perm-status-dot" class:granted={axPermission === true} class:denied={axPermission === false}></span>
+                  <div>
+                    <div class="perm-title">Accessibility</div>
+                    <div class="perm-desc">
+                      {#if axPermission === true}
+                        Granted — Flow can read your selection and act across apps.
+                      {:else if axPermission === false}
+                        Not granted. Needed to read selected text and drive other apps.
+                      {:else}
+                        Lets the HUD read your selection and move between apps.
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+                {#if axPermission !== true}
+                  <button class="perm-grant-btn" type="button" on:click={grantAxPermission} disabled={checkingAxPerm}>
+                    {checkingAxPerm ? 'Opening…' : 'Grant'}
+                  </button>
+                {:else}
+                  <button class="perm-grant-btn secondary" type="button" on:click={refreshAxPermission}>Re-check</button>
+                {/if}
+              </div>
+
+              <label class="row-label" for="quickask-modifier" style="margin-top: 18px;">Hotkey (hold to talk)</label>
+              <select id="quickask-modifier" bind:value={quickAskHotkeyModifier}>
+                {#each Object.entries(modifierLabels) as [value, label]}
+                  <option {value}>{label}</option>
+                {/each}
+              </select>
+              {#if quickAskHotkeyModifier === hotkeyModifier && hotkeyEnabled}
+                <p class="hint" style="margin-top: 6px; color: var(--warning, #d97706);">
+                  This is the same key as Push-to-Talk Dictation — pick a different one to avoid conflicts.
+                </p>
+              {:else}
+                <p class="hint" style="margin-top: 6px;">
+                  Hold to speak a request; tap to see suggestions for what's on screen. Needs Microphone, Screen&nbsp;Recording, and Accessibility permissions.
+                </p>
+              {/if}
+            {/if}
+          </div>
+
+          <!-- Divider line to separate Quick Agent HUD from Auto-Refine -->
           <div style="height: 1px; background: var(--border-subtle); margin: 20px 0;"></div>
 
           <!-- ── Auto-Refine Section ── -->
@@ -1497,4 +1651,61 @@
     border: 1px solid rgba(45, 212, 191, 0.2);
     box-shadow: 0 1px 4px rgba(45, 212, 191, 0.05);
   }
+
+  /* ── Screen Recording permission row ── */
+  .perm-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    background: var(--bg-subtle, rgba(255, 255, 255, 0.02));
+  }
+  .perm-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+  }
+  .perm-status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    margin-top: 5px;
+    flex: none;
+    background: #a1a1aa; /* unknown */
+  }
+  .perm-status-dot.granted { background: #22c55e; }
+  .perm-status-dot.denied  { background: #ef4444; }
+  .perm-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #f4f4f5);
+  }
+  .perm-desc {
+    font-size: 12px;
+    color: var(--text-secondary, #a1a1aa);
+    margin-top: 2px;
+  }
+  .perm-grant-btn {
+    flex: none;
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: none;
+    background: #2563eb;
+    color: #fff;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .perm-grant-btn:hover:not(:disabled) { background: #1d4ed8; }
+  .perm-grant-btn:disabled { opacity: 0.5; cursor: default; }
+  .perm-grant-btn.secondary {
+    background: transparent;
+    color: var(--text-secondary, #a1a1aa);
+    border: 1px solid var(--border-subtle);
+  }
+  .perm-grant-btn.secondary:hover { color: var(--text-primary, #f4f4f5); }
 </style>

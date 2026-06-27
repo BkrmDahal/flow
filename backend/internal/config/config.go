@@ -55,6 +55,10 @@ type Config struct {
 	HotkeyEnabled  bool   `json:"hotkey_enabled"`
 	HotkeyModifier string `json:"hotkey_modifier"` // "right_option" (default), "left_option", etc.
 
+	// ── Quick Agent HUD hotkey (hold to speak a request to the agent) ────────
+	QuickAskHotkeyEnabled  bool   `json:"quickask_hotkey_enabled"`
+	QuickAskHotkeyModifier string `json:"quickask_hotkey_modifier"` // distinct modifier from dictation
+
 	// ── Speech-to-text provider for dictation hotkey ─────────────────────────
 	SpeechProvider string `json:"speech_provider"` // "local" | "whisper" | "deepgram"
 	SpeechAPIKey   string `json:"speech_api_key"`  // OpenAI or Deepgram API key
@@ -225,6 +229,10 @@ func Load(base string) (*Config, error) {
 	}
 	if cfg.HotkeyModifier == "" {
 		cfg.HotkeyModifier = "right_option"
+	}
+	if cfg.QuickAskHotkeyModifier == "" {
+		// Default to a distinct modifier from dictation so the two don't collide.
+		cfg.QuickAskHotkeyModifier = "left_option"
 	}
 	if cfg.SpeechProvider == "" {
 		cfg.SpeechProvider = "local"

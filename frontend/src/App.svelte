@@ -5,6 +5,9 @@
   import SkillToolkitPanel from './components/SkillToolkitPanel.svelte';
 
   import { OpenFileInApp } from '../wailsjs/go/backend/App';
+  import { onMount } from 'svelte';
+  import { Events } from './lib/wails.js';
+  import { selectCoworkTask } from './lib/stores/coworkStore.js';
 
   let activeTab = 'cowork';  // 'cowork' | 'flow' | 'toolkit'
   let previousTab = 'cowork';
@@ -13,6 +16,18 @@
   async function openLogs() {
     try { await OpenFileInApp('~/.flow/flow.log') } catch (e) { console.warn(e) }
   }
+
+  onMount(() => {
+    // "Open in app" from the floating Quick Agent HUD: switch to Cowork and
+    // load the session that was running in the HUD.
+    const off = Events.on('cowork:open_session', (data) => {
+      const id = data?.session_id;
+      if (!id) return;
+      activeTab = 'cowork';
+      selectCoworkTask(id);
+    });
+    return () => { try { off?.(); } catch {} };
+  });
 
   function openToolkit() {
     if (activeTab !== 'toolkit') previousTab = activeTab;

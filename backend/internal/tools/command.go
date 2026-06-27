@@ -29,6 +29,18 @@ var (
 	SandboxApprovalMu       sync.Mutex
 )
 
+// ApprovalBroadcaster, when set, receives a copy of every approval request in
+// addition to the Wails event. It lets the floating Quick Agent HUD (a separate
+// webview that cannot receive Wails events) display approvals. It is a no-op
+// when nil.
+var ApprovalBroadcaster func(eventType string, payload map[string]interface{})
+
+func broadcastApproval(eventType string, payload map[string]interface{}) {
+	if ApprovalBroadcaster != nil {
+		ApprovalBroadcaster(eventType, payload)
+	}
+}
+
 type CommandApprovalResponse struct {
 	Choice string // "deny" | "session" | "always"
 }
@@ -467,10 +479,12 @@ func AskSandboxApproval(ctx context.Context, path string) bool {
 	}()
 
 	// Emit event to the frontend
-	wailsRuntime.EventsEmit(ctx, "sandbox:request_approval", map[string]interface{}{
+	payload := map[string]interface{}{
 		"id":   id,
 		"path": path,
-	})
+	}
+	wailsRuntime.EventsEmit(ctx, "sandbox:request_approval", payload)
+	broadcastApproval("sandbox:request_approval", payload)
 
 	// Wait for response or timeout
 	select {
@@ -517,11 +531,13 @@ func AskCommandApproval(ctx context.Context, cmdStr string, exe string) CommandA
 	}()
 
 	// Emit event to the frontend
-	wailsRuntime.EventsEmit(ctx, "command:request_approval", map[string]interface{}{
+	payload := map[string]interface{}{
 		"id":      id,
 		"command": cmdStr,
 		"exe":     exe,
-	})
+	}
+	wailsRuntime.EventsEmit(ctx, "command:request_approval", payload)
+	broadcastApproval("command:request_approval", payload)
 
 	select {
 	case resp := <-ch:

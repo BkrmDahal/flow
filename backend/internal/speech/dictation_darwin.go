@@ -158,7 +158,11 @@ func SetupDictation(modifier string, cfgLoader func() (TranscribeConfig, error),
 
 // TeardownDictation stops the hotkey monitor.
 func TeardownDictation() {
-	C.FlowStopHotkeyMonitor()
+	// The modifier monitor is shared with the quick-ask hotkey; only stop it
+	// if quick-ask isn't using it too.
+	if !IsQuickAskEnabled() {
+		C.FlowStopHotkeyMonitor()
+	}
 
 	cLabel := C.CString("Hotkey: not configured")
 	C.FlowSetMenuBarHotkeyLabel(cLabel)

@@ -7,7 +7,10 @@
 // Go-exported callbacks (defined in dictation_darwin.go / menubar_darwin.go).
 extern void goDictationPressed(void);
 extern void goDictationReleased(void);
+extern void goQuickAskPressed(void);
+extern void goQuickAskReleased(void);
 extern void goShowApp(void);
+extern void goOpenQuickAsk(void);
 
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -19,11 +22,14 @@ static NSImage      *iconIdle    = nil;
 static NSMenu       *statusMenu  = nil;
 static NSMenuItem   *hotkeyMenuItem  = nil;
 static NSMenuItem   *grammarHotkeyMenuItem = nil;
+static NSMenuItem   *quickAskHotkeyMenuItem = nil;
+static NSMenuItem   *openQuickAskMenuItem = nil;
 static NSMenuItem   *statusMenuItem  = nil;
 
 @interface FlowMenuHandler : NSObject
 - (void)quitApp:(id)sender;
 - (void)showApp:(id)sender;
+- (void)openQuickAsk:(id)sender;
 @end
 
 @implementation FlowMenuHandler
@@ -33,6 +39,9 @@ static NSMenuItem   *statusMenuItem  = nil;
 - (void)showApp:(id)sender {
     [NSApp activateIgnoringOtherApps:YES];
     goShowApp();
+}
+- (void)openQuickAsk:(id)sender {
+    goOpenQuickAsk();
 }
 @end
 
@@ -122,7 +131,23 @@ void FlowShowMenuBar(void) {
             action:nil keyEquivalent:@""];
         [grammarHotkeyMenuItem setEnabled:NO];
         [statusMenu addItem:grammarHotkeyMenuItem];
+
+        // Quick Agent HUD hotkey hint (hidden until the feature is enabled).
+        quickAskHotkeyMenuItem = [[NSMenuItem alloc]
+            initWithTitle:@"Quick Ask: not configured"
+            action:nil keyEquivalent:@""];
+        [quickAskHotkeyMenuItem setEnabled:NO];
+        [quickAskHotkeyMenuItem setHidden:YES];
+        [statusMenu addItem:quickAskHotkeyMenuItem];
         [statusMenu addItem:[NSMenuItem separatorItem]];
+
+        // Actionable: open the floating Quick Agent HUD (hidden until enabled).
+        openQuickAskMenuItem = [[NSMenuItem alloc]
+            initWithTitle:@"Open Quick Ask"
+            action:@selector(openQuickAsk:) keyEquivalent:@""];
+        [openQuickAskMenuItem setTarget:menuHandler];
+        [openQuickAskMenuItem setHidden:YES];
+        [statusMenu addItem:openQuickAskMenuItem];
 
         NSMenuItem *showItem = [[NSMenuItem alloc]
             initWithTitle:@"Show Flow"
@@ -149,6 +174,8 @@ void FlowHideMenuBar(void) {
             statusMenu = nil;
             hotkeyMenuItem = nil;
             grammarHotkeyMenuItem = nil;
+            quickAskHotkeyMenuItem = nil;
+            openQuickAskMenuItem = nil;
             statusMenuItem = nil;
         }
     });
@@ -168,6 +195,22 @@ void FlowSetMenuBarGrammarHotkeyLabel(const char *label) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (grammarHotkeyMenuItem) {
             [grammarHotkeyMenuItem setTitle:str];
+        }
+    });
+}
+
+// Sets the Quick Ask hotkey hint label and shows/hides both the hint and the
+// "Open Quick Ask" action depending on whether the feature is enabled.
+void FlowSetMenuBarQuickAskLabel(const char *label, int enabled) {
+    NSString *str = label ? [NSString stringWithUTF8String:label] : @"";
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL show = enabled != 0;
+        if (quickAskHotkeyMenuItem) {
+            [quickAskHotkeyMenuItem setTitle:str];
+            [quickAskHotkeyMenuItem setHidden:!show];
+        }
+        if (openQuickAskMenuItem) {
+            [openQuickAskMenuItem setHidden:!show];
         }
     });
 }
@@ -208,8 +251,22 @@ void FlowSetMenuBarState(int state) {
 
 static id  globalMonitor = nil;
 static id  localMonitor  = nil;
-static uint64_t hotkeyMask = DEV_LALT;
-static BOOL isHotkeyDown  = NO;
+static uint64_t hotkeyMask   = DEV_LALT;
+static uint64_t quickAskMask = 0;        // 0 = quick-ask hotkey disabled
+static BOOL isHotkeyDown   = NO;
+static BOOL isQuickAskDown = NO;
+
+static uint64_t maskForKeyCode(int keyCode) {
+    switch (keyCode) {
+        case 0: return DEV_LALT;
+        case 1: return DEV_RALT;
+        case 2: return DEV_LCMD;
+        case 3: return DEV_RCMD;
+        case 4: return DEV_LCTRL;
+        case 5: return DEV_RCTRL;
+        default: return DEV_LALT;
+    }
+}
 
 static void handleModifierEvent(NSEvent *event) {
     CGEventRef cgEvt = event ? event.CGEvent : NULL;
@@ -226,19 +283,29 @@ static void handleModifierEvent(NSEvent *event) {
             isHotkeyDown = NO;
             goDictationReleased();
         }
+
+        // Quick Agent HUD hotkey (independent modifier). A mask of 0 means
+        // the feature is disabled, so we skip it entirely.
+        if (quickAskMask != 0) {
+            BOOL quickIsDown = (flags & quickAskMask) != 0;
+            if (quickIsDown && !isQuickAskDown) {
+                isQuickAskDown = YES;
+                goQuickAskPressed();
+            } else if (!quickIsDown && isQuickAskDown) {
+                isQuickAskDown = NO;
+                goQuickAskReleased();
+            }
+        }
     });
 }
 
 void FlowSetHotkeyModifier(int keyCode) {
-    switch (keyCode) {
-        case 0: hotkeyMask = DEV_LALT;  break;
-        case 1: hotkeyMask = DEV_RALT;  break;
-        case 2: hotkeyMask = DEV_LCMD;  break;
-        case 3: hotkeyMask = DEV_RCMD;  break;
-        case 4: hotkeyMask = DEV_LCTRL; break;
-        case 5: hotkeyMask = DEV_RCTRL; break;
-        default: hotkeyMask = DEV_LALT; break;
-    }
+    hotkeyMask = maskForKeyCode(keyCode);
+}
+
+// keyCode < 0 disables the quick-ask hotkey.
+void FlowSetQuickAskModifier(int keyCode) {
+    quickAskMask = (keyCode < 0) ? 0 : maskForKeyCode(keyCode);
 }
 
 void FlowStartHotkeyMonitor(void) {
@@ -340,6 +407,15 @@ void FlowRestoreFocusedApp(void) {
         savedFrontApp = nil;
         savedFrontPid = 0;
     }
+}
+
+// Returns the localized name of the current frontmost application (caller frees).
+char* FlowFrontmostAppName(void) {
+    NSRunningApplication *app = [[NSWorkspace sharedWorkspace] frontmostApplication];
+    if (app && app.localizedName.length > 0) {
+        return strdup([app.localizedName UTF8String]);
+    }
+    return NULL;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -491,6 +567,28 @@ int FlowCheckAccessibilityPermission(int promptUser) {
         (__bridge NSString *)kAXTrustedCheckOptionPrompt: @(promptUser ? YES : NO)
     };
     return AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options) ? 1 : 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Screen Recording Permission (macOS 10.15+)
+// ═══════════════════════════════════════════════════════════════════════
+
+// Returns 1 if the app already has Screen Recording access, else 0. Does not prompt.
+int FlowCheckScreenPermission(void) {
+    if (@available(macOS 10.15, *)) {
+        return CGPreflightScreenCaptureAccess() ? 1 : 0;
+    }
+    return 1; // pre-10.15 has no separate screen-recording permission
+}
+
+// Triggers the system Screen Recording permission prompt (first time only) and
+// returns 1 if access is granted. If previously denied, macOS won't re-prompt —
+// the caller should fall back to opening System Settings.
+int FlowRequestScreenPermission(void) {
+    if (@available(macOS 10.15, *)) {
+        return CGRequestScreenCaptureAccess() ? 1 : 0;
+    }
+    return 1;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
