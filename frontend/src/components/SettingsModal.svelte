@@ -1000,7 +1000,7 @@
 
           <!-- ── Quick Agent HUD Section ── -->
           <div class="hotkeys-section">
-            <h3 class="section-title">Quick Agent HUD</h3>
+            <h3 class="section-title">HUD &amp; Quick Ask</h3>
             <p class="section-desc">
               Hold a key to speak a request to the agent in a floating window — it reads your current screen, can act across apps, and asks before each step. Tap (don't hold) to open it with context-aware suggestions.
             </p>

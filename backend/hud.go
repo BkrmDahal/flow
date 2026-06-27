@@ -57,6 +57,7 @@ func (a *App) startHUDServer(assets fs.FS) error {
 	mux.HandleFunc("/api/hud/resize", h.handleResize)
 	mux.HandleFunc("/api/hud/voice-cancel", h.handleVoiceCancel)
 	mux.HandleFunc("/api/hud/voice-confirm", h.handleVoiceConfirm)
+	mux.HandleFunc("/api/hud/new", h.handleNew)
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 
 	h.srv = &http.Server{Handler: mux}
@@ -179,6 +180,12 @@ func (h *HUDServer) handleOpen(w http.ResponseWriter, r *http.Request) {
 
 func (h *HUDServer) handleDismiss(w http.ResponseWriter, r *http.Request) {
 	speech.HideHUD()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HUDServer) handleNew(w http.ResponseWriter, r *http.Request) {
+	// Clears the active session and resets the HUD to a fresh empty chat.
+	h.app.OpenQuickAskWindow()
 	w.WriteHeader(http.StatusNoContent)
 }
 

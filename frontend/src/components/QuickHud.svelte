@@ -200,6 +200,7 @@
   const dismiss = () => post('/api/hud/dismiss', {});
   const voiceCancel = () => post('/api/hud/voice-cancel', {});
   const voiceConfirm = () => post('/api/hud/voice-confirm', {});
+  const newSession = () => post('/api/hud/new', {});
 
   let copied = false;
   let copiedTimer;
@@ -296,6 +297,9 @@
     <header class="hud-head">
       <span class="head-icon" class:busy={phase === 'running'}>{@html cloudSvg}</span>
       <span class="title">{userRequest || 'Quick Ask'}</span>
+      <button class="head-btn icon-btn" on:click={newSession} title="New chat" aria-label="New chat">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
       <button class="head-btn open-btn" on:click={openInApp} title="Open in main app" disabled={!sessionId}>open in app</button>
       {#if answer || phase === 'running'}
         <button class="head-btn icon-btn" on:click={() => { expanded = false; afterRender(); }} title="Collapse" aria-label="Collapse">
