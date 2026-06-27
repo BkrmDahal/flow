@@ -448,6 +448,7 @@ func (a *App) runQuickAskStream(sessionID string, content json.RawMessage, workD
 		ToolRegistry:        toolReg,
 		WorkDir:             workDir,
 		BaseDir:             baseDir,
+		ChatMode:            true,
 		DisableSystemPrompt: a.cfg != nil && a.cfg.DisableSystemPrompt,
 	}
 
