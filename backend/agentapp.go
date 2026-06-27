@@ -169,6 +169,7 @@ func (a *App) runCoworkStream(sessionID string, content json.RawMessage, workDir
 		WorkDir:             workDir,
 		BaseDir:             sessionDir,
 		DisabledTools:       disabledTools,
+		ChatMode:            true,
 		DisableSystemPrompt: a.cfg != nil && a.cfg.DisableSystemPrompt,
 	}
 

@@ -4,6 +4,11 @@ All notable changes to **Flow** will be documented in this file.
 
 ---
 
+## [0.8.4] - 2026-06-27
+
+### 🐛 System Prompt Toggle Fix
+* **"Send guidelines in chat" now actually disables the system prompt**: The System Prompt toggle in the model picker was dead code — it set `DisableSystemPrompt` in config, but the agent gate also required `ChatMode` to be `true`, and `ChatMode` was never set for Cowork or Quick Ask sessions (always defaulted to `false`). As a result the composed system prompt (on-screen context, environment, tool guidance, planning rules) kept being sent even with the toggle off. Cowork and Quick Ask now set `ChatMode: true`, so turning the toggle off strips the system prompt and tool definitions from those sessions as intended, while the agent-task path remains unaffected.
+
 ## [0.8.3] - 2026-06-27
 
 ### 🔄 In-App Auto-Updater
