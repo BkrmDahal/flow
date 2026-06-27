@@ -41,8 +41,25 @@ Hold a hotkey and **speak** (or type) a request to the agent in a floating popup
   <img src="docs/images/quick_ask_hud.png" alt="Quick Ask HUD" width="75%" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);" />
 </p>
 
+**Just say (or type) things like:**
+
+| Intent | Example |
+| --- | --- |
+| 🔎 **Ask about your screen** | *"Summarize this page"* · *"Explain this code"* · *"What does this error mean?"* |
+| ✍️ **Write & rewrite** | *"Reply to this email"* · *"Make this more concise"* · *"Fix grammar and tone"* |
+| 🚀 **Do things across apps** | *"Save this as a note"* · *"Draft a reply in Mail"* · *"Open this link in my browser"* |
+| ⚡ **Quick answers** | *"What's 15% of 240?"* · *"Convert 30°C to °F"* · *"Define 'idempotent'"* |
+
+The same popup flows smoothly through **Listening → Transcribing → Thinking → Answer** — copy the response, hit **+** for a new chat, or **open in app** to continue in the full Cowork window.
+
 ### 🍏 Native Menu Bar Integration
-Pinwheel-based status bar widget showing status (idle, recording, or transcribing) and quick commands — including **Open Quick Ask**:
+A pinwheel status-bar widget that shows live state (idle / recording / transcribing) and one-tap commands. The dropdown lists your active shortcuts and quick actions:
+
+- **Hotkey hints** — *Hold ⌥ Right Option and speak* (dictation), *Double-tap ⌥ Right Option to fix grammar*, and *Hold ⌘ Right Command to ask the agent* (Quick Ask).
+- **Open Quick Ask** — launches the floating Quick Ask HUD as a plain chat.
+- **Show Flow** — brings the main window to the front.
+- **Quit Flow** — ⌘Q.
+
 <p align="center">
   <img src="docs/images/menubar_menu.png" alt="macOS Menu Bar" width="55%" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);" />
 </p>
