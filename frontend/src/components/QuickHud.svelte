@@ -201,6 +201,7 @@
   const voiceCancel = () => post('/api/hud/voice-cancel', {});
   const voiceConfirm = () => post('/api/hud/voice-confirm', {});
   const newSession = () => post('/api/hud/new', {});
+  const cancelStream = () => post('/api/hud/cancel', {});
 
   let copied = false;
   let copiedTimer;
@@ -261,6 +262,7 @@
       <span class="pill-icon busy">{@html cloudSvg}</span>
       <div class="pill-text"><div class="pill-title">Transcribing…</div></div>
       <span class="spinner"></span>
+      <button class="round-btn cancel" title="Cancel" on:click={voiceCancel}>✕</button>
     </div>
 
   {:else if !expanded && approval}
@@ -279,18 +281,23 @@
 
   {:else if !expanded}
     <!-- Compact pill: current step while running, or a collapsed result when done -->
-    <button class="pill step-pill" on:click={() => { expanded = true; afterRender(); }} title="Show details">
-      <span class="pill-icon" class:busy={phase === 'running'}>{@html cloudSvg}</span>
-      <div class="pill-text">
-        <div class="pill-title">{stepTitle || (phase === 'done' ? (userRequest || 'Response ready') : 'Working on it')}</div>
-        {#if stepSubtitle}
-          <div class="pill-sub">{stepSubtitle}</div>
-        {:else if phase === 'done'}
-          <div class="pill-sub">Tap to show response</div>
-        {/if}
-      </div>
-      {#if phase === 'running'}<span class="active-dot"></span>{/if}
-    </button>
+    <div class="pill step-pill-row">
+      <button class="pill step-pill" on:click={() => { expanded = true; afterRender(); }} title="Show details">
+        <span class="pill-icon" class:busy={phase === 'running'}>{@html cloudSvg}</span>
+        <div class="pill-text">
+          <div class="pill-title">{stepTitle || (phase === 'done' ? (userRequest || 'Response ready') : 'Working on it')}</div>
+          {#if stepSubtitle}
+            <div class="pill-sub">{stepSubtitle}</div>
+          {:else if phase === 'done'}
+            <div class="pill-sub">Tap to show response</div>
+          {/if}
+        </div>
+        {#if phase === 'running'}<span class="active-dot"></span>{/if}
+      </button>
+      {#if phase === 'running'}
+        <button class="round-btn cancel step-cancel" title="Cancel" on:click={cancelStream}>✕</button>
+      {/if}
+    </div>
 
   {:else}
     <!-- Expanded full view -->
@@ -298,6 +305,11 @@
       <span class="head-icon" class:busy={phase === 'running'}>{@html cloudSvg}</span>
       <span class="title">{userRequest || 'Quick Ask'}</span>
       <div class="head-actions">
+        {#if phase === 'running'}
+          <button class="head-btn icon-btn cancel-btn" on:click={cancelStream} title="Cancel" aria-label="Cancel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+          </button>
+        {/if}
         <button class="head-btn icon-btn" on:click={newSession} title="New chat" aria-label="New chat">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
@@ -429,6 +441,9 @@
     cursor: default;
   }
   .step-pill { cursor: pointer; }
+  .step-pill-row { display: flex; align-items: center; gap: 4px; padding-right: 10px; }
+  .step-pill-row .step-pill { flex: 1; min-width: 0; }
+  .step-cancel { width: 26px; height: 26px; font-size: 12px; }
   .pill-icon {
     flex: none;
     width: 30px; height: 30px;
@@ -494,6 +509,7 @@
   .head-btn { background: transparent; border: none; color: #a1a1aa; font-size: 12px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
   .head-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: #fff; }
   .head-btn:disabled { opacity: 0.4; cursor: default; }
+  .head-btn.cancel-btn:hover { background: rgba(248,113,113,0.18); color: #fca5a5; }
   .head-btn.icon-btn {
     width: 28px; height: 28px; padding: 0;
     display: inline-flex; align-items: center; justify-content: center;

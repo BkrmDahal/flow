@@ -4,6 +4,20 @@ All notable changes to **Flow** will be documented in this file.
 
 ---
 
+## [0.8.3] - 2026-06-27
+
+### 🔄 In-App Auto-Updater
+* **Check for updates from Settings**: A new "Check for updates" action in the About section queries the GitHub Releases API and compares against the running version. When a newer release exists, an **Update available** badge appears with a one-click **Download & Install** flow.
+* **One-click install + relaunch**: `DownloadAndInstallUpdate` streams the signed DMG to a temp dir, mounts it, writes a relauncher script that waits for Flow to quit, replaces `/Applications/Flow.app` via `ditto` (preserving macOS metadata/signatures), detaches the DMG, and reopens the app. Live progress (downloaded bytes + status messages) is streamed to the UI via the `flow:update:progress` event.
+* **Background update check at startup**: On launch, Flow checks for updates after an 8-second delay and emits `flow:update:available` so the Settings badge can appear without the user opening the panel.
+* **Single source of truth for version**: Added `backend/version.go` with `AppVersion` exposed to the frontend via `GetAppVersion()`; the About footer now reads the live version instead of a hardcoded string.
+
+### 🛑 Quick Ask Cancel
+* **Cancel a running Quick Ask stream**: Added a `/api/hud/cancel` endpoint backed by `CancelQuickAskStream`, which cancels the active session's stream context. The HUD shows a cancel (✕) button in the compact step-pill, the expanded header, and the transcribing state; a cancelled stream emits a `cancelled` event so the HUD resets cleanly instead of surfacing an error.
+
+### ⚙️ Persistent Cowork Tool Toggles
+* **Tool toggles survive app updates**: The Parse Documents / Web Search / Screen Capture / Memory toggles in the Cowork workspace are now persisted to the backend config via `SaveToolToggles` and reloaded on workspace mount via `loadToolToggles`. `SaveSettings` no longer clobbers these toggles with zero values. Existing configs are migrated with **Parse Documents** enabled by default to match the prior hardcoded behavior.
+
 ## [0.8.2] - 2026-06-27
 
 ### 🧠 Reasoning Effort Control

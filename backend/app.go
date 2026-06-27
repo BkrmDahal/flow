@@ -158,6 +158,27 @@ func (a *App) Startup(ctx context.Context) {
 	// Start the background task scheduler.
 	a.StartScheduler()
 
+	// Check for updates in the background (non-blocking). Result is emitted
+	// via the "flow:update:available" event so the frontend can show a badge.
+	go func() {
+		time.Sleep(8 * time.Second)
+		info, err := a.CheckForUpdates()
+		if err != nil {
+			log.Printf("[updates] background check error: %v", err)
+			return
+		}
+		if info.Available && a.ctx != nil {
+			wailsRuntime.EventsEmit(a.ctx, "flow:update:available", map[string]interface{}{
+				"currentVersion": info.CurrentVersion,
+				"latestVersion":  info.LatestVersion,
+				"downloadUrl":    info.DownloadURL,
+				"releaseNotes":   info.ReleaseNotes,
+				"releaseUrl":     info.ReleaseURL,
+			})
+			log.Printf("[updates] update available: %s → %s", info.CurrentVersion, info.LatestVersion)
+		}
+	}()
+
 	log.Printf("flow: startup ok (base=%s, model=%q)", base, cfg.Model)
 }
 

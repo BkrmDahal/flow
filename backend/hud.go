@@ -58,6 +58,7 @@ func (a *App) startHUDServer(assets fs.FS) error {
 	mux.HandleFunc("/api/hud/voice-cancel", h.handleVoiceCancel)
 	mux.HandleFunc("/api/hud/voice-confirm", h.handleVoiceConfirm)
 	mux.HandleFunc("/api/hud/new", h.handleNew)
+	mux.HandleFunc("/api/hud/cancel", h.handleCancel)
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 
 	h.srv = &http.Server{Handler: mux}
@@ -191,6 +192,11 @@ func (h *HUDServer) handleNew(w http.ResponseWriter, r *http.Request) {
 
 func (h *HUDServer) handleVoiceCancel(w http.ResponseWriter, r *http.Request) {
 	speech.CancelQuickAskRecording()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HUDServer) handleCancel(w http.ResponseWriter, r *http.Request) {
+	h.app.CancelQuickAskStream()
 	w.WriteHeader(http.StatusNoContent)
 }
 

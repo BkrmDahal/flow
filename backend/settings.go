@@ -68,6 +68,12 @@ type SettingsPayload struct {
 	// Reasoning effort (mirrors Agents["main"].ReasoningEffort for the ModelSelector UI)
 	// "" | "low" | "medium" | "high"
 	ReasoningEffort string `json:"reasoningEffort"`
+
+	// Cowork tool toggles (persisted so they survive app updates)
+	ToolParseDocuments bool `json:"toolParseDocuments"`
+	ToolWebSearch      bool `json:"toolWebSearch"`
+	ToolScreenCapture  bool `json:"toolScreenCapture"`
+	ToolMemory         bool `json:"toolMemory"`
 }
 
 // GetSettings returns the current persisted configuration.
@@ -119,6 +125,12 @@ func (a *App) SaveSettings(p SettingsPayload) error {
 		cfg.PinnedModels = a.cfg.PinnedModels
 		cfg.SidebarWidth = a.cfg.SidebarWidth
 		cfg.AgentRightSidebarWidth = a.cfg.AgentRightSidebarWidth
+		// Preserve tool toggles — they're managed from the workspace, not the
+		// settings modal, so SaveSettings must not clobber them with zero values.
+		cfg.ToolParseDocuments = a.cfg.ToolParseDocuments
+		cfg.ToolWebSearch = a.cfg.ToolWebSearch
+		cfg.ToolScreenCapture = a.cfg.ToolScreenCapture
+		cfg.ToolMemory = a.cfg.ToolMemory
 	}
 
 	// Sync reasoning effort from the payload into the "main" agent config so the
@@ -322,6 +334,10 @@ func toPayload(c *config.Config) *SettingsPayload {
 		AutoRefineCustomPrompt: c.AutoRefineCustomPrompt,
 		PythonPath:             c.PythonPath,
 		DisableSystemPrompt:    c.DisableSystemPrompt,
+		ToolParseDocuments:     c.ToolParseDocuments,
+		ToolWebSearch:          c.ToolWebSearch,
+		ToolScreenCapture:      c.ToolScreenCapture,
+		ToolMemory:             c.ToolMemory,
 	}
 
 	// Surface the "main" agent's reasoning effort for the ModelSelector UI.
@@ -385,6 +401,10 @@ func fromPayload(p SettingsPayload) *config.Config {
 		AutoRefineCustomPrompt: p.AutoRefineCustomPrompt,
 		PythonPath:             p.PythonPath,
 		DisableSystemPrompt:    p.DisableSystemPrompt,
+		ToolParseDocuments:     p.ToolParseDocuments,
+		ToolWebSearch:          p.ToolWebSearch,
+		ToolScreenCapture:      p.ToolScreenCapture,
+		ToolMemory:             p.ToolMemory,
 	}
 }
 
@@ -427,5 +447,17 @@ func (a *App) SaveUIWidths(sidebarWidth, agentRightSidebarWidth int) error {
 	if agentRightSidebarWidth > 0 {
 		a.cfg.AgentRightSidebarWidth = agentRightSidebarWidth
 	}
+	return config.Save(a.baseDir, a.cfg)
+}
+
+// SaveToolToggles persists the Cowork tool toggles so they survive app updates.
+func (a *App) SaveToolToggles(parseDocuments, webSearch, screenCapture, memory bool) error {
+	if a.cfg == nil {
+		return fmt.Errorf("config not loaded")
+	}
+	a.cfg.ToolParseDocuments = parseDocuments
+	a.cfg.ToolWebSearch = webSearch
+	a.cfg.ToolScreenCapture = screenCapture
+	a.cfg.ToolMemory = memory
 	return config.Save(a.baseDir, a.cfg)
 }
